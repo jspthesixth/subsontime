@@ -86,3 +86,92 @@ const timed = async (run: () => unknown) => {
 
 export const fastestOfThree = async (run: () => unknown) =>
   Math.min(await timed(run), await timed(run), await timed(run));
+
+export const englishWords = [
+  "where",
+  "did",
+  "you",
+  "put",
+  "the",
+  "keys",
+  "we",
+  "need",
+  "to",
+  "leave",
+  "now",
+  "tonight",
+  "nobody",
+  "knows",
+  "about",
+  "this",
+  "place",
+  "come",
+  "back",
+  "here",
+  "listen",
+  "carefully",
+  "train",
+  "left",
+  "early",
+  "morning",
+  "river",
+  "house",
+  "money",
+  "letter",
+];
+
+export const croatianWords = [
+  "gdje",
+  "su",
+  "ključevi",
+  "moramo",
+  "otići",
+  "večeras",
+  "nitko",
+  "ne",
+  "zna",
+  "ovo",
+  "mjesto",
+  "šuma",
+  "žurimo",
+  "čekaj",
+  "ćuti",
+  "đak",
+  "rijeka",
+  "kuća",
+  "novac",
+  "pismo",
+];
+
+export const dialogueTrack = (seed: number, count: number, words = englishWords): Cue[] => {
+  const random = seededRandom(seed + 1);
+  const word = () => words[Math.floor(random() * words.length)] ?? "";
+  const line = () => {
+    const text = Array.from({ length: 4 + Math.floor(random() * 4) }, word).join(" ");
+
+    return `${text.charAt(0).toUpperCase()}${text.slice(1)}${random() < 0.3 ? "?" : "."}`;
+  };
+
+  return syntheticTrack(seed, count).map((cue) => ({ ...cue, text: line() }));
+};
+
+const soundOnly = ["[DOOR SLAMS]", "(GASPS)", "♪ ♪", "[THUNDER RUMBLES]"];
+
+export const isSoundOnly = (index: number) => index % 9 === 4;
+
+export const withSoundDescriptions = (cues: Cue[]): Cue[] =>
+  cues.map((cue, index) => {
+    if (isSoundOnly(index)) {
+      return { ...cue, text: soundOnly[index % soundOnly.length] ?? "" };
+    }
+
+    if (index % 7 === 3) {
+      return { ...cue, text: `MARIA: ${cue.text}` };
+    }
+
+    if (index % 5 === 2) {
+      return { ...cue, text: `(sighs) ${cue.text}` };
+    }
+
+    return cue;
+  });

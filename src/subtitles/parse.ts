@@ -1,7 +1,7 @@
 import { parse } from "subsrt-ts";
 import { SubtitleError, type Cue } from "./cue.ts";
 
-const normalizeText = (text: string) =>
+export const stripMarkup = (text: string) =>
   text
     .replace(/\r\n?/g, "\n")
     .replace(/\{[^}]*\}/g, "")
@@ -21,7 +21,7 @@ export const parseSubtitle = (text: string): Cue[] => {
   const cues = captions
     .flatMap((caption) =>
       caption.type === "caption"
-        ? [{ start: caption.start, end: caption.end, text: normalizeText(caption.content) }]
+        ? [{ start: caption.start, end: caption.end, text: stripMarkup(caption.content) }]
         : [],
     )
     .filter((cue) => cue.text !== "")
