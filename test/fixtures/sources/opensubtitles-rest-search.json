@@ -1,0 +1,62 @@
+{
+  "_note": "Hand-made from the documented API shape; replace with a recorded response from scripts/probes/opensubtitles-rest.ts",
+  "total_pages": 1,
+  "total_count": 4,
+  "page": 1,
+  "data": [
+    {
+      "id": "7001",
+      "type": "subtitle",
+      "attributes": {
+        "language": "hr",
+        "release": "The.Shawshank.Redemption.1994.1080p.BluRay.x264-GRP",
+        "fps": 23.976,
+        "moviehash_match": true,
+        "hearing_impaired": false,
+        "foreign_parts_only": false,
+        "files": [{ "file_id": 501, "file_name": "shawshank.hr.srt" }]
+      }
+    },
+    {
+      "id": "7002",
+      "type": "subtitle",
+      "attributes": {
+        "language": "pt-BR",
+        "release": "Shawshank.Redemption.720p.WEB-DL",
+        "fps": 0,
+        "moviehash_match": false,
+        "hearing_impaired": false,
+        "foreign_parts_only": false,
+        "files": [
+          { "file_id": 502, "file_name": "shawshank.pob.srt" },
+          { "file_id": 503, "file_name": "shawshank.pob.cd2.srt" }
+        ]
+      }
+    },
+    {
+      "id": "7003",
+      "type": "subtitle",
+      "attributes": {
+        "language": "en",
+        "release": "Shawshank.Redemption.DVDRip",
+        "fps": 25,
+        "hearing_impaired": true,
+        "foreign_parts_only": false,
+        "files": []
+      }
+    },
+    {
+      "id": "7004",
+      "type": "subtitle",
+      "attributes": {
+        "language": "xx",
+        "release": "Unknown.language",
+        "fps": 25,
+        "moviehash_match": false,
+        "hearing_impaired": false,
+        "foreign_parts_only": false,
+        "files": [{ "file_id": 504, "file_name": "x.srt" }]
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "_note": "Hand-made from the documented API shape; replace with a recorded response from scripts/probes/opensubtitles-rest.ts",
+  "user": { "allowed_downloads": 20, "level": "Sub leecher", "vip": false },
+  "token": "fixture-token",
+  "base_url": "vip-api.opensubtitles.com",
+  "status": 200
+}

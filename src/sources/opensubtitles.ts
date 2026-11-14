@@ -1,0 +1,188 @@
+import { createHash } from "node:crypto";
+import * as v from "valibot";
+import packageJSON from "../../package.json" with { type: "json" };
+import { fetchWithTimeout } from "../http.ts";
+import { toISO6391, toISO6392 } from "../languages.ts";
+import { parseRelease } from "../subtitles/release.ts";
+import type { Candidate, Source, VideoQuery } from "./source.ts";
+import type { TokenCache } from "./token-cache.ts";
+
+const sourceName = "OpenSubtitles";
+const defaultBaseURL = "https://api.opensubtitles.com/api/v1";
+const searchTimeoutMs = 4000;
+const requestTimeoutMs = 8000;
+const tokenTtlSeconds = 12 * 60 * 60;
+
+const entrySchema = v.object({
+  attributes: v.object({
+    language: v.string(),
+    release: v.optional(v.string()),
+    fps: v.optional(v.unknown()),
+    moviehash_match: v.optional(v.unknown()),
+    files: v.array(v.object({ file_id: v.number() })),
+  }),
+});
+
+const searchSchema = v.object({ data: v.array(v.unknown()) });
+const loginSchema = v.object({ token: v.string(), base_url: v.optional(v.string()) });
+const sessionSchema = v.object({ token: v.string(), baseURL: v.string() });
+const downloadSchema = v.object({ link: v.string() });
+
+type Credentials = { username: string; password: string };
+type Session = v.InferOutput<typeof sessionSchema>;
+
+const baseHeaders = (appKey: string) => ({
+  "Api-Key": appKey,
+  "User-Agent": `SubsOnTime v${packageJSON.version}`,
+  Accept: "application/json",
+});
+
+const imdbDigits = (imdbId: string) => imdbId.replace(/^tt0*/, "");
+
+const searchParams = (query: VideoQuery) => {
+  const languages = [
+    ...new Set(query.languages.flatMap((lang) => toISO6391(lang) ?? [])),
+  ].toSorted();
+  const hash = query.videoHash?.toLowerCase();
+  const params = {
+    languages: languages.join(","),
+    ...(hash !== undefined && /^[0-9a-f]{16}$/.test(hash) ? { moviehash: hash } : {}),
+    ...(query.type === "series"
+      ? {
+          parent_imdb_id: imdbDigits(query.imdbId),
+          season_number: String(query.season),
+          episode_number: String(query.episode),
+        }
+      : { imdb_id: imdbDigits(query.imdbId) }),
+  };
+
+  return { languages, params: Object.entries(params).toSorted(([a], [b]) => a.localeCompare(b)) };
+};
+
+const toCandidate = (entry: v.InferOutput<typeof entrySchema>): Candidate[] => {
+  const { attributes } = entry;
+  const file = attributes.files[0];
+  const lang = toISO6392(attributes.language);
+
+  if (file === undefined || lang === undefined) {
+    return [];
+  }
+
+  const releaseName = attributes.release;
+  const fps = typeof attributes.fps === "number" && attributes.fps > 0 ? attributes.fps : undefined;
+
+  return [
+    {
+      sourceName,
+      ref: String(file.file_id),
+      lang,
+      release: parseRelease(releaseName ?? ""),
+      releaseName,
+      hashMatch: attributes.moviehash_match === true,
+      fps,
+    },
+  ];
+};
+
+export const openSubtitlesSource = (
+  credentials: Credentials | undefined,
+  appKey: string,
+  tokens: TokenCache,
+): Source => {
+  const login = async (user: Credentials, signal: AbortSignal): Promise<Session> => {
+    const key = createHash("sha256").update(user.username).digest("hex");
+    const cached = v.safeParse(
+      sessionSchema,
+      JSON.parse((await tokens.get(key)) ?? "null") as unknown,
+    );
+
+    if (cached.success) {
+      return cached.output;
+    }
+
+    const response = await fetchWithTimeout(
+      `${defaultBaseURL}/login`,
+      {
+        method: "POST",
+        headers: { ...baseHeaders(appKey), "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username, password: user.password }),
+        signal,
+      },
+      requestTimeoutMs,
+    );
+    const parsed = v.safeParse(loginSchema, await response.json().catch(() => undefined));
+
+    if (!response.ok || !parsed.success) {
+      throw new Error("OpenSubtitles login failed");
+    }
+
+    const session = {
+      token: parsed.output.token,
+      baseURL:
+        parsed.output.base_url === undefined
+          ? defaultBaseURL
+          : `https://${parsed.output.base_url}/api/v1`,
+    };
+
+    await tokens.set(key, JSON.stringify(session), tokenTtlSeconds);
+
+    return session;
+  };
+
+  return {
+    name: sourceName,
+    async search(query, signal) {
+      const { languages, params } = searchParams(query);
+
+      if (languages.length === 0) {
+        return [];
+      }
+
+      const queryString = params.map(([key, value]) => `${key}=${value}`).join("&");
+      const response = await fetchWithTimeout(
+        `${defaultBaseURL}/subtitles?${queryString}`,
+        { headers: baseHeaders(appKey), signal },
+        searchTimeoutMs,
+      );
+      const parsed = v.safeParse(searchSchema, await response.json().catch(() => undefined));
+
+      if (!response.ok || !parsed.success) {
+        return [];
+      }
+
+      return parsed.output.data
+        .map((entry) => v.safeParse(entrySchema, entry))
+        .flatMap((entry) => (entry.success ? toCandidate(entry.output) : []));
+    },
+    async download(ref, signal) {
+      const session = credentials === undefined ? undefined : await login(credentials, signal);
+      const response = await fetchWithTimeout(
+        `${session?.baseURL ?? defaultBaseURL}/download`,
+        {
+          method: "POST",
+          headers: {
+            ...baseHeaders(appKey),
+            "Content-Type": "application/json",
+            ...(session === undefined ? {} : { Authorization: `Bearer ${session.token}` }),
+          },
+          body: JSON.stringify({ file_id: Number(ref) }),
+          signal,
+        },
+        requestTimeoutMs,
+      );
+      const parsed = v.safeParse(downloadSchema, await response.json().catch(() => undefined));
+
+      if (!response.ok || !parsed.success) {
+        throw new Error(`Download failed with status ${response.status}`);
+      }
+
+      const file = await fetchWithTimeout(parsed.output.link, { signal }, requestTimeoutMs);
+
+      if (!file.ok) {
+        throw new Error(`Download failed with status ${file.status}`);
+      }
+
+      return new Uint8Array(await file.arrayBuffer());
+    },
+  };
+};

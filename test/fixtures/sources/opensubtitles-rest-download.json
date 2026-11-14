@@ -1,0 +1,8 @@
+{
+  "_note": "Hand-made from the documented API shape; replace with a recorded response from scripts/probes/opensubtitles-rest.ts",
+  "link": "https://dl.opensubtitles.com/fixture/shawshank.hr.srt",
+  "file_name": "shawshank.hr.srt",
+  "requests": 1,
+  "remaining": 19,
+  "message": "Your quota will be renewed in 23 hours"
+}
