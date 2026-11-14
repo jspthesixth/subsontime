@@ -33,6 +33,37 @@ const place = (cue: Cue, before?: Anchor, after?: Anchor): Cue => {
   return nearest === undefined ? cue : shift(cue, nearest);
 };
 
+const longestInOrder = (matches: Anchor[]): Anchor[] => {
+  const tails: Anchor[] = [];
+  const previous = new Map<Anchor, Anchor | undefined>();
+
+  matches.forEach((anchor) => {
+    let low = 0;
+    let high = tails.length;
+
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+
+      if ((tails[middle]?.fix.s ?? Infinity) <= anchor.fix.s) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+
+    previous.set(anchor, tails[low - 1]);
+    tails[low] = anchor;
+  });
+
+  const kept: Anchor[] = [];
+
+  for (let at = tails.at(-1); at !== undefined; at = previous.get(at)) {
+    kept.push(at);
+  }
+
+  return kept.toReversed();
+};
+
 const keepInOrder = (original: Cue[], placed: Cue[]): Cue[] =>
   placed.map((cue, index) => {
     const start = Math.max(cue.start, 0);
@@ -63,11 +94,7 @@ export const applyFix = (
       : [];
   });
 
-  const anchors = matches.reduce<Anchor[]>(
-    (kept, anchor) =>
-      anchor.fix.s >= (kept.at(-1)?.fix.s ?? -Infinity) ? [...kept, anchor] : kept,
-    [],
-  );
+  const anchors = longestInOrder(matches);
 
   if (hashed === 0 || anchors.length / hashed < minimumMatchedShare) {
     return undefined;

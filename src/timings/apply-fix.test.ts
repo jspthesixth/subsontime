@@ -138,6 +138,18 @@ describe("applyFix", () => {
     expect(cues.slice(1).every((cue, index) => cue.start >= (cues[index]?.start ?? 0))).toBe(true);
   });
 
+  it("drops only a wild early anchor", () => {
+    const wild = plain.map((cue, index) =>
+      index === 2 ? { ...cue, s: cue.s + 3_000_000, e: cue.e + 3_000_000 } : cue,
+    );
+    const result = applyFix(dialogue, wild);
+    const cues = result?.cues ?? [];
+
+    expect(result?.matched).toBe(dialogue.length - 1);
+    expect(Math.abs((cues[2]?.start ?? 0) - move(dialogue[2]?.start ?? 0))).toBeLessThanOrEqual(1);
+    expect(cues[100]?.start).toBe(move(dialogue[100]?.start ?? 0));
+  });
+
   it("returns undefined when under 60 % of the cues match", () => {
     expect(applyFix(ours, fix.slice(0, fix.length / 2))).toBeUndefined();
     expect(applyFix(ours, toFixCues(dialogueTrack(2, 200)))).toBeUndefined();
