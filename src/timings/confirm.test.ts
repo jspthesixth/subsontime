@@ -461,7 +461,10 @@ describe("summarize hiding", () => {
     const own = mismatch(hashesOf(subtitle(300, 5)), carol);
     const hidden = Array.from({ length: 60 }, (_, index) =>
       hashesOf(subtitle(400 + index, 5)),
-    ).flatMap((hashes) => [mismatch(hashes, bob), mismatch(hashes, dave)]);
+    ).flatMap((hashes, index) => [
+      mismatch(hashes, submitterAt(2 * index + 1)),
+      mismatch(hashes, submitterAt(2 * index + 2)),
+    ]);
     const timings = summarize([], [own, ...hidden], [], carol);
 
     expect(timings.hidden).toHaveLength(50);
@@ -583,7 +586,82 @@ describe("summarize limits", () => {
       });
     });
 
-    expect(fixesOnly(fixes)).toHaveLength(1);
+    expect(digest(fixes, [], [])).toHaveLength(20);
     expect(await fastestOfThree(() => fixesOnly(fixes))).toBeLessThan(500);
+  });
+});
+
+describe("summarize grouping bounds", () => {
+  const base = subtitle(9, 2000);
+  const edited = (index: number, edit: (at: number) => boolean) =>
+    base.map((cue, at) => (edit(at) ? { ...cue, h: hashLike(`${index}-${at}`) } : cue));
+
+  it("summarizes 500 rows about 0.82 similar to each other in under 500 ms", async () => {
+    const fixes = Array.from({ length: 500 }, (_, index) =>
+      fix(
+        shifted(
+          edited(index, (at) => at < 200),
+          index * 150,
+        ),
+        {
+          submitter: submitterAt(index),
+        },
+      ),
+    );
+
+    expect(fixesOnly(fixes)).toHaveLength(20);
+    expect(await fastestOfThree(() => fixesOnly(fixes))).toBeLessThan(500);
+  });
+
+  it("keeps 64 groups of 500 different subtitles from 500 origins in under 500 ms", async () => {
+    const fixes = Array.from({ length: 500 }, (_, index) =>
+      fix(
+        edited(index, () => true),
+        { submitter: submitterAt(index) },
+      ),
+    );
+
+    expect(digest(fixes, [], [])).toHaveLength(64);
+    expect(await fastestOfThree(() => digest(fixes, [], []))).toBeLessThan(500);
+  });
+
+  it("lets one origin start at most 8 groups", () => {
+    const fixes = Array.from({ length: 20 }, (_, index) =>
+      fix(subtitle(700 + index, 30), { submitter: submitterAt(index), origin: originOf(carol) }),
+    );
+
+    expect(digest(fixes, [], [])).toHaveLength(8);
+  });
+
+  it("lets a ninth subtitle from one origin join a group another origin started", () => {
+    const shared = subtitle(900, 30);
+    const ninth = fix(shared, { origin: originOf(carol) });
+    const other = fix(shared, { submitter: bob });
+    const own = Array.from({ length: 8 }, (_, index) =>
+      fix(subtitle(800 + index, 30), { submitter: submitterAt(index), origin: originOf(carol) }),
+    );
+    const sections = digest([ninth, other, ...own], [], []);
+
+    expect(sections).toHaveLength(9);
+    expect(sections.find((section) => section.fixView?.view.id === idOf(shared))).toMatchObject({
+      fixView: { view: { status: "confirmed", agreeing: 2 } },
+    });
+    expect(digest([ninth, ...own], [], [])).toHaveLength(8);
+  });
+
+  it("still confirms an honest pair next to 60 skewed rows from one origin", () => {
+    const pair = [fix(base), fix(base, { submitter: bob })];
+    const skewed = Array.from({ length: 60 }, (_, index) =>
+      fix(
+        base.map((cue, at) =>
+          at < 100 ? { ...cue, h: (index * 100 + at).toString(16).padStart(16, "0") } : cue,
+        ),
+        { submitter: submitterAt(index), origin: originOf(carol) },
+      ),
+    );
+
+    expect(fixesOnly([...pair, ...skewed])).toContainEqual(
+      expect.objectContaining({ status: "confirmed", agreeing: 2, id: idOf(base) }),
+    );
   });
 });

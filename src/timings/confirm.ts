@@ -6,7 +6,6 @@ import {
   type ReportRow,
 } from "./db.ts";
 import {
-  hashOrder,
   setSimilarity,
   sketchesSimilarity,
   subtitleSketch,
@@ -51,6 +50,8 @@ export type Digest = Section[];
 
 const sameSubtitleShare = 0.9;
 const sketchFloor = 0.75;
+const maximumGroups = 64;
+const groupStartsPerSlot = 8;
 const toleranceMs = 100;
 const agreeingPercent = 80;
 const minimumSharedCues = 20;
@@ -83,21 +84,12 @@ const independent = (a: Row, b: Row) =>
 
 const hasIndependentPair = (rows: Row[]) => rows.some((a) => rows.some((b) => independent(a, b)));
 
-const prefixOf = (hashes: CueHash[]) => {
-  const unique = [...new Set(hashes)];
-  const orders = unique.map(hashOrder);
-  const last =
-    Uint32Array.from(orders).toSorted()[
-      unique.length - Math.floor(unique.length * sameSubtitleShare)
-    ] ?? Infinity;
-
-  return unique.filter((_, index) => (orders[index] ?? 0) <= last);
-};
+type Leader = { row: Row; hashes: Set<CueHash>; sketch: CueHash[]; estimate: number };
 
 const representatives = (rows: Row[]): Map<Row, Row> => {
-  const leaders: { row: Row; hashes: Set<CueHash>; sketch: CueHash[] }[] = [];
+  const leaders: Leader[] = [];
   const byList = new Map<string, Row>();
-  const holders = new Map<CueHash, number[]>();
+  const starts = new Map<string, number>();
 
   const leaderFor = (row: Row) => {
     const list = row.subtitleHashes.join();
@@ -109,28 +101,43 @@ const representatives = (rows: Row[]): Map<Row, Row> => {
 
     const hashes = new Set(row.subtitleHashes);
     const sketch = subtitleSketch(row.subtitleHashes);
-    const prefix = prefixOf(row.subtitleHashes);
-    const leader =
-      [...new Set(prefix.flatMap((hash) => holders.get(hash) ?? []))]
-        .toSorted((a, b) => a - b)
-        .flatMap((at) => leaders[at] ?? [])
-        .find(
-          (candidate) =>
-            sketchesSimilarity(sketch, candidate.sketch) >= sketchFloor &&
-            setSimilarity(candidate.hashes, hashes) >= sameSubtitleShare,
-        )?.row ?? row;
+    const best = leaders
+      .map((leader) => ({ ...leader, estimate: sketchesSimilarity(sketch, leader.sketch) }))
+      .reduce<Leader | undefined>(
+        (top, leader) => (top === undefined || leader.estimate > top.estimate ? leader : top),
+        undefined,
+      );
+    const joined =
+      best !== undefined &&
+      best.estimate >= sketchFloor &&
+      setSimilarity(best.hashes, hashes) >= sameSubtitleShare
+        ? best.row
+        : undefined;
+    const slot = slotOf(row);
+    const started = starts.get(slot) ?? 0;
+    const canStart = leaders.length < maximumGroups && started < groupStartsPerSlot;
 
-    if (leader === row) {
-      prefix.forEach((hash) => holders.set(hash, [...(holders.get(hash) ?? []), leaders.length]));
-      leaders.push({ row, hashes, sketch });
+    if (joined === undefined && canStart) {
+      leaders.push({ row, hashes, sketch, estimate: 0 });
+      starts.set(slot, started + 1);
     }
 
-    byList.set(list, leader);
+    const leader = joined ?? (canStart ? row : undefined);
+
+    if (leader !== undefined) {
+      byList.set(list, leader);
+    }
 
     return leader;
   };
 
-  return new Map(rows.map((row) => [row, leaderFor(row)]));
+  return new Map(
+    rows.flatMap((row) => {
+      const leader = leaderFor(row);
+
+      return leader === undefined ? [] : [[row, leader] as const];
+    }),
+  );
 };
 
 const timedOf = (fix: FixRow): Timed => {
@@ -333,8 +340,8 @@ export const digest = (
   reports: ReportRow[],
 ): Digest => {
   const leaderOf = representatives([
-    ...fixes.toSorted(byAge),
-    ...[...mismatches, ...reports].toSorted(byAge),
+    ...fixes.toSorted(byAge).toReversed(),
+    ...[...mismatches, ...reports].toSorted(byAge).toReversed(),
   ]);
   const byLeader = <Item extends Row>(rows: Item[]) =>
     Map.groupBy(rows, (row) => leaderOf.get(row));
