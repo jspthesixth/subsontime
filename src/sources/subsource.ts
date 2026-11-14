@@ -206,13 +206,13 @@ export const subSourceSource = (apiKey: string): Source => ({
 
     const [, id = "", tag] = match;
 
-    const response = await fetchWithTimeout(
-      `${baseURL}/subtitles/${id}/download`,
-      { headers: { "X-API-Key": apiKey }, signal, maxBytes: maximumDownloadBytes },
-      downloadTimeoutMs,
-    );
-
     try {
+      const response = await fetchWithTimeout(
+        `${baseURL}/subtitles/${id}/download`,
+        { headers: { "X-API-Key": apiKey }, signal, maxBytes: maximumDownloadBytes },
+        downloadTimeoutMs,
+      );
+
       if (!response.ok) {
         throw new Error("bad status");
       }

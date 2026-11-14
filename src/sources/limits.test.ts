@@ -1,3 +1,4 @@
+import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import loginFixture from "../../test/fixtures/sources/titlovi-login.json" with { type: "json" };
 import { openSubtitlesSource } from "./opensubtitles.ts";
@@ -50,7 +51,6 @@ describe("source downloads", () => {
       () => openSubtitlesSource(undefined, "app-key", memoryTokenCache()).download("501", signal()),
     ],
     ["SubDL", () => subdlSource("key").download("/subtitle/1-1.zip", signal())],
-    ["SubSource", () => subSourceSource("key").download("1", signal())],
     [
       "Titlovi.com",
       () =>
@@ -97,6 +97,32 @@ describe("source searches", () => {
 
     await expect(search(listing(maximumSearchBytes - body.length + 1))).rejects.toThrow(
       "Response too large",
+    );
+  });
+});
+
+const download = (zip: Uint8Array) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async () => new Response(Buffer.from(zip))),
+  );
+
+  return subSourceSource("key").download("1", signal());
+};
+
+describe("SubSource downloads", () => {
+  const subtitle = new TextEncoder().encode("1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+
+  const zipOf = (paddingBytes: number) =>
+    zipSync({ "movie.srt": subtitle, "padding.bin": [new Uint8Array(paddingBytes), { level: 0 }] });
+
+  it("read an archive up to 5 MB", async () => {
+    expect(await download(zipOf(maximumDownloadBytes - 1024))).toEqual(subtitle);
+  });
+
+  it("answer a download past 5 MB as a failed download", async () => {
+    await expect(download(zipOf(maximumDownloadBytes))).rejects.toThrow(
+      new Error("SubSource download failed"),
     );
   });
 });
