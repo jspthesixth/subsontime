@@ -94,7 +94,7 @@ describe("titloviSource search", () => {
     expect(urlOf(fetchMock, 1)).toBe(
       `${base}/search?episode=2&imdbID=tt0903747&json=true&lang=Hrvatski&season=1&token=tok-1&userid=42`,
     );
-    expect(candidates.map((candidate) => candidate.ref)).toEqual(["3:2001"]);
+    expect(candidates.map((candidate) => candidate.ref)).toEqual(["3:2001:S01E02"]);
   });
 
   it.each([
@@ -260,8 +260,6 @@ const downloadBody = (bytes: Uint8Array) => new Response(Buffer.from(bytes));
 describe("titloviSource download", () => {
   it("requests the archive without a token and picks the episode entry", async () => {
     const fetchMock = stubFetch(
-      json(loginFixture),
-      json(seriesFixture),
       downloadBody(
         zip({
           "Show.S01E01.srt": "one",
@@ -270,16 +268,16 @@ describe("titloviSource download", () => {
         }),
       ),
     );
-    const source = titloviSource(credentials, memoryTokenCache());
 
-    await source.search(episode, signal());
-
-    const bytes = await source.download("3:2001", signal());
+    const bytes = await titloviSource(credentials, memoryTokenCache()).download(
+      "3:2001:S01E02",
+      signal(),
+    );
 
     expect(new TextDecoder().decode(bytes)).toBe("two");
-    expect(urlOf(fetchMock, 2)).toBe("https://titlovi.com/download/?type=3&mediaid=2001");
+    expect(urlOf(fetchMock, 0)).toBe("https://titlovi.com/download/?type=3&mediaid=2001");
 
-    const headers = new Headers(fetchMock.mock.calls[2]?.[1]?.headers);
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
 
     expect(headers.get("User-Agent")).toBe("Mozilla/5.0 (compatible; SubsOnTime)");
     expect(headers.get("Referer")).toBe("https://titlovi.com");
@@ -297,6 +295,18 @@ describe("titloviSource download", () => {
 
     expect(new TextDecoder().decode(bytes)).toBe("the longest one");
   });
+
+  it.each(["", "1", "1:", "a:1", "1:2:S1E2", "1:2:S01E02:x", "1:2:foo"])(
+    "rejects the malformed ref %j without a request",
+    async (ref) => {
+      const fetchMock = stubFetch();
+
+      await expect(
+        titloviSource(credentials, memoryTokenCache()).download(ref, signal()),
+      ).rejects.toThrow("Titlovi.com download failed");
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["a non-zip body", () => new Response("not a zip")],

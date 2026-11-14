@@ -102,7 +102,14 @@ const searchURL = (query: VideoQuery, names: string[], session: Session) => {
 const matchesEpisode = (query: VideoQuery, row: Row) =>
   query.type !== "series" || (row.Season === query.season && row.Episode === query.episode);
 
-const toCandidate = (row: Row): Candidate[] => {
+const refOf = (row: Row, query: VideoQuery) =>
+  query.type === "series" && typeof row.Season === "number" && typeof row.Episode === "number"
+    ? `${row.Type}:${row.Id}:${episodeTag(row.Season, row.Episode)}`
+    : `${row.Type}:${row.Id}`;
+
+const refPattern = /^(\d+):(\d+)(?::(S\d{2}E\d{2}))?$/;
+
+const toCandidate = (row: Row, query: VideoQuery): Candidate[] => {
   const lang = toISO6392.get(row.Lang);
 
   if (lang === undefined) {
@@ -117,7 +124,7 @@ const toCandidate = (row: Row): Candidate[] => {
   return [
     {
       sourceName,
-      ref: `${row.Type}:${row.Id}`,
+      ref: refOf(row, query),
       lang,
       release: parseRelease(releaseName),
       releaseName,
@@ -140,7 +147,6 @@ const fetchSearch = (query: VideoQuery, names: string[], session: Session, signa
   fetchWithTimeout(searchURL(query, names, session), { signal }, searchTimeoutMs);
 
 export const titloviSource = (credentials: Credentials, tokens: TokenCache): Source => {
-  const episodes = new Map<string, string>();
   const key = createHash("sha256").update(`titlovi:${credentials.username}`).digest("hex");
 
   const login = async (signal: AbortSignal): Promise<Session> => {
@@ -196,22 +202,17 @@ export const titloviSource = (credentials: Credentials, tokens: TokenCache): Sou
       return (parsed.output.SubtitleResults ?? [])
         .map((row) => v.safeParse(rowSchema, row))
         .flatMap((row) => (row.success && matchesEpisode(query, row.output) ? [row.output] : []))
-        .flatMap((row) => {
-          const candidates = toCandidate(row);
-
-          if (query.type === "series" && candidates.length > 0) {
-            episodes.set(
-              `${row.Type}:${row.Id}`,
-              episodeTag(query.season ?? 0, query.episode ?? 0),
-            );
-          }
-
-          return candidates;
-        });
+        .flatMap((row) => toCandidate(row, query));
     },
     async download(ref, signal) {
-      const [type, id] = ref.split(":");
-      const params = new URLSearchParams({ type: type ?? "", mediaid: id ?? "" });
+      const match = refPattern.exec(ref);
+
+      if (match === null) {
+        throw new Error("Titlovi.com download failed");
+      }
+
+      const [, type = "", id = "", tag] = match;
+      const params = new URLSearchParams({ type, mediaid: id });
       const response = await fetchWithTimeout(
         `${downloadURL}?${params}`,
         {
@@ -229,7 +230,7 @@ export const titloviSource = (credentials: Credentials, tokens: TokenCache): Sou
       }
 
       const files = unzip(new Uint8Array(await response.arrayBuffer()));
-      const entry = files === undefined ? undefined : pickEntry(files, episodes.get(ref));
+      const entry = files === undefined ? undefined : pickEntry(files, tag);
 
       if (entry === undefined) {
         throw new Error("Titlovi.com download failed");
