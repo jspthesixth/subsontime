@@ -1106,6 +1106,7 @@ svg {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.drop-name {
+.drop-name,
+.row-release {
   overflow-wrap: anywhere;
 }

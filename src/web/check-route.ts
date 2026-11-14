@@ -96,7 +96,7 @@ const fpsText = (fps: number) => String(Number(fps.toFixed(3)));
 
 const speedText = (ratio: number, fps: number | undefined) =>
   fps === undefined
-    ? `speed ${ratio.toFixed(4)}`
+    ? `speed ×${ratio.toFixed(4)}`
     : `speed ${fpsText(fps)} to ${fpsText(fps / ratio)}`;
 
 const retimedDetail = ({ offsetMs, speedRatio, cuts }: Retimed, fps: number | undefined) =>
@@ -212,16 +212,20 @@ export const checkRoute =
     const timer = setTimeout(() => controller.abort(), budgetMs - searchedMs);
     const download = downloader(sources, controller.signal);
     const references = found.references.map(toCandidateRef);
-    const slots = config.languages.map((lang) => {
-      const candidates = found.ranked(lang).slice(0, bestSlotSize);
-      const attempts: Attempt[] = [];
+    const entries = config.languages.flatMap((lang) =>
+      found
+        .ranked(lang)
+        .slice(0, bestSlotSize)
+        .map((candidate) => {
+          const attempts: Attempt[] = [];
 
-      return { candidates, attempts };
-    });
-    const runs = slots.map(({ candidates, attempts }) =>
+          return { candidate, attempts };
+        }),
+    );
+    const runs = entries.map(({ candidate, attempts }) =>
       recordAttempts(
         resolveAttempts(
-          { c: candidates.map(toCandidateRef), x: references },
+          { c: [toCandidateRef(candidate)], x: references },
           config,
           download,
           controller.signal,
@@ -234,12 +238,8 @@ export const checkRoute =
     clearTimeout(timer);
     controller.abort();
 
-    const tried = slots.flatMap(({ candidates, attempts }) =>
-      attempts.flatMap((attempt, index) => {
-        const candidate = candidates[index];
-
-        return candidate === undefined ? [] : [{ candidate, attempt }];
-      }),
+    const tried = entries.flatMap(({ candidate, attempts }) =>
+      attempts.map((attempt) => ({ candidate, attempt })),
     );
     const shown: CheckRow[] = tried.flatMap(({ candidate, attempt }) =>
       servedCues(attempt, config) === undefined

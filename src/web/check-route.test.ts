@@ -89,6 +89,47 @@ describe("POST /api/check", () => {
     expect(result.sources).toBe(2);
   });
 
+  it("lists every top candidate of a language, shown ones first in menu order", async () => {
+    const { result } = await checked({
+      listed: [
+        fakeSource("Fake", [
+          { ref: "wrong", cues: unrelated, releaseName: "Movie.S01E05.720p.HDTV" },
+          { ref: "broken", releaseName: "Movie.2024.720p.WEB" },
+          { ref: "right", cues: shifted },
+          { ref: "hash", hashMatch: true, cues: track, releaseName: "Movie.2024.1080p.WEB-DL" },
+        ]),
+      ],
+      references: [],
+    });
+
+    expect(result.shown).toEqual([
+      {
+        lang: "English",
+        source: "Fake",
+        release: "Movie.2024.1080p.WEB-DL",
+        label: "Made for this file",
+        detail: "fingerprint match",
+      },
+      { lang: "English", source: "Fake", label: "Retimed", detail: "-2.00 s" },
+    ]);
+    expect(result.leftOut).toEqual([
+      {
+        lang: "English",
+        source: "Fake",
+        release: "Movie.S01E05.720p.HDTV",
+        label: "Not retimed",
+        reason: mismatchReason,
+      },
+      {
+        lang: "English",
+        source: "Fake",
+        release: "Movie.2024.720p.WEB",
+        label: "Not retimed",
+        reason: "Could not be read.",
+      },
+    ]);
+  });
+
   it("shows a hash-matched subtitle as made for this file", async () => {
     const { result } = await checked({
       listed: [
@@ -123,6 +164,40 @@ describe("POST /api/check", () => {
 
     expect(result.shown.map((row) => [row.label, row.detail])).toEqual([
       ["Retimed", "-0.96 s · speed 25 to 23.976"],
+    ]);
+  });
+
+  it("shows the speed ratio when the frame rates are unknown", async () => {
+    const faster = transform(track, (time) => (time * 25) / 23.976 + 1000);
+
+    const { result } = await checked({
+      listed: [fakeSource("Fake", [{ ref: "a", cues: faster }])],
+      references: [hashReference()],
+    });
+
+    expect(result.shown.map((row) => [row.label, row.detail])).toEqual([
+      ["Retimed", "-0.96 s · speed ×1.0427"],
+    ]);
+  });
+
+  it("counts two cuts in the plural", async () => {
+    const first = track[66]?.start ?? 0;
+    const second = track[133]?.start ?? 0;
+    const cut = transform(track, (time) => {
+      if (time >= second) {
+        return time + 10_000;
+      }
+
+      return time >= first ? time + 5000 : time;
+    });
+
+    const { result } = await checked({
+      listed: [fakeSource("Fake", [{ ref: "a", cues: cut }])],
+      references: [hashReference()],
+    });
+
+    expect(result.shown.map((row) => [row.label, row.detail])).toEqual([
+      ["Retimed", "-5.00 s · 2 cuts"],
     ]);
   });
 
