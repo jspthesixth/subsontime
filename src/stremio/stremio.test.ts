@@ -7,12 +7,10 @@ import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
-import type { Candidate, Source } from "../sources/source.ts";
+import { fakeSource } from "../sources/test-sources.ts";
 import { memoryTokenCache } from "../sources/token-cache.ts";
 import { singleFlight } from "../jobs/single-flight.ts";
-import type { Cue } from "../subtitles/cue.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
-import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { retime } from "../timing/retime.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
@@ -22,15 +20,6 @@ vi.mock("../timing/retime.ts", { spy: true });
 
 type Listing = { subtitles: { id: string; lang: string; url: string }[] };
 
-type Entry = {
-  ref: string;
-  lang?: string;
-  hashMatch?: boolean;
-  releaseName?: string;
-  cues?: Cue[];
-  hang?: boolean;
-};
-
 const secret = "a-test-secret-that-is-long-enough-1234";
 const fileName = "Movie.2024.1080p.BluRay.x264-GROUP.mkv";
 const track = syntheticTrack(1, 200);
@@ -39,34 +28,6 @@ const unrelated = syntheticTrack(2, 200).map((cue) => ({ ...cue, text: `Wrong ${
 
 const sealed = (overrides: Partial<Config> = {}) =>
   seal({ ...defaultConfig(["eng"]), ...overrides }, secret);
-
-const fakeSource = (name: string, entries: Entry[]) => {
-  const candidates = entries.map((entry): Candidate => ({
-    sourceName: name,
-    ref: entry.ref,
-    lang: entry.lang ?? "eng",
-    release: parseRelease(entry.releaseName ?? ""),
-    releaseName: entry.releaseName,
-    hashMatch: entry.hashMatch ?? false,
-  }));
-  const search = vi.fn<Source["search"]>(async () => candidates);
-  const download = vi.fn<Source["download"]>(async (ref) => {
-    const entry = entries.find((candidate) => candidate.ref === ref);
-    const cues = entry?.cues;
-
-    if (entry?.hang === true) {
-      return new Promise<Uint8Array>(() => {});
-    }
-
-    if (cues === undefined) {
-      throw new Error("Download failed");
-    }
-
-    return new TextEncoder().encode(writeSRT(cues));
-  });
-
-  return { name, search, download };
-};
 
 const appWith = (sources: SourceSet, deps: Partial<AppDeps> = {}) =>
   createApp({ secret, tokens: memoryTokenCache(), sourcesFor: () => sources, ...deps });

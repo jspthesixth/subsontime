@@ -662,6 +662,9 @@ svg {
 .sub-row.fixes {
   grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) 120px;
 }
+.sub-row.no-actions {
+  grid-template-columns: 120px 150px minmax(0, 1fr) minmax(0, 1.3fr);
+}
 .sub-head {
   padding: 10px 0;
   font-size: 13px;
@@ -903,7 +906,8 @@ svg {
     display: none;
   }
   .sub-row,
-  .sub-row.fixes {
+  .sub-row.fixes,
+  .sub-row.no-actions {
     grid-template-columns: 1fr 1fr;
     gap: 10px 16px;
     padding: 20px 0;
@@ -1008,6 +1012,9 @@ svg {
   color: var(--ink-2);
   cursor: pointer;
 }
+.options .tag {
+  margin-left: 8px;
+}
 .options li:hover,
 .options li[aria-selected="true"] {
   background: var(--bg-3);
@@ -1078,4 +1085,27 @@ svg {
   * {
     transition: none !important;
   }
+}
+
+.drop {
+  position: relative;
+  cursor: pointer;
+}
+.drop-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.drop:focus-within,
+.drop[data-over] {
+  border-color: var(--accent);
+}
+.drop:has(.drop-input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.drop-name {
+  overflow-wrap: anywhere;
 }

@@ -2,22 +2,43 @@ import type { Context } from "hono";
 import { baseURL } from "../base-url.ts";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import { searchAll } from "../sources/search-all.ts";
-import type { Candidate } from "../sources/source.ts";
+import type { SourceSet } from "../sources/from-config.ts";
+import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import { parseRelease, releaseSimilarity } from "../subtitles/release.ts";
 import { pickReferences } from "../timing/references.ts";
 import { encodeRef, type CandidateRef } from "./refs.ts";
 
-const bestSlotSize = 4;
+export const bestSlotSize = 4;
 const perLanguageLimit = 10;
 
-const toCandidateRef = (candidate: Candidate): CandidateRef => ({
+export const toCandidateRef = (candidate: Candidate): CandidateRef => ({
   n: candidate.sourceName,
   r: candidate.ref,
   l: candidate.lang,
   h: candidate.hashMatch ? 1 : undefined,
   p: candidate.fps,
 });
+
+export const searchVideo = async (sources: SourceSet, query: VideoQuery) => {
+  const [listed, referenceOnly] = await Promise.all([
+    searchAll(sources.listed, query),
+    searchAll(sources.references, query),
+  ]);
+  const fileRelease = parseRelease(query.filename ?? "");
+
+  return {
+    references: pickReferences([...listed, ...referenceOnly], fileRelease),
+    ranked: (lang: string) =>
+      listed
+        .filter((candidate) => candidate.lang === lang)
+        .toSorted(
+          (a, b) =>
+            Number(b.hashMatch) - Number(a.hashMatch) ||
+            releaseSimilarity(b.release, fileRelease) - releaseSimilarity(a.release, fileRelease),
+        ),
+  };
+};
 
 const readExtras = (context: Context<AppEnv>) => {
   const extra = context.req.param("extra");
@@ -58,15 +79,8 @@ export const subtitlesRoute =
       filename,
       languages: config.languages,
     };
-    const sources = sourcesFor(config);
-    const [listed, referenceOnly] = await Promise.all([
-      searchAll(sources.listed, query),
-      searchAll(sources.references, query),
-    ]);
-    const fileRelease = parseRelease(filename ?? "");
-    const references = pickReferences([...listed, ...referenceOnly], fileRelease).map(
-      toCandidateRef,
-    );
+    const found = await searchVideo(sourcesFor(config), query);
+    const references = found.references.map(toCandidateRef);
     const subURL = (candidates: Candidate[]) => {
       const ref = encodeRef(
         {
@@ -80,16 +94,8 @@ export const subtitlesRoute =
 
       return `${baseURL(context, publicURL)}/${context.req.param("config")}/sub/${ref}.srt`;
     };
-    const ranked = (lang: string) =>
-      listed
-        .filter((candidate) => candidate.lang === lang)
-        .toSorted(
-          (a, b) =>
-            Number(b.hashMatch) - Number(a.hashMatch) ||
-            releaseSimilarity(b.release, fileRelease) - releaseSimilarity(a.release, fileRelease),
-        );
     const subtitles = config.languages.flatMap((lang) => {
-      const candidates = ranked(lang);
+      const candidates = found.ranked(lang);
 
       if (config.bestOnly) {
         return candidates.length === 0

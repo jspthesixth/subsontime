@@ -15,7 +15,8 @@ type SourceCheckDeps = {
 
 const checkTimeoutMs = 8000;
 const uncheckableMessage = "This source cannot be checked";
-const tooManyMessage = "Too many checks. Try again in a minute.";
+
+export const tooManyMessage = "Too many checks. Try again in a minute.";
 
 const labels: Record<Checkable["kind"], { name: string; secret: string }> = {
   titlovi: { name: "Titlovi.com", secret: "username and password" },

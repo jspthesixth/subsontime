@@ -9,11 +9,12 @@ import { decodeSubtitle } from "../subtitles/decode.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
-import { retime } from "../timing/retime.ts";
+import { retime, type RetimeResult } from "../timing/retime.ts";
 import { decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
-type Track = { candidate: Candidate; cues: Cue[] };
-type Outcome = Cue[] | "mismatch" | undefined;
+export type Track = { candidate: Candidate; cues: Cue[] };
+export type Attempt = { candidate: CandidateRef; track?: Track; result?: RetimeResult };
+export type Download = (candidate: CandidateRef) => Promise<Track>;
 
 const downloadTimeoutMs = 8000;
 const srtType = "application/x-subrip; charset=utf-8";
@@ -27,14 +28,21 @@ const toCandidate = (ref: CandidateRef): Candidate => ({
   fps: ref.p,
 });
 
-const fetchTrack = async (sources: Map<string, Source>, ref: CandidateRef): Promise<Track> => {
+const fetchTrack = async (
+  sources: Map<string, Source>,
+  ref: CandidateRef,
+  signal: AbortSignal | undefined,
+): Promise<Track> => {
   const source = sources.get(ref.n);
 
   if (source === undefined) {
     throw new Error("Unknown source");
   }
 
-  const bytes = await source.download(ref.r, AbortSignal.timeout(downloadTimeoutMs));
+  const bytes = await source.download(
+    ref.r,
+    AbortSignal.any([AbortSignal.timeout(downloadTimeoutMs), ...(signal ? [signal] : [])]),
+  );
 
   return { candidate: toCandidate(ref), cues: parseSubtitle(decodeSubtitle(bytes, ref.l)) };
 };
@@ -44,57 +52,86 @@ const settledTracks = async (tracks: Promise<Track>[]) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
 
-const timedCues = async (
+const timeTrack = async (
   track: Track,
   references: Promise<Track[]>,
   config: Config,
-): Promise<Outcome> => {
-  if (config.timing === "off" || track.candidate.hashMatch) {
-    return track.cues;
+): Promise<RetimeResult> => {
+  if (track.candidate.hashMatch) {
+    return { kind: "made-for-file", cues: track.cues };
   }
 
-  const result = await retime(track, await references);
-
-  if (result.kind !== "mismatch") {
-    return result.cues;
+  if (config.timing === "off") {
+    return { kind: "not-retimed", cues: track.cues };
   }
 
-  return config.extras.hideMismatches ? "mismatch" : track.cues;
+  return retime(track, await references);
 };
 
-const resolveSubtitle = async (
-  ref: SubtitleRef,
-  config: Config,
-  sources: SourceSet,
-): Promise<Outcome> => {
+export const downloader = (sources: SourceSet, signal?: AbortSignal): Download => {
   const byName = new Map(
     [...sources.listed, ...sources.references].map((source) => [source.name, source]),
   );
   const downloads = new Map<string, Promise<Track>>();
-  const download = (candidate: CandidateRef) => {
+
+  return (candidate) => {
     const key = JSON.stringify([candidate.n, candidate.r]);
-    const track = downloads.get(key) ?? fetchTrack(byName, candidate);
+    const track = downloads.get(key) ?? fetchTrack(byName, candidate, signal);
 
     downloads.set(key, track);
 
     return track;
   };
-  const references =
-    config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
-  let outcome: Outcome;
+};
 
-  for (const candidate of ref.c) {
-    outcome =
-      (await download(candidate)
-        .then((track) => timedCues(track, references, config))
-        .catch(() => undefined)) ?? outcome;
-
-    if (Array.isArray(outcome)) {
-      return outcome;
-    }
+export const servedCues = ({ track, result }: Attempt, config: Config): Cue[] | undefined => {
+  if (track === undefined || result === undefined) {
+    return undefined;
   }
 
-  return outcome;
+  if (result.kind !== "mismatch") {
+    return result.cues;
+  }
+
+  return config.extras.hideMismatches ? undefined : track.cues;
+};
+
+export async function* resolveAttempts(
+  ref: Pick<SubtitleRef, "c" | "x">,
+  config: Config,
+  download: Download,
+  signal?: AbortSignal,
+): AsyncGenerator<Attempt> {
+  const references =
+    config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
+
+  for (const candidate of ref.c) {
+    const attempt: Attempt = await download(candidate)
+      .then(async (track) => ({
+        candidate,
+        track,
+        result: await timeTrack(track, references, config),
+      }))
+      .catch(() => ({ candidate }));
+
+    if (signal?.aborted === true) {
+      return;
+    }
+
+    yield attempt;
+
+    if (servedCues(attempt, config) !== undefined) {
+      return;
+    }
+  }
+}
+
+export const recordAttempts = async (attempts: AsyncIterable<Attempt>, into: Attempt[] = []) => {
+  for await (const attempt of attempts) {
+    into.push(attempt);
+  }
+
+  return into;
 };
 
 export const fileRoute =
@@ -113,18 +150,21 @@ export const fileRoute =
       return context.text("Invalid subtitle reference", 400);
     }
 
-    const outcome = await singleFlight(new URL(context.req.url).pathname, () =>
-      resolveSubtitle(ref, config, sourcesFor(config)),
+    const attempts = await singleFlight(new URL(context.req.url).pathname, () =>
+      recordAttempts(resolveAttempts(ref, config, downloader(sourcesFor(config)))),
     );
+    const cues = attempts
+      .map((attempt) => servedCues(attempt, config))
+      .find((each) => each !== undefined);
 
-    if (Array.isArray(outcome)) {
-      return context.body(writeSRT(outcome), 200, {
+    if (cues !== undefined) {
+      return context.body(writeSRT(cues), 200, {
         "content-type": srtType,
         "cache-control": "public, max-age=86400",
       });
     }
 
-    if (outcome === "mismatch" && !config.bestOnly) {
+    if (attempts.some((attempt) => attempt.result?.kind === "mismatch") && !config.bestOnly) {
       return context.body("", 200, { "content-type": srtType });
     }
 

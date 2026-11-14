@@ -7,7 +7,7 @@ const app = createApp({
   tokens: memoryTokenCache(),
 });
 
-describe.each(["/", "/stremio"])("GET %s", (path) => {
+describe.each(["/", "/stremio", "/check"])("GET %s", (path) => {
   it("returns an English HTML page with one h1 and the stylesheet", async () => {
     const response = await app.request(path);
     const page = await response.text();
@@ -33,6 +33,16 @@ describe("GET /stremio", () => {
     expect(page).toMatch(/<li[^>]*data-code="hrv"[^>]*>\s*Hrvatski\s*<\/li>/);
     expect(page).toMatch(/<li[^>]*data-code="pob"[^>]*>\s*Português \(Brasil\)\s*<\/li>/);
     expect(page).not.toContain('data-code="ger"');
+  });
+});
+
+describe("GET /check", () => {
+  it("marks Check a file as the current page and labels the drop zone file input", async () => {
+    const page = await (await app.request("/check")).text();
+
+    expect(page).toMatch(/<a\s+class="nav-link"\s+href="\/check"\s+aria-current="page"/);
+    expect(page).toMatch(/<label class="drop"[^>]*>[\s\S]*<input[^>]*type="file"[\s\S]*<\/label>/);
+    expect(page).toContain('<script type="module" src="/client/check.js"></script>');
   });
 });
 

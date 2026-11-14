@@ -13,7 +13,7 @@
     "format": "oxfmt .",
     "typecheck": "tsc --noEmit",
     "build:wasm": "wasm-pack build crates/alass-wasm --target nodejs --release --out-dir ../../wasm && rm -f wasm/.gitignore",
-    "build:client": "esbuild src/web/client/*.ts --bundle --minify --format=esm --outdir=public/client",
+    "build:client": "esbuild src/web/client/menu.ts src/web/client/setup.ts src/web/client/check.ts --bundle --minify --format=esm --outdir=public/client",
     "lint:rust": "cd crates/alass-wasm && cargo clippy --target wasm32-unknown-unknown -- -D warnings",
     "build": "pnpm build:client && pnpm build:assets",
     "build:assets": "mkdir -p public/fonts && cp src/web/styles.css public/styles.css && cp node_modules/@fontsource-variable/geist/files/geist-*-wght-normal.woff2 node_modules/@fontsource-variable/geist-mono/files/geist-mono-*-wght-normal.woff2 public/fonts/"

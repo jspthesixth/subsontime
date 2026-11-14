@@ -10,6 +10,8 @@ import { fileRoute } from "./stremio/file-route.ts";
 import { manifest } from "./stremio/manifest.ts";
 import { refKey } from "./stremio/refs.ts";
 import { subtitlesRoute } from "./stremio/subtitles-route.ts";
+import { checkPage } from "./web/check-page.ts";
+import { checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
 import { homePage } from "./web/home-page.ts";
 import { setupPage } from "./web/setup-page.ts";
@@ -42,6 +44,7 @@ const apiBodyLimit = 16 * 1024;
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+  const clientKey = deps.clientKey ?? (() => "anonymous");
   const routeDeps: RouteDeps = {
     sourcesFor:
       deps.sourcesFor ??
@@ -72,6 +75,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   app.get("/", (context) => context.html(homePage()));
   app.get("/stremio", (context) => context.html(setupPage()));
+  app.get("/check", (context) => context.html(checkPage()));
   app.use(
     "/api/*",
     async (context, next) => {
@@ -94,9 +98,20 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     "/api/sources/check",
     sourceCheckRoute({
       allow: rateLimit(10, 60_000).allow,
-      clientKey: deps.clientKey ?? (() => "anonymous"),
+      clientKey,
     }),
   );
+  app.post(
+    "/api/check",
+    checkRoute({
+      ...routeDeps,
+      secret: deps.secret,
+      allow: rateLimit(10, 60_000).allow,
+      clientKey,
+    }),
+  );
+  app.get("/api/titles", titlesRoute);
+  app.get("/api/titles/:id/episodes", episodesRoute);
 
   app.use("/:config/*", cors(), async (context, next) => {
     const token = context.req.param("config") ?? "";

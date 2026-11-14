@@ -3,26 +3,14 @@ import type { ConfigForm, SourceSettings } from "../../config/config.ts";
 import { defaultForm, formOf, openSubtitlesAddonURL } from "../../config/default-config.ts";
 import { fromLocales } from "../../languages.ts";
 import { searchKey } from "../search-key.ts";
+import { combobox } from "./combobox.ts";
+import { clone, find } from "./dom.ts";
+import { errorOf, postJSON } from "./post-json.ts";
 
 type Account = Exclude<SourceSettings, { kind: "stremio-addon" }>;
 type Installed = { installURL: string; stremioURL: string; webURL: string };
-type Outcome = { result: unknown } | { error: string };
 
-const unreachableMessage = "Could not reach Subs On Time. Try again.";
 const copiedDuration = 2000;
-
-const find = <T extends Element = HTMLElement>(root: ParentNode, selector: string) => {
-  const element = root.querySelector<T>(selector);
-
-  if (element === null) {
-    throw new Error(`Missing ${selector}`);
-  }
-
-  return element;
-};
-
-const clone = (templateId: string) =>
-  find<HTMLTemplateElement>(document, templateId).content.cloneNode(true) as DocumentFragment;
 
 const chosen = find(document, "#chosen-languages");
 const search = find<HTMLInputElement>(document, "#lang-search");
@@ -42,6 +30,8 @@ const editButton = find(document, "#edit-install");
 const editForm = find<HTMLFormElement>(document, "#edit-form");
 const editLink = find<HTMLInputElement>(document, "#edit-link");
 
+const languageCombo = combobox(search, listbox, (option) => addLanguage(option.dataset["code"]));
+
 const isOpenSubtitles = (source: SourceSettings) =>
   source.kind === "stremio-addon" && source.url === openSubtitlesAddonURL;
 
@@ -54,7 +44,6 @@ const withOpenSubtitles = (form: ConfigForm): ConfigForm => ({
 });
 
 let state = defaultForm(fromLocales(navigator.languages));
-let activeOption: HTMLElement | undefined;
 
 const nameOf = (code: string) =>
   options.find((option) => option.dataset["code"] === code)?.textContent?.trim() ?? code;
@@ -73,48 +62,14 @@ const summaryOf = ({ languages, sources, timing }: ConfigForm) =>
     .filter((part) => part !== "")
     .join(" · ");
 
-const errorOf = (result: unknown) =>
-  typeof result === "object" &&
-  result !== null &&
-  "error" in result &&
-  typeof result.error === "string"
-    ? result.error
-    : unreachableMessage;
-
 const checkErrorOf = (result: unknown) =>
   typeof result === "object" && result !== null && "ok" in result && result.ok === true
     ? undefined
     : errorOf(result);
 
-const postJSON = async (path: string, body: unknown): Promise<Outcome> => {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  }).catch(() => undefined);
-  const result: unknown = await response?.json().catch(() => undefined);
-
-  return response?.ok === true ? { result } : { error: errorOf(result) };
-};
-
 const update = (changes: Partial<ConfigForm>) => {
   state = { ...state, ...changes };
   render();
-};
-
-const visibleOptions = () => options.filter((option) => !option.hidden);
-
-const setActiveOption = (option: HTMLElement | undefined) => {
-  activeOption = option;
-  options.forEach((each) => each.setAttribute("aria-selected", String(each === option)));
-
-  if (option === undefined) {
-    search.removeAttribute("aria-activedescendant");
-  } else {
-    search.setAttribute("aria-activedescendant", option.id);
-  }
-
-  option?.scrollIntoView({ block: "nearest" });
 };
 
 const filterOptions = () => {
@@ -127,21 +82,6 @@ const filterOptions = () => {
   });
 };
 
-const setListOpen = (open: boolean) => {
-  const shown = open && visibleOptions().length > 0;
-
-  listbox.hidden = !shown;
-  search.setAttribute("aria-expanded", String(shown));
-  setActiveOption(shown ? visibleOptions()[0] : undefined);
-};
-
-const moveActiveOption = (step: number) => {
-  const visible = visibleOptions();
-  const index = activeOption === undefined ? -1 : visible.indexOf(activeOption);
-
-  setActiveOption(visible[(index + step + visible.length) % visible.length]);
-};
-
 const addLanguage = (code: string | undefined) => {
   if (code === undefined || state.languages.includes(code)) {
     return;
@@ -149,7 +89,7 @@ const addLanguage = (code: string | undefined) => {
 
   search.value = "";
   update({ languages: [...state.languages, code] });
-  setListOpen(false);
+  languageCombo.setOpen(false);
 };
 
 const chipFor = (code: string, index: number) => {
@@ -244,44 +184,7 @@ const showInstalled = ({ installURL, stremioURL, webURL }: Installed) => {
 
 search.addEventListener("input", () => {
   filterOptions();
-  setListOpen(true);
-});
-
-search.addEventListener("click", () => setListOpen(true));
-
-search.addEventListener("blur", () => setListOpen(false));
-
-search.addEventListener("keydown", (event) => {
-  const open = !listbox.hidden;
-
-  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    event.preventDefault();
-
-    if (open) {
-      moveActiveOption(event.key === "ArrowDown" ? 1 : -1);
-    } else {
-      setListOpen(true);
-    }
-  }
-
-  if (event.key === "Enter" && open) {
-    event.preventDefault();
-    addLanguage(activeOption?.dataset["code"]);
-  }
-
-  if (event.key === "Escape" && open) {
-    event.preventDefault();
-    setListOpen(false);
-  }
-});
-
-listbox.addEventListener("mousedown", (event) => event.preventDefault());
-
-listbox.addEventListener("click", (event) => {
-  const option =
-    event.target instanceof Element ? event.target.closest<HTMLElement>("[role=option]") : null;
-
-  addLanguage(option?.dataset["code"]);
+  languageCombo.setOpen(true);
 });
 
 bestOnlyInput.addEventListener("change", () => update({ bestOnly: bestOnlyInput.checked }));

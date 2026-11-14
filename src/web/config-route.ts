@@ -23,7 +23,7 @@ export const toWebURL = (installURL: string) =>
 
 const readJSON = (context: Context): Promise<unknown> => context.req.json().catch(() => undefined);
 
-const sealedConfigOf = (installURL: string) => {
+export const sealedConfigOf = (installURL: string) => {
   const link = installURL.trim();
   const segments = URL.canParse(link) ? new URL(link).pathname.split("/") : [];
   const sealed = segments.at(-2) ?? "";
@@ -41,7 +41,7 @@ const sealSafely = (config: Config, secret: string) => {
   }
 };
 
-const unsealSafely = (sealed: string, secret: string) => {
+export const unsealSafely = (sealed: string, secret: string) => {
   try {
     return unseal(sealed, secret);
   } catch {
