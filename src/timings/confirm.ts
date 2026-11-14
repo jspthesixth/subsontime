@@ -5,7 +5,14 @@ import {
   type NewReport,
   type ReportRow,
 } from "./db.ts";
-import { setSimilarity, subtitleSketch, type CueHash, type FixCue } from "./fingerprint.ts";
+import {
+  hashOrder,
+  setSimilarity,
+  sketchesSimilarity,
+  subtitleSketch,
+  type CueHash,
+  type FixCue,
+} from "./fingerprint.ts";
 
 export type ReportReason = NewReport["reason"];
 
@@ -43,15 +50,19 @@ type Section = {
 export type Digest = Section[];
 
 const sameSubtitleShare = 0.9;
+const sketchFloor = 0.75;
 const toleranceMs = 100;
 const agreeingPercent = 80;
 const minimumSharedCues = 20;
-const reportSubmitters = 3;
+const reportOrigins = 3;
 const weighedFixes = 50;
 const maximumViews = 20;
 const maximumHidden = 50;
 
 const byAge = (a: Row, b: Row) => a.createdAt.getTime() - b.createdAt.getTime();
+
+const byViewRank = (a: Ranked, b: Ranked) =>
+  b.view.agreeing - a.view.agreeing || b.newest - a.newest;
 
 const newestOf = <Item extends Row>(rows: Item[]) =>
   rows.reduce((newest, row) => (row.createdAt >= newest.createdAt ? row : newest));
@@ -59,6 +70,10 @@ const newestOf = <Item extends Row>(rows: Item[]) =>
 const submittersOf = (rows: Row[]) => new Set(rows.map((row) => row.submitter));
 
 const originsOf = (rows: Row[]) => new Set(rows.flatMap((row) => row.origin ?? []));
+
+const slotOf = (row: Row) => row.origin ?? `submitter:${row.submitter}`;
+
+const slotsOf = (rows: Row[]) => new Set(rows.map(slotOf)).size;
 
 const independent = (a: Row, b: Row) =>
   a.submitter !== b.submitter &&
@@ -68,11 +83,9 @@ const independent = (a: Row, b: Row) =>
 
 const hasIndependentPair = (rows: Row[]) => rows.some((a) => rows.some((b) => independent(a, b)));
 
-const orderOf = (hash: CueHash) => Number.parseInt(hash.slice(0, 8), 16);
-
 const prefixOf = (hashes: CueHash[]) => {
   const unique = [...new Set(hashes)];
-  const orders = unique.map(orderOf);
+  const orders = unique.map(hashOrder);
   const last =
     Uint32Array.from(orders).toSorted()[
       unique.length - Math.floor(unique.length * sameSubtitleShare)
@@ -82,7 +95,7 @@ const prefixOf = (hashes: CueHash[]) => {
 };
 
 const representatives = (rows: Row[]): Map<Row, Row> => {
-  const leaders: { row: Row; hashes: Set<CueHash> }[] = [];
+  const leaders: { row: Row; hashes: Set<CueHash>; sketch: CueHash[] }[] = [];
   const byList = new Map<string, Row>();
   const holders = new Map<CueHash, number[]>();
 
@@ -95,17 +108,21 @@ const representatives = (rows: Row[]): Map<Row, Row> => {
     }
 
     const hashes = new Set(row.subtitleHashes);
+    const sketch = subtitleSketch(row.subtitleHashes);
     const prefix = prefixOf(row.subtitleHashes);
     const leader =
       [...new Set(prefix.flatMap((hash) => holders.get(hash) ?? []))]
         .toSorted((a, b) => a - b)
         .flatMap((at) => leaders[at] ?? [])
-        .find((candidate) => setSimilarity(candidate.hashes, hashes) >= sameSubtitleShare)?.row ??
-      row;
+        .find(
+          (candidate) =>
+            sketchesSimilarity(sketch, candidate.sketch) >= sketchFloor &&
+            setSimilarity(candidate.hashes, hashes) >= sameSubtitleShare,
+        )?.row ?? row;
 
     if (leader === row) {
       prefix.forEach((hash) => holders.set(hash, [...(holders.get(hash) ?? []), leaders.length]));
-      leaders.push({ row, hashes });
+      leaders.push({ row, hashes, sketch });
     }
 
     byList.set(list, leader);
@@ -240,7 +257,7 @@ const confirmedView = (leader: FixRow, component: Timed[]): Ranked => {
       ...viewOf(leader, cues),
       status: "confirmed",
       method: fromAudio ? "audio" : mostCommon,
-      agreeing: submittersOf(fixes).size,
+      agreeing: slotsOf(fixes),
       fromAudio,
     },
     newest: newestOf(fixes).createdAt.getTime(),
@@ -248,7 +265,10 @@ const confirmedView = (leader: FixRow, component: Timed[]): Ranked => {
 };
 
 const rankedView = (leader: FixRow, group: FixRow[]): Ranked => {
-  const weighed = group.toSorted(byAge).slice(-weighedFixes);
+  const weighed = [...Map.groupBy(group, slotOf).values()]
+    .map(newestOf)
+    .toSorted(byAge)
+    .slice(-weighedFixes);
   const component = largest(agreeingComponents(weighed.map(timedOf)));
 
   if (isConfirmed(component.map(({ fix }) => fix))) {
@@ -276,7 +296,7 @@ const hiddenOf = (rows: Row[], reason: HiddenView["reason"]): Hidden => {
     view: {
       subtitleSketch: subtitleSketch(newest.subtitleHashes),
       reason,
-      count: submittersOf(rows).size,
+      count: slotsOf(rows),
     },
     newest: newest.createdAt.getTime(),
   };
@@ -290,7 +310,7 @@ const sectionOf = (
 ): Section => {
   const mismatch = mismatches.length === 0 ? undefined : hiddenOf(mismatches, "mismatch");
   const reportsHidden = [...Map.groupBy(reports, (row) => row.reason)].flatMap(([reason, rows]) =>
-    submittersOf(rows).size >= reportSubmitters && hasIndependentPair(rows)
+    submittersOf(rows).size >= reportOrigins && originsOf(rows).size >= reportOrigins
       ? [hiddenOf(rows, reason)]
       : [],
   );
@@ -322,13 +342,26 @@ export const digest = (
   const mismatchGroups = byLeader(mismatches);
   const reportGroups = byLeader(reports);
 
-  return [...new Set(leaderOf.values())].map((leader) =>
+  const sections = [...new Set(leaderOf.values())].map((leader) =>
     sectionOf(
       leader,
       fixGroups.get(leader) ?? [],
       mismatchGroups.get(leader) ?? [],
       reportGroups.get(leader) ?? [],
     ),
+  );
+  const listable = sections.flatMap((section) =>
+    section.fixView === undefined || section.hidden.length > 0 ? [] : [section.fixView],
+  );
+  const viewerHideable = sections.filter(
+    (section) => section.fixView !== undefined && section.mismatchers.size > 0,
+  ).length;
+  const kept = new Set(listable.toSorted(byViewRank).slice(0, maximumViews + viewerHideable));
+
+  return sections.map((section) =>
+    section.fixView !== undefined && kept.has(section.fixView)
+      ? section
+      : { ...section, fixView: undefined },
   );
 };
 
@@ -358,7 +391,7 @@ export const present = (sections: Digest, viewer?: string): VideoTimings<FixWith
           ? [entry.section.fixView]
           : [],
       )
-      .toSorted((a, b) => b.view.agreeing - a.view.agreeing || byRank(a, b))
+      .toSorted(byViewRank)
       .slice(0, maximumViews)
       .map(({ view }) => view),
     hidden: [...own, ...hidden].slice(0, maximumHidden).map(({ view }) => view),

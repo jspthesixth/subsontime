@@ -45,15 +45,37 @@ export const similarity = (a: CueHash[], b: CueHash[]): number =>
 
 const sketchSize = 128;
 
-export const subtitleSketch = (hashes: CueHash[]): CueHash[] =>
-  [...new Set(hashes)].toSorted().slice(0, sketchSize);
+export const hashOrder = (hash: CueHash) => Number.parseInt(hash.slice(0, 8), 16);
 
-export const sketchSimilarity = (hashes: CueHash[], sketch: CueHash[]): number => {
-  const ours = new Set(subtitleSketch(hashes));
-  const theirs = new Set(sketch);
-  const bottom = [...new Set([...ours, ...theirs])].toSorted().slice(0, sketchSize);
+export const subtitleSketch = (hashes: CueHash[]): CueHash[] => {
+  const unique = [...new Set(hashes)];
+  const orders = unique.map(hashOrder);
+  const last = Uint32Array.from(orders).toSorted()[sketchSize - 1] ?? Infinity;
 
-  return bottom.length === 0
-    ? 0
-    : bottom.filter((hash) => ours.has(hash) && theirs.has(hash)).length / bottom.length;
+  return unique
+    .filter((_, index) => (orders[index] ?? 0) <= last)
+    .toSorted()
+    .slice(0, sketchSize);
 };
+
+export const sketchesSimilarity = (left: CueHash[], right: CueHash[]): number => {
+  let at = 0;
+  let bt = 0;
+  let both = 0;
+  let taken = 0;
+
+  while (taken < sketchSize && (at < left.length || bt < right.length)) {
+    const a = left[at];
+    const b = right[bt];
+
+    both += a === b ? 1 : 0;
+    at += b === undefined || (a !== undefined && a <= b) ? 1 : 0;
+    bt += a === undefined || (b !== undefined && b <= a) ? 1 : 0;
+    taken += 1;
+  }
+
+  return taken === 0 ? 0 : both / taken;
+};
+
+export const sketchSimilarity = (hashes: CueHash[], sketch: CueHash[]): number =>
+  sketchesSimilarity(subtitleSketch(hashes), subtitleSketch(sketch));
