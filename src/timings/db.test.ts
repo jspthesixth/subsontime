@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import postgres from "postgres";
-import { memoryStore, postgresStore } from "./db.ts";
+import { memoryStore, postgresStore, subtitleKey } from "./db.ts";
 import type { NewFix, NewMismatch, NewReport, TimingsStore } from "./db.ts";
 
 const video = { hash: "0123456789abcdef", size: 7_345_678_901 };
@@ -132,6 +132,26 @@ const contract = (makeStore: () => TimingsStore) => {
     expect(rows[0]?.submitter).toBe((1).toString(16).padStart(32, "0"));
   });
 
+  it("keeps the origin of each row and replaces it on a re-put", async () => {
+    const origin = "0123456789abcdef";
+    const later = "fedcba9876543210";
+
+    await store.putFix(fix({ origin }));
+    await store.putMismatch(mismatch({ origin }));
+    await store.putReport(report({ origin }));
+    await store.putFix(fix({ origin: later }));
+
+    expect((await store.fixesFor(video)).map((row) => row.origin)).toEqual([later]);
+    expect((await store.mismatchesFor(video)).map((row) => row.origin)).toEqual([origin]);
+    expect((await store.reportsFor(video)).map((row) => row.origin)).toEqual([origin]);
+  });
+
+  it("returns a row without an origin as having none", async () => {
+    await store.putMismatch(mismatch());
+
+    expect((await store.mismatchesFor(video))[0]?.origin).toBeUndefined();
+  });
+
   it("replaces a submitter's mismatch for the same video and subtitle", async () => {
     await store.putMismatch(mismatch());
     await store.putMismatch(mismatch());
@@ -175,5 +195,12 @@ describe.skipIf(databaseURL === undefined)(
     const store = postgresStore(databaseURL ?? "");
 
     contract(() => store);
+
+    it("computes the subtitle key the way the database does", async () => {
+      const hashes = ["1111111111111111", "2222222222222222", "1111111111111111"];
+      const [row] = await sql<{ key: string }[]>`select subtitle_hashes_key(${hashes}) as key`;
+
+      expect(subtitleKey(hashes)).toBe(row?.key);
+    });
   },
 );

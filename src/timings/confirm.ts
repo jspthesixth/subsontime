@@ -1,45 +1,55 @@
-import type { FixRow, MismatchRow, NewReport, ReportRow } from "./db.ts";
-import { similarity, type CueHash, type FixCue } from "./fingerprint.ts";
+import {
+  subtitleKey,
+  type FixRow,
+  type MismatchRow,
+  type NewReport,
+  type ReportRow,
+} from "./db.ts";
+import { setSimilarity, subtitleSketch, type CueHash, type FixCue } from "./fingerprint.ts";
 
 export type ReportReason = NewReport["reason"];
 
 export type FixView = {
-  subtitleHashes: CueHash[];
-  cues: FixCue[];
-  cuesOmitted?: true;
+  id: string;
+  subtitleSketch: CueHash[];
   status: "confirmed" | "hint";
   method: string;
   agreeing: number;
   fromAudio: boolean;
+  cueCount: number;
 };
 
+export type FixWithCues = FixView & { cues: FixCue[] };
+
 export type HiddenView = {
-  subtitleHashes: CueHash[];
+  subtitleSketch: CueHash[];
   reason: "mismatch" | ReportReason;
   count: number;
 };
 
-export type VideoTimings = { fixes: FixView[]; hidden: HiddenView[] };
+export type VideoTimings<View = FixView> = { fixes: View[]; hidden: HiddenView[] };
 
 type Row = FixRow | MismatchRow | ReportRow;
-type Timed = {
-  fix: FixRow;
-  ids: number[];
-  cues: FixCue[];
-  repeatedIds: number[];
+type Timed = { fix: FixRow; once: Map<CueHash, FixCue>; repeated: CueHash[] };
+type Ranked = { view: FixWithCues; newest: number };
+type Hidden = { view: HiddenView; newest: number };
+type Section = {
+  fixView?: Ranked;
+  mismatch?: Hidden;
+  mismatchers: Set<string>;
+  hidden: Hidden[];
 };
-type Interned = { hashes: CueHash[]; timed: Timed[] };
-type Ranked = { view: FixView; newest: number };
+
+export type Digest = Section[];
 
 const sameSubtitleShare = 0.9;
 const toleranceMs = 100;
 const agreeingPercent = 80;
 const minimumSharedCues = 20;
-const mismatchSubmitters = 2;
 const reportSubmitters = 3;
+const weighedFixes = 50;
 const maximumViews = 20;
-const hintsWithCues = 5;
-const absent = -1;
+const maximumHidden = 50;
 
 const byAge = (a: Row, b: Row) => a.createdAt.getTime() - b.createdAt.getTime();
 
@@ -48,32 +58,15 @@ const newestOf = <Item extends Row>(rows: Item[]) =>
 
 const submittersOf = (rows: Row[]) => new Set(rows.map((row) => row.submitter));
 
-const connected = <Item>(
-  items: Item[],
-  candidates: (at: number) => Iterable<number>,
-  linked: (a: Item, b: Item) => boolean,
-): Item[][] => {
-  const labels = items.map((_, index) => index);
+const originsOf = (rows: Row[]) => new Set(rows.flatMap((row) => row.origin ?? []));
 
-  items.forEach((item, at) => {
-    for (const other of candidates(at)) {
-      const from = labels[at];
-      const to = labels[other] ?? other;
-      const otherItem = items[other];
+const independent = (a: Row, b: Row) =>
+  a.submitter !== b.submitter &&
+  a.origin !== undefined &&
+  b.origin !== undefined &&
+  a.origin !== b.origin;
 
-      if (from !== to && otherItem !== undefined && linked(item, otherItem)) {
-        labels.forEach((label, index) => {
-          labels[index] = label === from ? to : label;
-        });
-      }
-    }
-  });
-
-  return [...Map.groupBy(items, (_, index) => labels[index]).values()];
-};
-
-const sameSubtitle = ([a]: Row[], [b]: Row[]) =>
-  similarity(a?.subtitleHashes ?? [], b?.subtitleHashes ?? []) >= sameSubtitleShare;
+const hasIndependentPair = (rows: Row[]) => rows.some((a) => rows.some((b) => independent(a, b)));
 
 const orderOf = (hash: CueHash) => Number.parseInt(hash.slice(0, 8), 16);
 
@@ -88,143 +81,125 @@ const prefixOf = (hashes: CueHash[]) => {
   return unique.filter((_, index) => (orders[index] ?? 0) <= last);
 };
 
-const cluster = <Item extends Row>(rows: Item[]): Item[][] => {
-  const buckets = [...Map.groupBy(rows, (row) => row.subtitleHashes.join()).values()];
-  const prefixes = buckets.map(([first]) => prefixOf(first?.subtitleHashes ?? []));
-  const holders = Map.groupBy(
-    prefixes.flatMap((prefix, at) => prefix.map((hash) => ({ hash, at }))),
-    ({ hash }) => hash,
-  );
-  const earlierSharing = (at: number) =>
-    [
-      ...new Set(
-        (prefixes[at] ?? []).flatMap((hash) =>
-          (holders.get(hash) ?? []).flatMap((holder) => (holder.at < at ? [holder.at] : [])),
-        ),
-      ),
-    ].toSorted((a, b) => b - a);
+const representatives = (rows: Row[]): Map<Row, Row> => {
+  const leaders: { row: Row; hashes: Set<CueHash> }[] = [];
+  const byList = new Map<string, Row>();
+  const holders = new Map<CueHash, number[]>();
 
-  return connected(buckets, earlierSharing, sameSubtitle).map((group) => group.flat());
-};
+  const leaderFor = (row: Row) => {
+    const list = row.subtitleHashes.join();
+    const known = byList.get(list);
 
-const interned = (group: FixRow[]): Interned => {
-  const ids = new Map<CueHash, number>();
-  const idOf = (hash: CueHash) => {
-    const id = ids.get(hash) ?? ids.size;
-
-    if (id === ids.size) {
-      ids.set(hash, id);
+    if (known !== undefined) {
+      return known;
     }
 
-    return id;
-  };
-  const withIds = group.map((fix) => ({ fix, cueIds: fix.cues.map((cue) => idOf(cue.h)) }));
+    const hashes = new Set(row.subtitleHashes);
+    const prefix = prefixOf(row.subtitleHashes);
+    const leader =
+      [...new Set(prefix.flatMap((hash) => holders.get(hash) ?? []))]
+        .toSorted((a, b) => a - b)
+        .flatMap((at) => leaders[at] ?? [])
+        .find((candidate) => setSimilarity(candidate.hashes, hashes) >= sameSubtitleShare)?.row ??
+      row;
 
-  const copies = new Int32Array(ids.size);
+    if (leader === row) {
+      prefix.forEach((hash) => holders.set(hash, [...(holders.get(hash) ?? []), leaders.length]));
+      leaders.push({ row, hashes });
+    }
+
+    byList.set(list, leader);
+
+    return leader;
+  };
+
+  return new Map(rows.map((row) => [row, leaderFor(row)]));
+};
+
+const timedOf = (fix: FixRow): Timed => {
+  const copies = [...Map.groupBy(fix.cues, (cue) => cue.h)];
 
   return {
-    hashes: [...ids.keys()],
-    timed: withIds.map(({ fix, cueIds }) => {
-      cueIds.forEach((id) => {
-        copies[id] = (copies[id] ?? 0) + 1;
-      });
-
-      const onceAt = cueIds
-        .map((_, index) => index)
-        .filter((index) => copies[cueIds[index] ?? 0] === 1);
-      const repeatedIds = cueIds.filter((id) => (copies[id] ?? 0) > 1);
-
-      cueIds.forEach((id) => {
-        copies[id] = 0;
-      });
-
-      return {
-        fix,
-        ids: onceAt.map((index) => cueIds[index] ?? 0),
-        cues: onceAt.flatMap((index) => fix.cues[index] ?? []),
-        repeatedIds,
-      };
-    }),
+    fix,
+    once: new Map(
+      copies.flatMap(([hash, [cue, ...more]]) =>
+        cue === undefined || more.length > 0 ? [] : [[hash, cue] as const],
+      ),
+    ),
+    repeated: copies.flatMap(([hash, all]) => (all.length > 1 ? [hash] : [])),
   };
 };
 
-const agreement = ({ hashes }: Interned) => {
-  const starts = new Float64Array(hashes.length).fill(absent);
-  const ends = new Float64Array(hashes.length);
-  let spread: Timed | undefined;
+const close = (a: FixCue, b: FixCue) =>
+  Math.abs(a.s - b.s) <= toleranceMs && Math.abs(a.e - b.e) <= toleranceMs;
 
-  const spreadOut = (timed: Timed) => {
-    spread?.ids.forEach((id) => {
-      starts[id] = absent;
-    });
-    timed.cues.forEach((cue, index) => {
-      const id = timed.ids[index] ?? 0;
+const agree = (left: Timed, right: Timed) => {
+  const [fewer, more] =
+    left.once.size <= right.once.size ? [left.once, right.once] : [right.once, left.once];
+  const allowedApart = fewer.size * (100 - agreeingPercent);
+  let shared = 0;
+  let apart = 0;
 
-      starts[id] = cue.s;
-      ends[id] = cue.e;
-    });
-    spread = timed;
-  };
+  for (const [hash, cue] of fewer) {
+    const other = more.get(hash);
 
-  return (left: Timed, right: Timed) => {
-    if (spread !== left) {
-      spreadOut(left);
+    if (other !== undefined) {
+      shared += 1;
+      apart += close(cue, other) ? 0 : 1;
     }
 
-    const allowedApart = Math.min(left.ids.length, right.ids.length) * (100 - agreeingPercent);
-    let shared = 0;
-    let apart = 0;
+    if (apart * 100 > allowedApart) {
+      return false;
+    }
+  }
 
-    for (let index = 0; index < right.ids.length && apart * 100 <= allowedApart; index += 1) {
-      const id = right.ids[index] ?? 0;
-      const start = starts[id] ?? absent;
-      const cue = right.cues[index];
+  return shared >= minimumSharedCues && (shared - apart) * 100 >= shared * agreeingPercent;
+};
 
-      if (start !== absent && cue !== undefined) {
-        shared += 1;
-        apart +=
-          Math.abs(start - cue.s) <= toleranceMs && Math.abs((ends[id] ?? 0) - cue.e) <= toleranceMs
-            ? 0
-            : 1;
+const agreeingComponents = (timed: Timed[]): Timed[][] => {
+  const labels = timed.map((_, index) => index);
+
+  timed.forEach((later, laterIndex) =>
+    timed.slice(0, laterIndex).forEach((earlier, earlierIndex) => {
+      const from = labels[laterIndex];
+      const to = labels[earlierIndex] ?? earlierIndex;
+
+      if (from !== to && independent(later.fix, earlier.fix) && agree(later, earlier)) {
+        labels.forEach((label, index) => {
+          labels[index] = label === from ? to : label;
+        });
       }
-    }
+    }),
+  );
 
-    return shared >= minimumSharedCues && (shared - apart) * 100 >= shared * agreeingPercent;
-  };
+  return [...Map.groupBy(timed, (_, index) => labels[index]).values()];
 };
 
-const agreeingComponents = (group: Interned) => {
-  const agree = agreement(group);
+const strength = (component: Timed[]) => {
+  const fixes = component.map(({ fix }) => fix);
 
-  return connected(
-    group.timed,
-    (at) => group.timed.slice(0, at).keys(),
-    (a, b) => a.fix.submitter !== b.fix.submitter && agree(a, b),
-  );
+  return [originsOf(fixes).size, submittersOf(fixes).size] as const;
 };
 
 const largest = (components: Timed[][]) =>
-  components.reduce((best, component) =>
-    submittersOf(component.map(({ fix }) => fix)).size >
-    submittersOf(best.map(({ fix }) => fix)).size
+  components.reduce((best, component) => {
+    const [origins, submitters] = strength(component);
+    const [bestOrigins, bestSubmitters] = strength(best);
+
+    return origins > bestOrigins || (origins === bestOrigins && submitters > bestSubmitters)
       ? component
-      : best,
-  );
+      : best;
+  });
 
 const hasKey = (fix: FixRow) => (fix.referenceKey ?? "") !== "";
 
-const isConfirmed = (fixes: FixRow[]) =>
-  submittersOf(fixes).size >= 2 &&
-  (fixes.some((fix) => fix.method === "audio") ||
-    fixes.some((one) =>
-      fixes.some(
-        (other) =>
-          one.submitter !== other.submitter &&
-          hasKey(one) &&
-          hasKey(other) &&
-          one.referenceKey !== other.referenceKey,
-      ),
-    ));
+const confirms = (a: FixRow, b: FixRow) =>
+  independent(a, b) &&
+  (a.method === "audio" ||
+    b.method === "audio" ||
+    (hasKey(a) && hasKey(b) && a.referenceKey !== b.referenceKey));
+
+const isConfirmed = (fixes: FixRow[]) => fixes.some((a) => fixes.some((b) => confirms(a, b)));
 
 const median = (values: number[]) => {
   const sorted = Int32Array.from(values).toSorted();
@@ -234,50 +209,57 @@ const median = (values: number[]) => {
   );
 };
 
-const confirmedView = (hashes: CueHash[], component: Timed[]): FixView => {
+const viewOf = (leader: FixRow, cues: FixCue[]) => ({
+  id: subtitleKey(leader.subtitleHashes),
+  subtitleSketch: subtitleSketch(leader.subtitleHashes),
+  cues,
+  cueCount: cues.length,
+});
+
+const confirmedView = (leader: FixRow, component: Timed[]): Ranked => {
   const fixes = component.map(({ fix }) => fix);
-  const starts: number[][] = [];
-  const ends: number[][] = [];
-  const repeatedIds = new Set(component.flatMap((timed) => timed.repeatedIds));
-
-  component.forEach((timed) =>
-    timed.cues.forEach((cue, index) => {
-      const id = timed.ids[index] ?? 0;
-
-      (starts[id] ??= []).push(cue.s);
-      (ends[id] ??= []).push(cue.e);
-    }),
+  const repeated = new Set(component.flatMap((timed) => timed.repeated));
+  const timings = Map.groupBy(
+    component.flatMap(({ once }) => [...once.values()]).filter((cue) => !repeated.has(cue.h)),
+    (cue) => cue.h,
   );
-
-  const cues = hashes.flatMap((h, id) => {
-    const cueStarts = starts[id] ?? [];
-
-    return cueStarts.length === 0 || repeatedIds.has(id)
-      ? []
-      : [{ h, s: median(cueStarts), e: median(ends[id] ?? []) }];
-  });
   const fromAudio = fixes.some((fix) => fix.method === "audio");
   const [mostCommon] = [...Map.groupBy(fixes, (fix) => fix.method)].reduce((best, entry) =>
     entry[1].length > best[1].length ? entry : best,
   );
-
-  return {
-    subtitleHashes: newestOf(fixes).subtitleHashes,
-    cues: cues.toSorted((a, b) => a.s - b.s || a.e - b.e),
-    status: "confirmed",
-    method: fromAudio ? "audio" : mostCommon,
-    agreeing: submittersOf(fixes).size,
-    fromAudio,
-  };
-};
-
-const hintOf = (group: FixRow[]): Ranked => {
-  const newest = newestOf(group);
+  const cues = [...timings]
+    .map(([h, copies]) => ({
+      h,
+      s: median(copies.map((cue) => cue.s)),
+      e: median(copies.map((cue) => cue.e)),
+    }))
+    .toSorted((a, b) => a.s - b.s || a.e - b.e);
 
   return {
     view: {
-      subtitleHashes: newest.subtitleHashes,
-      cues: newest.cues,
+      ...viewOf(leader, cues),
+      status: "confirmed",
+      method: fromAudio ? "audio" : mostCommon,
+      agreeing: submittersOf(fixes).size,
+      fromAudio,
+    },
+    newest: newestOf(fixes).createdAt.getTime(),
+  };
+};
+
+const rankedView = (leader: FixRow, group: FixRow[]): Ranked => {
+  const weighed = group.toSorted(byAge).slice(-weighedFixes);
+  const component = largest(agreeingComponents(weighed.map(timedOf)));
+
+  if (isConfirmed(component.map(({ fix }) => fix))) {
+    return confirmedView(leader, component);
+  }
+
+  const newest = newestOf(weighed);
+
+  return {
+    view: {
+      ...viewOf(leader, newest.cues),
       status: "hint",
       method: newest.method,
       agreeing: 1,
@@ -287,88 +269,118 @@ const hintOf = (group: FixRow[]): Ranked => {
   };
 };
 
-const rankedView = (group: FixRow[]): Ranked => {
-  if (submittersOf(group).size < 2) {
-    return hintOf(group);
-  }
+const hiddenOf = (rows: Row[], reason: HiddenView["reason"]): Hidden => {
+  const newest = newestOf(rows);
 
-  const internedGroup = interned(group);
-  const component = largest(agreeingComponents(internedGroup));
-  const fixes = component.map(({ fix }) => fix);
-
-  return isConfirmed(fixes)
-    ? {
-        view: confirmedView(internedGroup.hashes, component),
-        newest: newestOf(fixes).createdAt.getTime(),
-      }
-    : hintOf(group);
+  return {
+    view: {
+      subtitleSketch: subtitleSketch(newest.subtitleHashes),
+      reason,
+      count: submittersOf(rows).size,
+    },
+    newest: newest.createdAt.getTime(),
+  };
 };
 
-const hiddenIn = (
+const sectionOf = (
+  leader: Row,
+  fixes: FixRow[],
   mismatches: MismatchRow[],
   reports: ReportRow[],
-  viewer?: string,
-): HiddenView[] => {
-  const mismatchers = submittersOf(mismatches);
-  const ownMismatch = viewer !== undefined && mismatchers.has(viewer);
-  const mismatchViews =
-    mismatchers.size >= mismatchSubmitters || ownMismatch
-      ? [
-          {
-            subtitleHashes: newestOf(mismatches).subtitleHashes,
-            reason: "mismatch" as const,
-            count: mismatchers.size,
-          },
-        ]
-      : [];
-  const reportViews = [...Map.groupBy(reports, (row) => row.reason)].flatMap(([reason, rows]) => {
-    const count = submittersOf(rows).size;
+): Section => {
+  const mismatch = mismatches.length === 0 ? undefined : hiddenOf(mismatches, "mismatch");
+  const reportsHidden = [...Map.groupBy(reports, (row) => row.reason)].flatMap(([reason, rows]) =>
+    submittersOf(rows).size >= reportSubmitters && hasIndependentPair(rows)
+      ? [hiddenOf(rows, reason)]
+      : [],
+  );
+  const leadingFix = fixes.find((fix) => fix === leader);
 
-    return count >= reportSubmitters
-      ? [{ subtitleHashes: newestOf(rows).subtitleHashes, reason, count }]
-      : [];
-  });
-
-  return [...mismatchViews, ...reportViews];
+  return {
+    fixView: leadingFix === undefined ? undefined : rankedView(leadingFix, fixes),
+    mismatch,
+    mismatchers: submittersOf(mismatches),
+    hidden: [
+      ...(mismatch !== undefined && hasIndependentPair(mismatches) ? [mismatch] : []),
+      ...reportsHidden,
+    ],
+  };
 };
 
-const withCuesFor = (views: FixView[]) => {
-  const hintsKept = new Set(views.filter((view) => view.status === "hint").slice(0, hintsWithCues));
+export const digest = (
+  fixes: FixRow[],
+  mismatches: MismatchRow[],
+  reports: ReportRow[],
+): Digest => {
+  const leaderOf = representatives([
+    ...fixes.toSorted(byAge),
+    ...[...mismatches, ...reports].toSorted(byAge),
+  ]);
+  const byLeader = <Item extends Row>(rows: Item[]) =>
+    Map.groupBy(rows, (row) => leaderOf.get(row));
+  const fixGroups = byLeader(fixes);
+  const mismatchGroups = byLeader(mismatches);
+  const reportGroups = byLeader(reports);
 
-  return views.map((view) =>
-    view.status === "confirmed" || hintsKept.has(view)
-      ? view
-      : { ...view, cues: [], cuesOmitted: true as const },
+  return [...new Set(leaderOf.values())].map((leader) =>
+    sectionOf(
+      leader,
+      fixGroups.get(leader) ?? [],
+      mismatchGroups.get(leader) ?? [],
+      reportGroups.get(leader) ?? [],
+    ),
   );
 };
+
+const byRank = (a: { newest: number }, b: { newest: number }) => b.newest - a.newest;
+
+export const present = (sections: Digest, viewer?: string): VideoTimings<FixWithCues> => {
+  const shown = sections.map((section) => {
+    const own =
+      viewer !== undefined &&
+      section.mismatch !== undefined &&
+      section.mismatchers.has(viewer) &&
+      !section.hidden.includes(section.mismatch)
+        ? [section.mismatch]
+        : [];
+
+    return { section, own, hidden: [...own, ...section.hidden] };
+  });
+  const own = shown.flatMap((entry) => entry.own);
+  const hidden = shown
+    .flatMap((entry) => entry.section.hidden)
+    .toSorted((a, b) => b.view.count - a.view.count || byRank(a, b));
+
+  return {
+    fixes: shown
+      .flatMap((entry) =>
+        entry.hidden.length === 0 && entry.section.fixView !== undefined
+          ? [entry.section.fixView]
+          : [],
+      )
+      .toSorted((a, b) => b.view.agreeing - a.view.agreeing || byRank(a, b))
+      .slice(0, maximumViews)
+      .map(({ view }) => view),
+    hidden: [...own, ...hidden].slice(0, maximumHidden).map(({ view }) => view),
+  };
+};
+
+export const publicTimings = (timings: VideoTimings<FixWithCues>): VideoTimings => ({
+  fixes: timings.fixes.map((view) => ({
+    id: view.id,
+    subtitleSketch: view.subtitleSketch,
+    status: view.status,
+    method: view.method,
+    agreeing: view.agreeing,
+    fromAudio: view.fromAudio,
+    cueCount: view.cueCount,
+  })),
+  hidden: timings.hidden,
+});
 
 export const summarize = (
   fixes: FixRow[],
   mismatches: MismatchRow[],
   reports: ReportRow[],
   viewer?: string,
-): VideoTimings => {
-  const oldestFirst = fixes.toSorted(byAge);
-  const subtitles = cluster([...fixes, ...mismatches, ...reports].toSorted(byAge)).map((rows) => {
-    const members = new Set<Row>(rows);
-    const subtitleFixes = oldestFirst.filter((row) => members.has(row));
-
-    return {
-      fixGroups: subtitleFixes.length === rows.length ? [subtitleFixes] : cluster(subtitleFixes),
-      hidden: hiddenIn(
-        mismatches.filter((row) => members.has(row)),
-        reports.filter((row) => members.has(row)),
-        viewer,
-      ),
-    };
-  });
-  const ranked = subtitles
-    .flatMap(({ fixGroups, hidden }) => (hidden.length === 0 ? fixGroups.map(rankedView) : []))
-    .toSorted((a, b) => b.view.agreeing - a.view.agreeing || b.newest - a.newest)
-    .slice(0, maximumViews);
-
-  return {
-    fixes: withCuesFor(ranked.map(({ view }) => view)),
-    hidden: subtitles.flatMap(({ hidden }) => hidden),
-  };
-};
+): VideoTimings<FixWithCues> => present(digest(fixes, mismatches, reports), viewer);

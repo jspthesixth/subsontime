@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { dialogueTrack, fastestOfThree } from "../timing/test-tracks.ts";
-import { summarize } from "./confirm.ts";
-import type { FixRow, MismatchRow, NewFix, ReportRow } from "./db.ts";
-import { toFixCues, type CueHash, type FixCue } from "./fingerprint.ts";
+import { publicTimings, summarize } from "./confirm.ts";
+import { subtitleKey, type FixRow, type MismatchRow, type NewFix, type ReportRow } from "./db.ts";
+import { subtitleSketch, toFixCues, type CueHash, type FixCue } from "./fingerprint.ts";
 
 const video = { hash: "0123456789abcdef", size: 7_345_678_901 };
 const alice = "a".repeat(32);
@@ -27,28 +27,35 @@ const shifted = (cues: FixCue[], by: number) =>
 
 const hashesOf = (cues: FixCue[]) => cues.map((cue) => cue.h);
 
+const originOf = (submitter: string) => submitter.slice(-16);
+
+const submitterAt = (index: number) => index.toString(16).padStart(32, "0");
+
+const idOf = (cues: FixCue[]) => subtitleKey(hashesOf(cues));
+
 const fix = (cues: FixCue[], overrides: Partial<NewFix> = {}): FixRow => ({
   video,
   subtitleHashes: hashesOf(cues),
   cues,
   method: "audio",
   submitter: alice,
+  origin: originOf(overrides.submitter ?? alice),
   ...overrides,
   createdAt: nextTime(),
 });
 
-const mismatch = (subtitleHashes: CueHash[], submitter: string): MismatchRow => ({
-  video,
-  subtitleHashes,
-  submitter,
-  createdAt: nextTime(),
-});
+const mismatch = (
+  subtitleHashes: CueHash[],
+  submitter: string,
+  origin = originOf(submitter),
+): MismatchRow => ({ video, subtitleHashes, submitter, origin, createdAt: nextTime() });
 
 const report = (
   subtitleHashes: CueHash[],
   submitter: string,
   reason: ReportRow["reason"] = "timing-off",
-): ReportRow => ({ video, subtitleHashes, reason, submitter, createdAt: nextTime() });
+  origin = originOf(submitter),
+): ReportRow => ({ video, subtitleHashes, reason, submitter, origin, createdAt: nextTime() });
 
 const fixesOnly = (fixes: FixRow[]) => summarize(fixes, [], []).fixes;
 
@@ -58,8 +65,10 @@ describe("summarize confirmation", () => {
   it("confirms two agreeing audio fixes from different submitters", () => {
     expect(fixesOnly([fix(cues), fix(shifted(cues, 40), { submitter: bob })])).toEqual([
       {
-        subtitleHashes: hashesOf(cues),
+        id: idOf(cues),
+        subtitleSketch: subtitleSketch(hashesOf(cues)),
         cues: shifted(cues, 20),
+        cueCount: 40,
         status: "confirmed",
         method: "audio",
         agreeing: 2,
@@ -87,8 +96,10 @@ describe("summarize confirmation", () => {
 
     expect(fixesOnly([oldest, newest])).toEqual([
       {
-        subtitleHashes: newest.subtitleHashes,
+        id: idOf(cues),
+        subtitleSketch: subtitleSketch(hashesOf(cues)),
         cues: newest.cues,
+        cueCount: 40,
         status: "hint",
         method: "reference",
         agreeing: 1,
@@ -122,6 +133,69 @@ describe("summarize confirmation", () => {
     ]);
 
     expect(view?.status).toBe("hint");
+  });
+
+  it("gives a hint when the different references come from one origin", () => {
+    const [view] = fixesOnly([
+      fix(cues, { method: "reference", referenceKey: referenceOne }),
+      fix(cues, {
+        method: "reference",
+        referenceKey: referenceTwo,
+        submitter: bob,
+        origin: originOf(alice),
+      }),
+      fix(cues, { method: "release-name", submitter: carol }),
+    ]);
+
+    expect(view?.status).toBe("hint");
+  });
+
+  it("gives a hint for two submitters from one origin", () => {
+    expect(
+      fixesOnly([fix(cues), fix(cues, { submitter: bob, origin: originOf(alice) })]),
+    ).toMatchObject([{ status: "hint" }]);
+  });
+
+  it("gives a hint for two submitters without an origin", () => {
+    expect(
+      fixesOnly([
+        fix(cues, { origin: undefined }),
+        fix(cues, { submitter: bob, origin: undefined }),
+      ]),
+    ).toMatchObject([{ status: "hint" }]);
+  });
+
+  it("prefers two origins agreeing over many submitters from one origin", () => {
+    const [view] = fixesOnly([
+      fix(cues),
+      fix(cues, { submitter: bob, origin: originOf(alice) }),
+      fix(cues, { submitter: carol, origin: originOf(alice) }),
+      fix(shifted(cues, 2000), { submitter: dave }),
+      fix(shifted(cues, 2000), { submitter: submitterAt(1) }),
+    ]);
+
+    expect(view).toMatchObject({ status: "confirmed", agreeing: 2, cues: shifted(cues, 2000) });
+  });
+
+  it("does not let one origin chain fixes away from an honest one", () => {
+    const sybils = Array.from({ length: 49 }, (_, index) =>
+      fix(shifted(cues, (index + 1) * 95), {
+        submitter: submitterAt(index + 1),
+        origin: originOf(bob),
+      }),
+    );
+
+    expect(fixesOnly([fix(cues), ...sybils])).toMatchObject([
+      { status: "confirmed", agreeing: 2, cues: shifted(cues, 48) },
+    ]);
+  });
+
+  it("weighs only the 50 newest fixes of a subtitle", () => {
+    const [view] = fixesOnly(
+      Array.from({ length: 60 }, (_, index) => fix(cues, { submitter: submitterAt(index) })),
+    );
+
+    expect(view).toMatchObject({ status: "confirmed", agreeing: 50 });
   });
 
   it("gives a hint when only one submitter holds the different references", () => {
@@ -231,8 +305,8 @@ describe("summarize confirmation", () => {
     const other = subtitle(3);
 
     expect(fixesOnly([fix(cues), fix(other, { submitter: bob })])).toMatchObject([
-      { status: "hint", subtitleHashes: hashesOf(other) },
-      { status: "hint", subtitleHashes: hashesOf(cues) },
+      { status: "hint", id: idOf(other) },
+      { status: "hint", id: idOf(cues) },
     ]);
   });
 });
@@ -248,8 +322,10 @@ describe("summarize hiding", () => {
     const forCarol = summarize(fixes, mismatches, [], carol);
 
     expect(summarize(fixes, mismatches, [])).toEqual(summarize(fixes, [], []));
-    expect(forCarol.hidden).toEqual([{ subtitleHashes: nearlyCues, reason: "mismatch", count: 1 }]);
-    expect(forCarol.fixes.map((view) => view.subtitleHashes)).toEqual([hashesOf(other)]);
+    expect(forCarol.hidden).toEqual([
+      { subtitleSketch: subtitleSketch(nearlyCues), reason: "mismatch", count: 1 },
+    ]);
+    expect(forCarol.fixes.map((view) => view.id)).toEqual([idOf(other)]);
   });
 
   it("hides a subtitle for everyone after mismatches from two submitters", () => {
@@ -260,16 +336,26 @@ describe("summarize hiding", () => {
     );
 
     expect(timings.hidden).toEqual([
-      { subtitleHashes: hashesOf(cues), reason: "mismatch", count: 2 },
+      { subtitleSketch: subtitleSketch(hashesOf(cues)), reason: "mismatch", count: 2 },
     ]);
-    expect(timings.fixes.map((view) => view.subtitleHashes)).toEqual([hashesOf(other)]);
+    expect(timings.fixes.map((view) => view.id)).toEqual([idOf(other)]);
+  });
+
+  it("does not hide for everyone after mismatches from two submitters of one origin", () => {
+    const mismatches = [
+      mismatch(nearlyCues, carol),
+      mismatch(hashesOf(cues), dave, originOf(carol)),
+    ];
+
+    expect(summarize(fixes, mismatches, [])).toEqual(summarize(fixes, [], []));
+    expect(summarize(fixes, mismatches, [], dave).hidden).toMatchObject([{ reason: "mismatch" }]);
   });
 
   it("hides a subtitle nobody fixed after mismatches from two submitters", () => {
     const hashes = hashesOf(subtitle(6));
 
     expect(summarize([], [mismatch(hashes, carol), mismatch(hashes, dave)], []).hidden).toEqual([
-      { subtitleHashes: hashes, reason: "mismatch", count: 2 },
+      { subtitleSketch: subtitleSketch(hashes), reason: "mismatch", count: 2 },
     ]);
   });
 
@@ -278,7 +364,7 @@ describe("summarize hiding", () => {
 
     expect(summarize([], [mismatch([line], carol), mismatch([line, line], dave)], [])).toEqual({
       fixes: [],
-      hidden: [{ subtitleHashes: [line, line], reason: "mismatch", count: 2 }],
+      hidden: [{ subtitleSketch: [line], reason: "mismatch", count: 2 }],
     });
   });
 
@@ -299,9 +385,34 @@ describe("summarize hiding", () => {
 
     expect(summarize(fixes, [], reports.slice(0, 2))).toEqual(summarize(fixes, [], []));
     expect(timings.hidden).toEqual([
-      { subtitleHashes: hashesOf(cues), reason: "timing-off", count: 3 },
+      { subtitleSketch: subtitleSketch(hashesOf(cues)), reason: "timing-off", count: 3 },
     ]);
-    expect(timings.fixes.map((view) => view.subtitleHashes)).toEqual([hashesOf(other)]);
+    expect(timings.fixes.map((view) => view.id)).toEqual([idOf(other)]);
+  });
+
+  it("keeps a subtitle visible after three reports from one origin", () => {
+    const reports = [
+      report(hashesOf(cues), carol),
+      report(nearlyCues, dave, "timing-off", originOf(carol)),
+      report(hashesOf(cues), bob, "timing-off", originOf(carol)),
+    ];
+
+    expect(summarize(fixes, [], reports).hidden).toEqual([]);
+  });
+
+  it("lists at most 50 hidden subtitles and keeps the viewer's own", () => {
+    const own = mismatch(hashesOf(subtitle(300, 5)), carol);
+    const hidden = Array.from({ length: 60 }, (_, index) =>
+      hashesOf(subtitle(400 + index, 5)),
+    ).flatMap((hashes) => [mismatch(hashes, bob), mismatch(hashes, dave)]);
+    const timings = summarize([], [own, ...hidden], [], carol);
+
+    expect(timings.hidden).toHaveLength(50);
+    expect(timings.hidden).toContainEqual({
+      subtitleSketch: subtitleSketch(own.subtitleHashes),
+      reason: "mismatch",
+      count: 1,
+    });
   });
 
   it("keeps a subtitle visible after three reports with different reasons", () => {
@@ -326,11 +437,11 @@ describe("summarize hiding", () => {
 });
 
 describe("summarize limits", () => {
-  it("returns 20 views, confirmed first, then by agreement, then newest, with cues for 5 hints", () => {
+  it("returns 20 views, confirmed first, then by agreement, then newest", () => {
     const pair = subtitle(10);
     const trio = subtitle(11);
     const hints = Array.from({ length: 25 }, (_, index) =>
-      fix(subtitle(100 + index, 25), { submitter: index.toString(16).padStart(32, "0") }),
+      fix(subtitle(100 + index, 25), { submitter: submitterAt(index) }),
     );
     const views = fixesOnly([
       fix(pair),
@@ -340,51 +451,66 @@ describe("summarize limits", () => {
       fix(trio, { submitter: carol }),
       ...hints,
     ]);
-    const newestHints = hints.toReversed().slice(0, 18);
 
     expect(views).toHaveLength(20);
     expect(views.slice(0, 2)).toMatchObject([
       { status: "confirmed", agreeing: 3, cues: trio },
       { status: "confirmed", agreeing: 2, cues: pair },
     ]);
-    expect(views.slice(2).map((view) => view.subtitleHashes)).toEqual(
-      newestHints.map((row) => row.subtitleHashes),
-    );
-    expect(views.slice(2, 7).map((view) => view.cues)).toEqual(
-      newestHints.slice(0, 5).map((row) => row.cues),
-    );
-    expect(views.slice(7)).toEqual(
-      newestHints.slice(5).map((row) => ({
-        subtitleHashes: row.subtitleHashes,
-        cues: [],
-        cuesOmitted: true,
-        status: "hint",
-        method: "audio",
-        agreeing: 1,
-        fromAudio: true,
-      })),
+    expect(views.slice(2).map((view) => view.id)).toEqual(
+      hints
+        .toReversed()
+        .slice(0, 18)
+        .map((row) => idOf(row.cues)),
     );
   });
 
-  it("keeps the response for 60 large fixes from 60 submitters under 2 MB", () => {
+  it("keeps the public response for 60 subtitles of 5000 lines from 60 submitters under 200 KB", () => {
     const fixes = Array.from({ length: 60 }, (_, index) =>
-      fix(subtitle(1000 + index, 2000), { submitter: index.toString(16).padStart(32, "0") }),
+      fix(subtitle(1000 + index, 5000), { submitter: submitterAt(index) }),
     );
-    const body = JSON.stringify(summarize(fixes, [], []));
+    const timings = publicTimings(summarize(fixes, [], []));
 
-    expect(Buffer.byteLength(body)).toBeLessThan(2 * 1024 * 1024);
+    expect(timings.fixes).toHaveLength(20);
+    expect(timings.fixes[0]).toEqual({
+      id: idOf(fixes[59]?.cues ?? []),
+      subtitleSketch: subtitleSketch(fixes[59]?.subtitleHashes ?? []),
+      status: "hint",
+      method: "audio",
+      agreeing: 1,
+      fromAudio: true,
+      cueCount: fixes[59]?.cues.length,
+    });
+    expect(Buffer.byteLength(JSON.stringify(timings))).toBeLessThan(200 * 1024);
   });
 
   it("summarizes 500 fixes of 2000 cues in under 300 ms", async () => {
     const cues = subtitle(7, 2000);
     const fixes = Array.from({ length: 500 }, (_, index) =>
       fix(index % 10 === 0 ? shifted(cues, 1000 + index * 250) : shifted(cues, index % 50), {
-        submitter: index.toString(16).padStart(32, "0"),
+        submitter: submitterAt(index),
       }),
     );
-    const views = fixesOnly(fixes);
 
-    expect(views).toMatchObject([{ status: "confirmed", agreeing: 450 }]);
+    expect(fixesOnly(fixes)).toMatchObject([{ status: "confirmed", agreeing: 45 }]);
     expect(await fastestOfThree(() => fixesOnly(fixes))).toBeLessThan(300);
+  });
+
+  it("summarizes 500 crafted near-identical rows of 2000 lines in under 500 ms", async () => {
+    const cues = subtitle(8, 2000);
+    const fixes = Array.from({ length: 500 }, (_, index) => {
+      const edited = cues.map((cue, at) =>
+        at % 20 === index % 20
+          ? { ...cue, h: (index * 2000 + at).toString(16).padStart(16, "0") }
+          : cue,
+      );
+
+      return fix(shifted(index === 0 ? cues : edited, index * 150), {
+        submitter: submitterAt(index),
+      });
+    });
+
+    expect(fixesOnly(fixes)).toHaveLength(1);
+    expect(await fastestOfThree(() => fixesOnly(fixes))).toBeLessThan(500);
   });
 });

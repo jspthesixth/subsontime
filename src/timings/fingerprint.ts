@@ -33,11 +33,27 @@ export const toFixCues = (cues: Cue[]): FixCue[] => {
   });
 };
 
-export const similarity = (a: CueHash[], b: CueHash[]): number => {
-  const left = new Set(a);
-  const right = new Set(b);
+export const setSimilarity = (left: Set<CueHash>, right: Set<CueHash>): number => {
   const shared = [...left].filter((hash) => right.has(hash)).length;
   const union = left.size + right.size - shared;
 
   return union === 0 ? 0 : shared / union;
+};
+
+export const similarity = (a: CueHash[], b: CueHash[]): number =>
+  setSimilarity(new Set(a), new Set(b));
+
+const sketchSize = 128;
+
+export const subtitleSketch = (hashes: CueHash[]): CueHash[] =>
+  [...new Set(hashes)].toSorted().slice(0, sketchSize);
+
+export const sketchSimilarity = (hashes: CueHash[], sketch: CueHash[]): number => {
+  const ours = new Set(subtitleSketch(hashes));
+  const theirs = new Set(sketch);
+  const bottom = [...new Set([...ours, ...theirs])].toSorted().slice(0, sketchSize);
+
+  return bottom.length === 0
+    ? 0
+    : bottom.filter((hash) => ours.has(hash) && theirs.has(hash)).length / bottom.length;
 };

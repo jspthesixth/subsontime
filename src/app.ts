@@ -11,8 +11,9 @@ import { manifest } from "./stremio/manifest.ts";
 import { refKey } from "./stremio/refs.ts";
 import { subtitlesRoute } from "./stremio/subtitles-route.ts";
 import { submitFix, submitMismatch, submitReport } from "./timings/api.ts";
-import { lookUpRoute, writeRoute } from "./timings/api-route.ts";
+import { cuesRoute, lookUpRoute, writeRoute } from "./timings/api-route.ts";
 import { memoryStore, type TimingsStore } from "./timings/db.ts";
+import { dailyOrigins } from "./timings/origin.ts";
 import { checkPage } from "./web/check-page.ts";
 import { checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
@@ -131,9 +132,11 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       installSalt: deps.installSalt,
       allow: rateLimit(writesPerHour, hourMs).allow,
       clientKey,
+      originOf: dailyOrigins(),
     };
 
     app.get("/api/v1/fixes", lookUpRoute(timingsDeps.store));
+    app.get("/api/v1/fixes/:video/:id/cues", cuesRoute(timingsDeps.store));
     app.post("/api/v1/fixes", writeRoute(submitFix, timingsDeps));
     app.post("/api/v1/mismatches", writeRoute(submitMismatch, timingsDeps));
     app.post("/api/v1/reports", writeRoute(submitReport, timingsDeps));

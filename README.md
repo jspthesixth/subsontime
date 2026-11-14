@@ -37,6 +37,10 @@ Set `TRUST_PROXY=1` when the server runs behind a reverse proxy, so rate limits 
 
 Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point at addons on your own network.
 
+## Privacy
+
+Submissions carry no account and no address. A daily-changing code tells apart submissions from different connections for one day, so one person cannot confirm their own fix; it cannot be traced back after that day.
+
 ## Development
 
 ```sh

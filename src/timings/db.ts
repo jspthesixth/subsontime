@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import postgres from "postgres";
 import type { CueHash, FixCue } from "./fingerprint.ts";
 
@@ -10,9 +11,15 @@ export type NewFix = {
   method: "audio" | "reference" | "release-name";
   referenceKey?: string;
   submitter: string;
+  origin?: string;
 };
 
-export type NewMismatch = { video: VideoKey; subtitleHashes: CueHash[]; submitter: string };
+export type NewMismatch = {
+  video: VideoKey;
+  subtitleHashes: CueHash[];
+  submitter: string;
+  origin?: string;
+};
 
 export type NewReport = {
   video: VideoKey;
@@ -24,6 +31,7 @@ export type NewReport = {
     | "timing-off"
     | "broken-characters";
   submitter: string;
+  origin?: string;
 };
 
 export type FixRow = NewFix & { createdAt: Date };
@@ -40,6 +48,9 @@ export type TimingsStore = {
 };
 
 const readLimit = 500;
+
+export const subtitleKey = (hashes: CueHash[]) =>
+  createHash("md5").update(hashes.join(",")).digest("hex");
 
 type Keyed = { video: VideoKey; submitter: string; subtitleHashes: CueHash[] };
 
@@ -80,12 +91,14 @@ export const memoryStore = (): TimingsStore => {
   };
 };
 
-type VideoColumns = { video_hash: string; video_size: string | number };
+type VideoColumns = { video_hash: string; video_size: string | number; origin: string | null };
 
 const videoOf = (row: VideoColumns): VideoKey => ({
   hash: row.video_hash,
   size: Number(row.video_size),
 });
+
+const originOf = (row: VideoColumns) => (row.origin === null ? {} : { origin: row.origin });
 
 type FixColumns = VideoColumns & {
   subtitle_hashes: string[];
@@ -110,7 +123,7 @@ export const postgresStore = (url: string): TimingsStore => {
   return {
     fixesFor: async (video, limit = readLimit) => {
       const rows = await sql<FixColumns[]>`
-        select video_hash, video_size, subtitle_hashes, cues, method, reference_key, submitter, created_at
+        select video_hash, video_size, subtitle_hashes, cues, method, reference_key, submitter, origin, created_at
         from fixes
         where video_hash = ${video.hash} and video_size = ${video.size}
         order by created_at desc, id desc
@@ -123,12 +136,13 @@ export const postgresStore = (url: string): TimingsStore => {
         method: row.method,
         ...(row.reference_key === null ? {} : { referenceKey: row.reference_key }),
         submitter: row.submitter,
+        ...originOf(row),
         createdAt: row.created_at,
       }));
     },
     mismatchesFor: async (video, limit = readLimit) => {
       const rows = await sql<MismatchColumns[]>`
-        select video_hash, video_size, subtitle_hashes, submitter, created_at
+        select video_hash, video_size, subtitle_hashes, submitter, origin, created_at
         from mismatches
         where video_hash = ${video.hash} and video_size = ${video.size}
         order by created_at desc, id desc
@@ -138,12 +152,13 @@ export const postgresStore = (url: string): TimingsStore => {
         video: videoOf(row),
         subtitleHashes: row.subtitle_hashes,
         submitter: row.submitter,
+        ...originOf(row),
         createdAt: row.created_at,
       }));
     },
     reportsFor: async (video, limit = readLimit) => {
       const rows = await sql<ReportColumns[]>`
-        select video_hash, video_size, subtitle_hashes, reason, submitter, created_at
+        select video_hash, video_size, subtitle_hashes, reason, submitter, origin, created_at
         from reports
         where video_hash = ${video.hash} and video_size = ${video.size}
         order by created_at desc, id desc
@@ -154,29 +169,30 @@ export const postgresStore = (url: string): TimingsStore => {
         subtitleHashes: row.subtitle_hashes,
         reason: row.reason,
         submitter: row.submitter,
+        ...originOf(row),
         createdAt: row.created_at,
       }));
     },
     putFix: async (row) => {
       await sql`
-        insert into fixes (video_hash, video_size, subtitle_hashes, cues, method, reference_key, submitter)
-        values (${row.video.hash}, ${row.video.size}, ${row.subtitleHashes}, ${sql.json(row.cues)}, ${row.method}, ${row.referenceKey ?? null}, ${row.submitter})
+        insert into fixes (video_hash, video_size, subtitle_hashes, cues, method, reference_key, submitter, origin)
+        values (${row.video.hash}, ${row.video.size}, ${row.subtitleHashes}, ${sql.json(row.cues)}, ${row.method}, ${row.referenceKey ?? null}, ${row.submitter}, ${row.origin ?? null})
         on conflict (video_hash, video_size, submitter, subtitle_key) do update
-        set cues = excluded.cues, method = excluded.method, reference_key = excluded.reference_key, created_at = now()`;
+        set cues = excluded.cues, method = excluded.method, reference_key = excluded.reference_key, origin = excluded.origin, created_at = now()`;
     },
     putMismatch: async (row) => {
       await sql`
-        insert into mismatches (video_hash, video_size, subtitle_hashes, submitter)
-        values (${row.video.hash}, ${row.video.size}, ${row.subtitleHashes}, ${row.submitter})
+        insert into mismatches (video_hash, video_size, subtitle_hashes, submitter, origin)
+        values (${row.video.hash}, ${row.video.size}, ${row.subtitleHashes}, ${row.submitter}, ${row.origin ?? null})
         on conflict (video_hash, video_size, submitter, subtitle_key) do update
-        set created_at = now()`;
+        set origin = excluded.origin, created_at = now()`;
     },
     putReport: async (row) => {
       await sql`
-        insert into reports (video_hash, video_size, subtitle_hashes, reason, submitter)
-        values (${row.video.hash}, ${row.video.size}, ${row.subtitleHashes}, ${row.reason}, ${row.submitter})
+        insert into reports (video_hash, video_size, subtitle_hashes, reason, submitter, origin)
+        values (${row.video.hash}, ${row.video.size}, ${row.subtitleHashes}, ${row.reason}, ${row.submitter}, ${row.origin ?? null})
         on conflict (video_hash, video_size, submitter, subtitle_key) do update
-        set reason = excluded.reason, created_at = now()`;
+        set reason = excluded.reason, origin = excluded.origin, created_at = now()`;
     },
   };
 };

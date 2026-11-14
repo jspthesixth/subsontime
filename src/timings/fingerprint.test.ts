@@ -10,7 +10,14 @@ import {
   isSoundOnly,
   withSoundDescriptions,
 } from "../timing/test-tracks.ts";
-import { cueHashes, normalizeCueText, similarity, toFixCues } from "./fingerprint.ts";
+import {
+  cueHashes,
+  normalizeCueText,
+  similarity,
+  sketchSimilarity,
+  subtitleSketch,
+  toFixCues,
+} from "./fingerprint.ts";
 
 const definedHashes = (cues: Cue[]) => toFixCues(cues).map((cue) => cue.h);
 
@@ -108,5 +115,41 @@ describe("similarity", () => {
 
   it("is 0 for two empty lists", () => {
     expect(similarity([], [])).toBe(0);
+  });
+});
+
+describe("subtitleSketch", () => {
+  it("keeps the 128 smallest distinct hashes in hex order", () => {
+    const hashes = definedHashes(dialogueTrack(5, 400));
+
+    expect(subtitleSketch([...hashes, ...hashes])).toEqual(
+      [...new Set(hashes)].toSorted().slice(0, 128),
+    );
+  });
+});
+
+describe("sketchSimilarity", () => {
+  it("equals similarity when both lists hold at most 128 distinct hashes together", () => {
+    const hashes = definedHashes(dialogueTrack(6, 100));
+    const edited = [...hashes.slice(10), ...definedHashes(dialogueTrack(7, 20))];
+
+    expect(sketchSimilarity(edited, subtitleSketch(hashes))).toBe(similarity(edited, hashes));
+  });
+
+  it("estimates the similarity of long lists within 0.1", () => {
+    const hashes = definedHashes(dialogueTrack(8, 2000));
+    const edited = [...hashes.slice(200), ...definedHashes(dialogueTrack(9, 200))];
+
+    expect(
+      Math.abs(sketchSimilarity(edited, subtitleSketch(hashes)) - similarity(edited, hashes)),
+    ).toBeLessThan(0.1);
+    expect(sketchSimilarity(hashes, subtitleSketch(hashes))).toBe(1);
+    expect(
+      sketchSimilarity(definedHashes(dialogueTrack(10, 2000)), subtitleSketch(hashes)),
+    ).toBeLessThan(0.1);
+  });
+
+  it("is 0 for two empty lists", () => {
+    expect(sketchSimilarity([], [])).toBe(0);
   });
 });

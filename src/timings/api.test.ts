@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { memoryTokenCache } from "../sources/token-cache.ts";
 import { TimingsInputError, lookUp, submitFix, submitMismatch } from "./api.ts";
-import { memoryStore, type TimingsStore } from "./db.ts";
+import { memoryStore, subtitleKey, type TimingsStore } from "./db.ts";
 import type { FixCue } from "./fingerprint.ts";
 import { submitterOf } from "./submitter.ts";
 
@@ -30,6 +30,8 @@ const cues = (count: number): FixCue[] =>
     s: index * 1000,
     e: index * 1000 + 900,
   }));
+
+const writer = { submitter: "a".repeat(32), origin: "0123456789abcdef" };
 
 const fixBody = (overrides: Record<string, unknown> = {}) => ({
   video,
@@ -66,12 +68,13 @@ describe("POST /api/v1/fixes", () => {
     expect(await read.json()).toEqual({
       fixes: [
         {
-          subtitleHashes: cues(3).map((cue) => cue.h),
-          cues: cues(3),
+          id: subtitleKey(cues(3).map((cue) => cue.h)),
+          subtitleSketch: cues(3).map((cue) => cue.h),
           status: "hint",
           method: "audio",
           agreeing: 1,
           fromAudio: true,
+          cueCount: 3,
         },
       ],
       hidden: [],
@@ -407,14 +410,106 @@ describe("GET /api/v1/fixes", () => {
   });
 });
 
+describe("GET /api/v1/fixes/:video/:id/cues", () => {
+  it("returns the cues of the listed fix", async () => {
+    const app = appWith(memoryStore());
+    const other = cues(6).slice(3);
+
+    await post(app, "/api/v1/fixes", fixBody());
+    await post(app, "/api/v1/fixes", fixBody({ subtitle: other }));
+
+    const listed = await (await app.request(`/api/v1/fixes?video=${videoParam}`)).json();
+    const id = subtitleKey(other.map((cue) => cue.h));
+    const response = await app.request(`/api/v1/fixes/${videoParam}/${id}/cues`);
+
+    expect(listed.fixes.map((view: { id: string }) => view.id)).toContain(id);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=300");
+    expect(await response.json()).toEqual({ cues: other });
+  });
+
+  it("answers 404 for a fix that is no longer listed", async () => {
+    const response = await appWith(memoryStore()).request(
+      `/api/v1/fixes/${videoParam}/${"0".repeat(32)}/cues`,
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "This fix is no longer listed" });
+  });
+
+  it("rejects a bad video parameter", async () => {
+    const response = await appWith(memoryStore()).request(
+      `/api/v1/fixes/movie.mkv:12/${"0".repeat(32)}/cues`,
+    );
+
+    expect(response.status).toBe(400);
+  });
+});
+
+const confirmingFix = (installId: string) =>
+  fixBody({ installId, subtitle: cues(30), method: "audio" });
+
+const statusAfter = async (clients: string[]) => {
+  let current = 0;
+  const app = appWith(memoryStore(), () => clients[current] ?? "");
+
+  for (const [index] of clients.entries()) {
+    current = index;
+    await post(app, "/api/v1/fixes", confirmingFix(randomUUID()));
+    await post(app, "/api/v1/mismatches", mismatchBody());
+  }
+
+  return (await app.request(`/api/v1/fixes?video=${videoParam}`)).json();
+};
+
+describe("origins", () => {
+  it("never confirms or hides for two install ids on one connection", async () => {
+    expect(await statusAfter(["1.1.1.1", "1.1.1.1"])).toMatchObject({
+      fixes: [{ status: "hint" }],
+      hidden: [],
+    });
+  });
+
+  it("confirms and hides for two connections", async () => {
+    expect(await statusAfter(["1.1.1.1", "2.2.2.2"])).toMatchObject({
+      fixes: [{ status: "confirmed", agreeing: 2 }],
+      hidden: [{ reason: "mismatch", count: 2 }],
+    });
+  });
+
+  it("puts the origin in no response and no log", async () => {
+    const store = memoryStore();
+    const app = appWith(store);
+    const logged = (["log", "info", "warn", "error", "debug"] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation(() => {}),
+    );
+    const responses = [
+      await post(app, "/api/v1/fixes", fixBody()),
+      await post(app, "/api/v1/mismatches", mismatchBody()),
+      await post(app, "/api/v1/reports", reportBody()),
+      await post(app, "/api/v1/fixes", "not json"),
+      await app.request(`/api/v1/fixes?video=${videoParam}`),
+      await app.request(
+        `/api/v1/fixes/${videoParam}/${subtitleKey(cues(3).map((cue) => cue.h))}/cues`,
+      ),
+    ];
+    const texts = await Promise.all(responses.map((response) => response.text()));
+    const [origin = ""] = (await store.fixesFor(video)).map((row) => row.origin ?? "");
+    const calls = logged.flatMap((spy) => spy.mock.calls.flat().map(String));
+
+    logged.forEach((spy) => spy.mockRestore());
+
+    expect(origin).toMatch(/^[0-9a-f]{16}$/);
+    expect([...texts, ...calls].filter((text) => text.includes(origin))).toEqual([]);
+  });
+});
+
 describe("in-process handlers", () => {
   it("validate the same way as the routes", async () => {
     const store = memoryStore();
 
     await expect(
-      submitFix(store, fixBody({ subtitle: [{ h: "hello world", s: 0, e: 1 }] }), {
-        submitter: "a".repeat(32),
-      }),
+      submitFix(store, fixBody({ subtitle: [{ h: "hello world", s: 0, e: 1 }] }), writer),
     ).rejects.toThrow(new TimingsInputError(subtitleMessage));
     expect(await store.fixesFor(video)).toEqual([]);
   });
@@ -422,7 +517,7 @@ describe("in-process handlers", () => {
   it("look up a video by its key", async () => {
     const store = memoryStore();
 
-    await submitFix(store, fixBody(), { submitter: "a".repeat(32) });
+    await submitFix(store, fixBody(), writer);
 
     expect((await lookUp(store, video)).fixes).toHaveLength(1);
     await expect(lookUp(store, { hash: "x", size: 1 })).rejects.toThrow(TimingsInputError);
@@ -430,13 +525,59 @@ describe("in-process handlers", () => {
 
   it("look up a video for one viewer", async () => {
     const store = memoryStore();
-    const viewer = "a".repeat(32);
 
-    await submitMismatch(store, mismatchBody(), { submitter: viewer });
+    await submitMismatch(store, mismatchBody(), writer);
 
     expect((await lookUp(store, video)).hidden).toEqual([]);
-    expect((await lookUp(store, video, viewer)).hidden).toEqual([
-      { subtitleHashes: mismatchBody().subtitleHashes, reason: "mismatch", count: 1 },
+    expect((await lookUp(store, video, { viewer: writer.submitter })).hidden).toEqual([
+      { subtitleSketch: mismatchBody().subtitleHashes, reason: "mismatch", count: 1 },
     ]);
+  });
+
+  it("look up a video with the cues of each fix", async () => {
+    const store = memoryStore();
+
+    await submitFix(store, fixBody(), writer);
+
+    expect((await lookUp(store, video, { withCues: true })).fixes).toMatchObject([
+      { cues: cues(3), cueCount: 3 },
+    ]);
+    expect((await lookUp(store, video)).fixes[0]).not.toHaveProperty("cues");
+  });
+
+  it("store the origin of each write", async () => {
+    const store = memoryStore();
+
+    await submitFix(store, fixBody(), writer);
+    await submitMismatch(store, mismatchBody(), writer);
+
+    expect((await store.fixesFor(video))[0]?.origin).toBe(writer.origin);
+    expect((await store.mismatchesFor(video))[0]?.origin).toBe(writer.origin);
+  });
+
+  it("serve a cached lookup until a write for that video or five minutes pass", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+
+    const store = memoryStore();
+    const counted = { ...store, fixesFor: vi.fn<TimingsStore["fixesFor"]>(store.fixesFor) };
+
+    await lookUp(counted, video);
+    await lookUp(counted, video);
+    await lookUp(counted, { ...video, size: video.size + 1 });
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(2);
+
+    await submitFix(counted, fixBody(), writer);
+
+    expect((await lookUp(counted, video)).fixes).toHaveLength(1);
+    expect(counted.fixesFor).toHaveBeenCalledTimes(3);
+
+    vi.advanceTimersByTime(299_000);
+    await lookUp(counted, video);
+    vi.advanceTimersByTime(2000);
+    await lookUp(counted, video);
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(4);
+    vi.useRealTimers();
   });
 });

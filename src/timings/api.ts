@@ -1,12 +1,19 @@
 import * as v from "valibot";
-import { summarize, type VideoTimings } from "./confirm.ts";
-import type { TimingsStore } from "./db.ts";
+import {
+  digest,
+  present,
+  publicTimings,
+  type Digest,
+  type FixWithCues,
+  type VideoTimings,
+} from "./confirm.ts";
+import type { TimingsStore, VideoKey } from "./db.ts";
 
 export class TimingsInputError extends Error {
   override name = "TimingsInputError";
 }
 
-type WriteContext = { submitter: string };
+export type WriteContext = { submitter: string; origin: string };
 
 const bodyMessage = "Send a JSON object";
 const videoMessage = "Send video as a 16-character hex hash and a size in bytes";
@@ -73,10 +80,62 @@ const parse = <Schema extends v.GenericSchema>(
   return result.output;
 };
 
+const cacheMs = 300_000;
+const maxCachedVideos = 1000;
+const caches = new WeakMap<TimingsStore, Map<string, { at: number; digest: Promise<Digest> }>>();
+
+const cacheOf = (store: TimingsStore) => {
+  const cache = caches.get(store) ?? new Map<string, { at: number; digest: Promise<Digest> }>();
+
+  caches.set(store, cache);
+
+  return cache;
+};
+
+const cacheKey = (video: VideoKey) => `${video.hash}:${video.size}`;
+
+const forget = (store: TimingsStore, video: VideoKey) => cacheOf(store).delete(cacheKey(video));
+
+const read = async (store: TimingsStore, video: VideoKey) => {
+  const [fixes, mismatches, reports] = await Promise.all([
+    store.fixesFor(video),
+    store.mismatchesFor(video),
+    store.reportsFor(video),
+  ]);
+
+  return digest(fixes, mismatches, reports);
+};
+
+const cachedDigest = (store: TimingsStore, video: VideoKey) => {
+  const cache = cacheOf(store);
+  const key = cacheKey(video);
+  const cached = cache.get(key);
+
+  if (cached !== undefined && Date.now() - cached.at < cacheMs) {
+    return cached.digest;
+  }
+
+  const entry = { at: Date.now(), digest: read(store, video) };
+  const [oldest] = cache.keys();
+
+  if (cache.size >= maxCachedVideos && oldest !== undefined) {
+    cache.delete(oldest);
+  }
+
+  cache.set(key, entry);
+  entry.digest.catch(() => {
+    if (cache.get(key) === entry) {
+      cache.delete(key);
+    }
+  });
+
+  return entry.digest;
+};
+
 export const submitFix = async (
   store: TimingsStore,
   input: unknown,
-  { submitter }: WriteContext,
+  { submitter, origin }: WriteContext,
 ) => {
   const { video, subtitle, method, referenceKey } = parse(fixSchema, input);
 
@@ -87,40 +146,54 @@ export const submitFix = async (
     method,
     referenceKey,
     submitter,
+    origin,
   });
+  forget(store, video);
 };
 
 export const submitMismatch = async (
   store: TimingsStore,
   input: unknown,
-  { submitter }: WriteContext,
+  { submitter, origin }: WriteContext,
 ) => {
   const { video, subtitleHashes } = parse(mismatchSchema, input);
 
-  await store.putMismatch({ video, subtitleHashes, submitter });
+  await store.putMismatch({ video, subtitleHashes, submitter, origin });
+  forget(store, video);
 };
 
 export const submitReport = async (
   store: TimingsStore,
   input: unknown,
-  { submitter }: WriteContext,
+  { submitter, origin }: WriteContext,
 ) => {
   const { video, subtitleHashes, reason } = parse(reportSchema, input);
 
-  await store.putReport({ video, subtitleHashes, reason, submitter });
+  await store.putReport({ video, subtitleHashes, reason, submitter, origin });
+  forget(store, video);
 };
 
-export const lookUp = async (
+type LookUpOptions = { viewer?: string; withCues?: boolean };
+
+export async function lookUp(
   store: TimingsStore,
   video: unknown,
-  viewer?: string,
-): Promise<VideoTimings> => {
-  const key = parse(videoSchema, video, videoMessage);
-  const [fixes, mismatches, reports] = await Promise.all([
-    store.fixesFor(key),
-    store.mismatchesFor(key),
-    store.reportsFor(key),
-  ]);
+  options?: LookUpOptions & { withCues?: false },
+): Promise<VideoTimings>;
+export async function lookUp(
+  store: TimingsStore,
+  video: unknown,
+  options: LookUpOptions & { withCues: true },
+): Promise<VideoTimings<FixWithCues>>;
+export async function lookUp(
+  store: TimingsStore,
+  video: unknown,
+  { viewer, withCues = false }: LookUpOptions = {},
+): Promise<VideoTimings | VideoTimings<FixWithCues>> {
+  const timings = present(
+    await cachedDigest(store, parse(videoSchema, video, videoMessage)),
+    viewer,
+  );
 
-  return summarize(fixes, mismatches, reports, viewer);
-};
+  return withCues ? timings : publicTimings(timings);
+}
