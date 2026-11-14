@@ -11,3 +11,4 @@ crate-type = ["cdylib"]
 [dependencies]
 alass-core = "2.0.0"
 wasm-bindgen = "0.2"
+earshot = "=1.2.2"
