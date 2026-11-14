@@ -128,29 +128,38 @@ const toCandidate = (row: Row, query: VideoQuery): Candidate[] => {
 const fetchSearch = (query: VideoQuery, names: string[], session: Session, signal: AbortSignal) =>
   fetchWithTimeout(searchURL(query, names, session), { signal }, searchTimeoutMs);
 
+const requestToken = async (credentials: Credentials, timeoutMs: number, signal?: AbortSignal) => {
+  const params = new URLSearchParams({
+    username: credentials.username,
+    password: credentials.password,
+    json: "true",
+  });
+  const response = await fetchWithTimeout(
+    `${baseURL}/gettoken?${params}`,
+    { method: "POST", signal },
+    timeoutMs,
+  );
+  const parsed = v.safeParse(loginSchema, await response.json().catch(() => undefined));
+
+  return response.ok && parsed.success ? parsed.output : undefined;
+};
+
+export const checkTitlovi = async (credentials: Credentials, timeoutMs: number) =>
+  (await requestToken(credentials, timeoutMs)) !== undefined;
+
 export const titloviSource = (credentials: Credentials, tokens: TokenCache): Source => {
   const key = createHash("sha256").update(`titlovi:${credentials.username}`).digest("hex");
 
   const login = async (signal: AbortSignal): Promise<Session> => {
-    const params = new URLSearchParams({
-      username: credentials.username,
-      password: credentials.password,
-      json: "true",
-    });
-    const response = await fetchWithTimeout(
-      `${baseURL}/gettoken?${params}`,
-      { method: "POST", signal },
-      requestTimeoutMs,
-    );
-    const parsed = v.safeParse(loginSchema, await response.json().catch(() => undefined));
+    const token = await requestToken(credentials, requestTimeoutMs, signal);
 
-    if (!response.ok || !parsed.success) {
+    if (token === undefined) {
       throw new Error("Titlovi.com login failed");
     }
 
-    const session = { token: parsed.output.Token, userId: parsed.output.UserId };
+    const session = { token: token.Token, userId: token.UserId };
 
-    await tokens.set(key, JSON.stringify(session), ttlSeconds(parsed.output.ExpirationDate));
+    await tokens.set(key, JSON.stringify(session), ttlSeconds(token.ExpirationDate));
 
     return session;
   };

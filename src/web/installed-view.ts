@@ -1,5 +1,5 @@
 import { html } from "hono/html";
-import { arrowIcon, copyIcon } from "./icons.ts";
+import { arrowIcon, copyIcon, moreArrow } from "./icons.ts";
 
 export const installedView = html`<main
   class="wrap"
@@ -46,10 +46,8 @@ export const installedView = html`<main
           </li>
           <li>
             <span class="body ink">Something looks wrong?</span
-            ><span class="small"
-              ><a href="/check">Check that file</a> to see every subtitle and how it was
-              timed.</span
-            >
+            ><span class="small">See every subtitle and how it was timed.</span
+            ><a class="more" href="/check">Check that file${moreArrow}</a>
           </li>
         </ol>
       </div>

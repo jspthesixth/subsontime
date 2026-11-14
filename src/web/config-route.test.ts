@@ -137,6 +137,18 @@ describe("POST /api/config", () => {
   });
 });
 
+describe("GET /:config/configure", () => {
+  it("sends Stremio's configure button to the setup page", async () => {
+    const { installURL } = await create(form);
+    const response = await app.request(
+      new URL(installURL).pathname.replace("manifest.json", "configure"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/stremio");
+  });
+});
+
 describe("POST /api/config/open", () => {
   it("returns the settings inside an install link", async () => {
     const withAccount = {

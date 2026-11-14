@@ -216,3 +216,16 @@ export const subSourceSource = (apiKey: string): Source => ({
     }
   },
 });
+
+export const checkSubSource = async (apiKey: string, timeoutMs: number) => {
+  const params = new URLSearchParams({ searchType: "imdb", imdb: "tt0111161", type: "movie" });
+  const response = await fetchWithTimeout(
+    `${baseURL}/movies/search?${params}`,
+    { headers: { "X-API-Key": apiKey } },
+    timeoutMs,
+  );
+
+  return (
+    response.ok && v.safeParse(envelopeSchema, await response.json().catch(() => undefined)).success
+  );
+};

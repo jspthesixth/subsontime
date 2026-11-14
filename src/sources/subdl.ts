@@ -140,3 +140,18 @@ export const subdlSource = (apiKey: string): Source => ({
     }
   },
 });
+
+export const checkSubDL = async (apiKey: string, timeoutMs: number) => {
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    imdb_id: "tt0111161",
+    languages: "en",
+    type: "movie",
+    subs_per_page: "1",
+  });
+  const response = await fetchWithTimeout(`${searchURL}?${params}`, {}, timeoutMs);
+
+  return (
+    response.ok && v.safeParse(searchSchema, await response.json().catch(() => undefined)).success
+  );
+};

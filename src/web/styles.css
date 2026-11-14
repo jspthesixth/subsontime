@@ -944,6 +944,7 @@ svg {
   }
   .install-bar-in .btn {
     flex: 1 1 auto;
+    padding: 0 14px;
   }
   .hide-mobile {
     display: none;
@@ -1006,9 +1007,6 @@ svg {
   gap: 16px;
   padding: 20px;
 }
-.source-actions {
-  justify-content: flex-end;
-}
 .source[data-state="editing"] {
   align-items: flex-start;
 }
@@ -1025,10 +1023,10 @@ svg {
   appearance: none;
 }
 
-.install-error {
+.error {
   color: var(--accent);
 }
-.install-error:empty {
+.error:empty {
   display: none;
 }
 .edit-form {

@@ -85,6 +85,11 @@ const errorOf = (result: unknown) =>
     ? result.error
     : unreachableMessage;
 
+const checkErrorOf = (result: unknown) =>
+  typeof result === "object" && result !== null && "ok" in result && result.ok === true
+    ? undefined
+    : errorOf(result);
+
 const postJSON = async (path: string, body: unknown): Promise<Outcome> => {
   const response = await fetch(path, {
     method: "POST",
@@ -293,10 +298,13 @@ accountRows.forEach((row) => {
   const kind = row.dataset["kind"];
   const form = find<HTMLFormElement>(row, "form");
   const add = find(row, ".source-add");
+  const submit = find<HTMLButtonElement>(form, "[type=submit]");
+  const error = find(form, ".source-error");
   const others = () => state.sources.filter((source) => source.kind !== kind);
 
   const setEditing = (editing: boolean) => {
     row.dataset["state"] = editing ? "editing" : "idle";
+    error.textContent = "";
     add.setAttribute("aria-expanded", String(editing));
   };
 
@@ -311,10 +319,25 @@ accountRows.forEach((row) => {
     add.focus();
   });
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     const account = { kind, ...Object.fromEntries(new FormData(form)) } as Account;
 
     event.preventDefault();
+    error.textContent = "";
+    submit.disabled = true;
+
+    const outcome = await postJSON("/api/sources/check", account);
+    const problem = "error" in outcome ? outcome.error : checkErrorOf(outcome.result);
+
+    submit.disabled = false;
+
+    if (problem !== undefined) {
+      error.textContent = problem;
+      submit.focus();
+
+      return;
+    }
+
     form.reset();
     add.setAttribute("aria-expanded", "false");
     update({ sources: [...others(), account] });

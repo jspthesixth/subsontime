@@ -56,8 +56,7 @@ const content = html`<main>
       <p class="eyebrow">00:00:01,000 --&gt; 00:00:04,200</p>
       <h1 class="h1">Subtitles that fit the file you are playing.</h1>
       <p class="lede">
-        Subs On Time finds subtitles in every source and retimes each one to your exact video. Every
-        fix is shared, so the next person with the same file gets it before the first line.
+        Subs On Time finds subtitles in every source and retimes each one to your exact video.
       </p>
       <div class="row-wrap gap-12">
         <a class="btn btn-primary btn-wide-mobile" href="/stremio">Add to Stremio ${arrowIcon}</a>
@@ -128,7 +127,7 @@ const content = html`<main>
       <div class="stack gap-48">
         <div class="stack gap-16 measure">
           <p class="eyebrow eyebrow-accent">Open by default</p>
-          <h2 class="h2">Open source. Open data. Nothing about you.</h2>
+          <h2 class="h2">Open source. Nothing about you.</h2>
         </div>
         <div class="compare">
           <div class="stack">

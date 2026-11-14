@@ -128,9 +128,13 @@ const accountRow = ({ kind, name, body, add, fields }: (typeof accounts)[number]
             </div>`,
         )}
       </div>
-      <div class="row-wrap gap-8 source-actions">
-        <button type="button" class="btn btn-ghost btn-sm source-cancel">Cancel</button>
-        <button type="submit" class="btn btn-light btn-sm">Save</button>
+      <p class="hint error source-error" role="alert"></p>
+      <div class="row-wrap between gap-12">
+        <p class="hint">Checked against ${name} before it is saved.</p>
+        <div class="row-wrap gap-8">
+          <button type="button" class="btn btn-ghost btn-sm source-cancel">Cancel</button>
+          <button type="submit" class="btn btn-light btn-sm">Check and save</button>
+        </div>
       </div>
     </form>
   </div>`;
@@ -190,7 +194,7 @@ const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
     ${timingOption(
       "auto",
       html`Automatic <span class="tag tag-accent" style="margin-left: 6px;">recommended</span>`,
-      "A shared fix from Open Timings when one exists. Otherwise each subtitle is retimed against one made for your exact file. Works with every stream and debrid service.",
+      "Each subtitle is retimed against one made for your exact file. Works with every stream and debrid service.",
       true,
     )}
     ${timingOption("off", html`Off`, "Subtitles arrive as the sources have them.", false)}
@@ -205,7 +209,7 @@ const extrasBlock = html`<section class="setup-block" aria-labelledby="s4">
         <span class="h4" id="x-hide">Hide subtitles made for another video</span
         ><span class="small"
           >When a subtitle’s dialogue does not line up with your file at all, it is for a different
-          episode or film. It is left out, and flagged so it is left out for everyone.</span
+          episode or film. It is left out.</span
         >
       </div>
       <button
@@ -227,12 +231,12 @@ const installBar = html`<div class="install-bar" id="install-bar">
     <div class="stack" style="gap: 2px;">
       <span class="h4">Ready to install</span>
       <span class="small" id="install-summary"></span>
-      <span class="small install-error" id="install-error" role="alert"></span>
+      <span class="small error" id="install-error" role="alert"></span>
     </div>
     <div class="row-wrap gap-12" style="flex: 0 1 auto;">
       <button
         type="button"
-        class="btn btn-ghost hide-mobile"
+        class="btn btn-ghost"
         id="edit-install"
         aria-expanded="false"
         aria-controls="edit-form"

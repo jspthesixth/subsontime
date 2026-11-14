@@ -42,3 +42,8 @@ export const copyIcon = html`<svg width="14" height="14" viewBox="0 0 14 14" ari
 export const menuIcon = html`<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
   <path d="M2 5h14M2 9h14M2 13h14" stroke="currentColor" stroke-width="1.6" fill="none"></path>
 </svg>`;
+
+export const moreArrow = html`<span class="more-arrow" aria-hidden="true"
+  ><svg width="14" height="14" viewBox="0 0 16 16">
+    <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" fill="none"></path></svg
+></span>`;

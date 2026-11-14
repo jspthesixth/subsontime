@@ -11,6 +11,8 @@ import { subtitlesRoute } from "./stremio/subtitles-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
 import { homePage } from "./web/home-page.ts";
 import { setupPage } from "./web/setup-page.ts";
+import { rateLimit } from "./web/rate-limit.ts";
+import { sourceCheckRoute } from "./web/source-check-route.ts";
 
 export type AppDeps = {
   secret: string;
@@ -57,6 +59,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.get("/stremio", (context) => context.html(setupPage()));
   app.post("/api/config", createConfigRoute(deps));
   app.post("/api/config/open", openConfigRoute(deps));
+  app.post("/api/sources/check", sourceCheckRoute(rateLimit(10, 60_000)));
 
   app.use("/:config/*", cors(), async (context, next) => {
     const token = context.req.param("config") ?? "";
@@ -77,6 +80,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   });
 
   app.get("/:config/manifest.json", (context) => context.json(manifest));
+  app.get("/:config/configure", (context) => context.redirect("/stremio"));
   app.get("/:config/subtitles/:type/:id", subtitlesRoute(routeDeps));
   app.get("/:config/subtitles/:type/:id/:extra", subtitlesRoute(routeDeps));
   app.get("/:config/sub/:file", fileRoute(routeDeps));
