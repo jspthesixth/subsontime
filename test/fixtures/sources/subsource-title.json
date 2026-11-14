@@ -1,0 +1,5 @@
+{
+  "_note": "hand-made from the SubSource client reference shape, not a live capture",
+  "success": true,
+  "data": [{ "movieId": 777, "title": "Example" }, { "movieId": 888 }]
+}

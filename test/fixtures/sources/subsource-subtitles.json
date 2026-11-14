@@ -1,0 +1,25 @@
+{
+  "_note": "hand-made from the SubSource client reference shape, not a live capture",
+  "success": true,
+  "data": [
+    {
+      "subtitleId": 1001,
+      "releaseInfo": ["", "Show.S01E02.1080p.WEB-DL-GRP"],
+      "commentary": "ignored",
+      "hearingImpaired": false,
+      "foreignParts": false,
+      "framerate": 23.976,
+      "files": 1
+    },
+    { "subtitleId": 1002, "releaseInfo": ["Show.S01E03.720p.HDTV-AAA"], "framerate": "25" },
+    {
+      "subtitleId": 1003,
+      "releaseInfo": [],
+      "commentary": "Show season 1 complete pack",
+      "framerate": null
+    },
+    { "subtitleId": 1004, "releaseInfo": ["Show.S01E10.720p.HDTV-AAA"], "framerate": "abc" },
+    { "subtitleId": 1005, "releaseInfo": ["Show.S01E100.720p.HDTV-AAA"] },
+    { "subtitleId": "bad" }
+  ]
+}
