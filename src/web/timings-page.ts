@@ -81,7 +81,7 @@ const lookUpBlock = html`<section class="band" aria-labelledby="look-up">
         </div>
         <div style="padding: 4px 24px 8px;">
           <div class="sub-row fixes sub-head" id="lookup-head" aria-hidden="true">
-            <span>Lines</span><span>Subtitle</span><span>Fix</span><span>Found by</span
+            <span>Subtitle</span><span>Lines</span><span>Timed by</span><span>Agreement</span
             ><span>Status</span>
           </div>
           <div id="lookup-rows"></div>
@@ -167,12 +167,10 @@ POST /api/v1/reports</pre>
 
 const templates = html`<template id="fix-row-template"
   ><div class="sub-row fixes">
-    <div><span class="sub-k">Lines</span><span class="h4 row-lines"></span></div>
     <div><span class="sub-k">Subtitle</span><span class="mono ink-2 row-subtitle"></span></div>
-    <div class="sub-wide"><span class="sub-k">Fix</span><span class="mono ink row-fix"></span></div>
-    <div class="sub-wide">
-      <span class="sub-k">Found by</span><span class="body row-found"></span>
-    </div>
+    <div><span class="sub-k">Lines</span><span class="h4 row-lines"></span></div>
+    <div><span class="sub-k">Timed by</span><span class="body row-timed-by"></span></div>
+    <div><span class="sub-k">Agreement</span><span class="body row-agreement"></span></div>
     <div><span class="sub-k">Status</span><span class="tag row-status"></span></div></div
 ></template>`;
 

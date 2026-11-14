@@ -25,14 +25,14 @@ const empty = find(document, "#lookup-empty");
 
 let fileName: string | undefined;
 
-const rowFor = ({ lines, subtitle, fix, foundBy, status, accent }: FixRowView) => {
+const rowFor = ({ subtitle, lines, timedBy, agreement, status, accent }: FixRowView) => {
   const row = clone("#fix-row-template");
   const tag = find(row, ".row-status");
 
-  find(row, ".row-lines").textContent = lines;
   find(row, ".row-subtitle").textContent = subtitle;
-  find(row, ".row-fix").textContent = fix;
-  find(row, ".row-found").textContent = foundBy;
+  find(row, ".row-lines").textContent = lines;
+  find(row, ".row-timed-by").textContent = timedBy;
+  find(row, ".row-agreement").textContent = agreement;
   tag.textContent = status;
   tag.classList.toggle("tag-accent", accent);
 
