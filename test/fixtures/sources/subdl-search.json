@@ -1,0 +1,67 @@
+{
+  "_note": "Hand-made from the Stremio Community Subtitles client, not a recorded response.",
+  "status": true,
+  "subtitles": [
+    {
+      "release_name": "Show.S01E02.1080p.WEB-GRP",
+      "name": "show-s01e02",
+      "language": "HR",
+      "url": "/subtitle/100-1.zip",
+      "season": 1,
+      "episode": 2,
+      "episode_from": null,
+      "episode_end": null,
+      "full_season": false
+    },
+    {
+      "release_name": "Show.S01.1080p.WEB-GRP",
+      "name": "show-s01",
+      "language": "en",
+      "url": "/subtitle/101-1.zip",
+      "season": 1,
+      "episode": null,
+      "episode_from": null,
+      "episode_end": 0,
+      "full_season": false
+    },
+    {
+      "release_name": "Show.S01E01-E03",
+      "language": "hr",
+      "url": "/subtitle/102-1.zip",
+      "season": 1,
+      "episode": null,
+      "episode_from": 1,
+      "episode_end": 3,
+      "full_season": false
+    },
+    {
+      "release_name": "Show.S01.Pack",
+      "language": "hr",
+      "url": "/subtitle/103-1.zip",
+      "season": 1,
+      "full_season": true
+    },
+    {
+      "release_name": "Show.S01E05",
+      "language": "hr",
+      "url": "/subtitle/104-1.zip",
+      "season": 1,
+      "episode": 5
+    },
+    {
+      "release_name": "Show.S02E02",
+      "language": "hr",
+      "url": "/subtitle/105-1.zip",
+      "season": 2,
+      "episode": 2
+    },
+    {
+      "release_name": "Show.S01E02.Klingon",
+      "language": "tlh",
+      "url": "/subtitle/106-1.zip",
+      "season": 1,
+      "episode": 2
+    },
+    { "release_name": "Show.S01E02.NoUrl", "language": "hr", "season": 1, "episode": 2 }
+  ]
+}

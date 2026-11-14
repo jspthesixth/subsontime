@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { unzipSync } from "fflate";
 import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import type { Candidate, Source, VideoQuery } from "./source.ts";
 import type { TokenCache } from "./token-cache.ts";
+import { pickSubtitleEntry } from "./zip.ts";
 
 const sourceName = "Titlovi.com";
 const baseURL = "https://kodi.titlovi.com/api/subtitles";
@@ -14,7 +14,6 @@ const requestTimeoutMs = 8000;
 const downloadTimeoutMs = 8000;
 const expiryMarginSeconds = 10 * 60;
 const minimumTtlSeconds = 60;
-const subtitleEntry = /\.(srt|sub|ass|ssa|vtt)$/i;
 
 const languagePairs: [string, string][] = [
   ["hrv", "Hrvatski"],
@@ -54,14 +53,6 @@ type Row = v.InferOutput<typeof rowSchema>;
 const parseJSON = (text: string): unknown => {
   try {
     return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-};
-
-const unzip = (bytes: Uint8Array) => {
-  try {
-    return unzipSync(bytes);
   } catch {
     return undefined;
   }
@@ -132,17 +123,6 @@ const toCandidate = (row: Row, query: VideoQuery): Candidate[] => {
       fps: undefined,
     },
   ];
-};
-
-const pickEntry = (files: Record<string, Uint8Array>, tag: string | undefined) => {
-  const entries = Object.entries(files).filter(([name]) => subtitleEntry.test(name));
-  const tagged =
-    tag === undefined
-      ? undefined
-      : entries.find(([name]) => new RegExp(`${tag}(?!\\d)`, "i").test(name));
-  const largest = entries.toSorted(([, a], [, b]) => b.length - a.length)[0];
-
-  return (tagged ?? largest)?.[1];
 };
 
 const fetchSearch = (query: VideoQuery, names: string[], session: Session, signal: AbortSignal) =>
@@ -231,14 +211,11 @@ export const titloviSource = (credentials: Credentials, tokens: TokenCache): Sou
         throw new Error("Titlovi.com download failed");
       }
 
-      const files = unzip(new Uint8Array(await response.arrayBuffer()));
-      const entry = files === undefined ? undefined : pickEntry(files, tag);
-
-      if (entry === undefined) {
+      try {
+        return pickSubtitleEntry(new Uint8Array(await response.arrayBuffer()), tag);
+      } catch {
         throw new Error("Titlovi.com download failed");
       }
-
-      return entry;
     },
   };
 };

@@ -1,0 +1,20 @@
+{
+  "_note": "Hand-made from the Stremio Community Subtitles client, not a recorded response.",
+  "status": true,
+  "subtitles": [
+    {
+      "release_name": "The.Shawshank.Redemption.1994.1080p.BluRay-GRP",
+      "name": "shawshank",
+      "language": "HR",
+      "url": "/subtitle/200-1.zip"
+    },
+    {
+      "release_name": "",
+      "name": "Shawshank Redemption",
+      "language": "br_pt",
+      "url": "/subtitle/201-1.zip"
+    },
+    { "release_name": "Shawshank.PT", "name": "x", "language": "PT", "url": "/subtitle/202-1.zip" },
+    { "release_name": "Shawshank.EN", "name": "x", "language": "en", "url": "/subtitle/203-1.zip" }
+  ]
+}
