@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { defaultConfig, ConfigError } from "./config.ts";
+import { ConfigError } from "./config.ts";
+import { defaultConfig } from "./default-config.ts";
 import { seal, unseal } from "./seal.ts";
 
 const secret = "a".repeat(32);

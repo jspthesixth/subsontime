@@ -1,0 +1,298 @@
+import { html } from "hono/html";
+import { arrowIcon, removeIcon, statusIcon } from "./icons.ts";
+import { installedView } from "./installed-view.ts";
+import { languageOptions } from "./language-options.ts";
+import { layout } from "./layout.ts";
+
+type AccountField = { name: string; label: string; type: string; autocomplete: string };
+
+const apiKeyField: AccountField[] = [
+  { name: "apiKey", label: "API key", type: "text", autocomplete: "off" },
+];
+
+const accounts = [
+  {
+    kind: "titlovi",
+    name: "Titlovi.com",
+    body: "Best for Croatian, Serbian, Bosnian, Slovenian and Macedonian.",
+    add: "Add account",
+    fields: [
+      { name: "username", label: "Username", type: "text", autocomplete: "username" },
+      { name: "password", label: "Password", type: "password", autocomplete: "current-password" },
+    ],
+  },
+  {
+    kind: "subdl",
+    name: "SubDL",
+    body: "Large multilingual catalog.",
+    add: "Add API key",
+    fields: apiKeyField,
+  },
+  {
+    kind: "subsource",
+    name: "SubSource",
+    body: "Strong on new releases.",
+    add: "Add API key",
+    fields: apiKeyField,
+  },
+];
+
+const setupHead = (number: string, id: string, title: string, body: string) =>
+  html`<div class="setup-head">
+    <span class="eyebrow eyebrow-accent">${number}</span>
+    <h2 class="h3" id="${id}">${title}</h2>
+    <p class="small">${body}</p>
+  </div>`;
+
+const languagesBlock = html`<section class="setup-block" aria-labelledby="s1">
+  ${setupHead("01", "s1", "Languages", "In order of preference. The first one turns on by itself.")}
+  <div class="stack" style="gap: 20px;">
+    <div
+      class="row-wrap gap-8"
+      role="list"
+      aria-label="Chosen languages"
+      id="chosen-languages"
+    ></div>
+    <div class="field combo" style="max-width: 420px;">
+      <label class="label" for="lang-search">Add a language</label>
+      <input
+        id="lang-search"
+        class="input"
+        type="search"
+        placeholder="Search, for example Português"
+        autocomplete="off"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded="false"
+        aria-controls="lang-options"
+      />
+      <ul class="options" id="lang-options" role="listbox" aria-label="Languages" hidden>
+        ${languageOptions.map(
+          ({ code, name, search }) =>
+            html`<li
+              role="option"
+              id="lang-${code}"
+              data-code="${code}"
+              data-search="${search}"
+              aria-selected="false"
+            >
+              ${name}
+            </li>`,
+        )}
+      </ul>
+    </div>
+    <label class="check">
+      <input type="checkbox" id="best-only" checked />
+      <span class="body"
+        >Show only the best subtitle for each language. If it cannot be retimed, the next one takes
+        its place.</span
+      >
+    </label>
+  </div>
+</section>`;
+
+const accountRow = ({ kind, name, body, add, fields }: (typeof accounts)[number]) =>
+  html`<div class="list-row source" data-kind="${kind}" data-state="idle">
+    <div class="list-main">
+      <span class="h4" id="${kind}-name">${name}</span><span class="small">${body}</span>
+    </div>
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm source-add"
+      aria-expanded="false"
+      aria-controls="${kind}-form"
+    >
+      ${add}
+    </button>
+    <div class="row-wrap gap-8 source-saved">
+      <span class="status">${statusIcon}Added</span>
+      <button type="button" class="btn-quiet source-remove" aria-label="Remove ${name}">
+        Remove
+      </button>
+    </div>
+    <form class="panel source-form" id="${kind}-form" aria-labelledby="${kind}-name">
+      <div class="grid-2" style="gap: 16px;">
+        ${fields.map(
+          (field) =>
+            html`<div class="field">
+              <label class="label" for="${kind}-${field.name}">${field.label}</label
+              ><input
+                id="${kind}-${field.name}"
+                name="${field.name}"
+                class="input"
+                type="${field.type}"
+                autocomplete="${field.autocomplete}"
+                spellcheck="false"
+                required
+              />
+            </div>`,
+        )}
+      </div>
+      <div class="row-wrap gap-8 source-actions">
+        <button type="button" class="btn btn-ghost btn-sm source-cancel">Cancel</button>
+        <button type="submit" class="btn btn-light btn-sm">Save</button>
+      </div>
+    </form>
+  </div>`;
+
+const sourcesBlock = html`<section class="setup-block" aria-labelledby="s2">
+  ${setupHead("02", "s2", "Sources", "Where to look. Accounts are used only to search and download for you, and are stored encrypted in your install link.")}
+  <div class="stack gap-24">
+    <div class="list" id="source-list">
+      <div class="list-row">
+        <div class="list-main">
+          <span class="h4">OpenSubtitles</span
+          ><span class="small">Every language. Also the default timing reference.</span>
+        </div>
+        <span class="status">${statusIcon}Ready, no account needed</span>
+      </div>
+      ${accounts.map(accountRow)}
+    </div>
+    <form class="field" id="addon-form">
+      <label class="label" for="addon-url">Any Stremio subtitle addon</label>
+      <div class="input-row">
+        <input
+          id="addon-url"
+          class="input input-mono"
+          type="url"
+          placeholder="https://…/manifest.json"
+          pattern="https?://.+/manifest\\.json"
+          title="Must be an https manifest.json URL"
+          autocomplete="off"
+          required
+        />
+        <button type="submit" class="btn btn-ghost">Add source</button>
+      </div>
+      <p class="hint">
+        Paste the link of a subtitle addon you already use. Its subtitles get retimed like all the
+        others.
+      </p>
+    </form>
+  </div>
+</section>`;
+
+const timingOption = (
+  value: string,
+  title: ReturnType<typeof html>,
+  body: string,
+  checked: boolean,
+) =>
+  html`<label class="option">
+    <input type="radio" name="timing" value="${value}" ${checked ? " checked" : ""} />
+    <span class="stack" style="gap: 4px;"
+      ><span class="h4">${title}</span><span class="small ink-2">${body}</span></span
+    >
+  </label>`;
+
+const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
+  ${setupHead("03", "s3", "Timing", "How subtitles are lined up with your file.")}
+  <div class="stack gap-12" role="radiogroup" aria-labelledby="s3">
+    ${timingOption(
+      "auto",
+      html`Automatic <span class="tag tag-accent" style="margin-left: 6px;">recommended</span>`,
+      "A shared fix from Open Timings when one exists. Otherwise each subtitle is retimed against one made for your exact file. Works with every stream and debrid service.",
+      true,
+    )}
+    ${timingOption("off", html`Off`, "Subtitles arrive as the sources have them.", false)}
+  </div>
+</section>`;
+
+const extrasBlock = html`<section class="setup-block" aria-labelledby="s4">
+  ${setupHead("04", "s4", "Extras", "Things no other Stremio addon does. All optional.")}
+  <div class="list">
+    <div class="list-row" style="align-items: flex-start; flex-wrap: nowrap;">
+      <div class="list-main">
+        <span class="h4" id="x-hide">Hide subtitles made for another video</span
+        ><span class="small"
+          >When a subtitle’s dialogue does not line up with your file at all, it is for a different
+          episode or film. It is left out, and flagged so it is left out for everyone.</span
+        >
+      </div>
+      <button
+        type="button"
+        role="switch"
+        class="switch"
+        id="hide-mismatches"
+        aria-checked="true"
+        aria-labelledby="x-hide"
+      >
+        <span></span>
+      </button>
+    </div>
+  </div>
+</section>`;
+
+const installBar = html`<div class="install-bar" id="install-bar">
+  <div class="wrap install-bar-in">
+    <div class="stack" style="gap: 2px;">
+      <span class="h4">Ready to install</span>
+      <span class="small" id="install-summary"></span>
+      <span class="small install-error" id="install-error" role="alert"></span>
+    </div>
+    <div class="row-wrap gap-12" style="flex: 0 1 auto;">
+      <button
+        type="button"
+        class="btn btn-ghost hide-mobile"
+        id="edit-install"
+        aria-expanded="false"
+        aria-controls="edit-form"
+      >
+        Edit an install
+      </button>
+      <button type="button" class="btn btn-primary" id="install">
+        Install in Stremio ${arrowIcon}
+      </button>
+    </div>
+    <form class="field edit-form" id="edit-form" hidden>
+      <label class="label" for="edit-link">Your install link</label>
+      <div class="input-row">
+        <input
+          id="edit-link"
+          class="input input-mono"
+          type="url"
+          autocomplete="off"
+          spellcheck="false"
+          required
+        />
+        <button type="submit" class="btn btn-light">Open</button>
+      </div>
+    </form>
+  </div>
+</div>`;
+
+const templates = html`<template id="chip-template"
+    ><span class="chip" role="listitem"
+      ><span class="n"></span><span class="chip-name"></span
+      ><button type="button" class="x">${removeIcon}</button></span
+    ></template
+  >
+  <template id="addon-template"
+    ><div class="list-row addon-row">
+      <div class="list-main">
+        <span class="h4 addon-host"></span><span class="small mono addon-url"></span>
+      </div>
+      <button type="button" class="btn-quiet addon-remove">Remove</button>
+    </div></template
+  >
+  <template id="installed-template">${installedView}</template>`;
+
+const content = html`<main class="wrap" id="setup" style="padding-top: 72px; padding-bottom: 96px;">
+    <div class="stack gap-16 measure" style="padding-bottom: 56px;">
+      <p class="eyebrow eyebrow-accent">Stremio addon</p>
+      <h1 class="h2" id="page-title" tabindex="-1">Set up Subs On Time</h1>
+      <p class="lede">Only the language is required. Everything else has a default that works.</p>
+    </div>
+
+    <div class="stack gap-48">${languagesBlock} ${sourcesBlock} ${timingBlock} ${extrasBlock}</div>
+  </main>
+  ${installBar} ${templates}`;
+
+export const setupPage = () =>
+  layout({
+    title: "Set up Subs On Time for Stremio",
+    description:
+      "Choose your subtitle languages and sources, then install Subs On Time in Stremio.",
+    active: "stremio",
+    content,
+    scripts: ["setup"],
+  });

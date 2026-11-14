@@ -1,8 +1,6 @@
 import * as v from "valibot";
 import { isPublicURL } from "../http.ts";
 
-const openSubtitlesAddonURL = "https://opensubtitles-v3.strem.io/manifest.json";
-
 export class ConfigError extends Error {}
 
 const manifestURL = v.pipe(
@@ -16,7 +14,10 @@ const manifestURL = v.pipe(
   ),
 );
 
-const credential = v.pipe(v.string(), v.minLength(1));
+const credential = v.pipe(
+  v.string(),
+  v.minLength(1, "Fill in every username, password and API key"),
+);
 
 const sourceSchema = v.variant("kind", [
   v.object({ kind: v.literal("stremio-addon"), url: manifestURL }),
@@ -29,7 +30,10 @@ const sourceSchema = v.variant("kind", [
 export const configSchema = v.object({
   version: v.literal(1),
   installId: v.pipe(v.string(), v.minLength(1)),
-  languages: v.pipe(v.array(v.pipe(v.string(), v.regex(/^[a-z]{3}$/))), v.minLength(1)),
+  languages: v.pipe(
+    v.array(v.pipe(v.string(), v.regex(/^[a-z]{3}$/))),
+    v.minLength(1, "Choose at least one language"),
+  ),
   bestOnly: v.boolean(),
   timing: v.picklist(["auto", "off"]),
   sources: v.array(sourceSchema),
@@ -38,15 +42,3 @@ export const configSchema = v.object({
 
 export type Config = v.InferOutput<typeof configSchema>;
 export type SourceSettings = v.InferOutput<typeof sourceSchema>;
-
-export function defaultConfig(languages: string[]): Config {
-  return {
-    version: 1,
-    installId: crypto.randomUUID(),
-    languages,
-    bestOnly: true,
-    timing: "auto",
-    sources: [{ kind: "stremio-addon", url: openSubtitlesAddonURL }],
-    extras: { hideMismatches: true },
-  };
-}

@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { configSchema, defaultConfig } from "./config.ts";
+import { configSchema } from "./config.ts";
+import { defaultConfig } from "./default-config.ts";
 
 afterEach(() => {
   vi.unstubAllEnvs();

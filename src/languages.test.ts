@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toISO6391, toISO6392 } from "./languages.ts";
+import { fromLocales, languageCodes, toISO6391, toISO6392 } from "./languages.ts";
 
 describe("languages", () => {
   it.each([
@@ -40,5 +40,25 @@ describe("languages", () => {
     expect(toISO6392("PT-BR")).toBe("pob");
     expect(toISO6391("xxx")).toBeUndefined();
     expect(toISO6392("xx")).toBeUndefined();
+  });
+
+  it("lists every language once, by its first code", () => {
+    expect(languageCodes).toContain("hrv");
+    expect(languageCodes).toContain("pob");
+    expect(languageCodes).not.toContain("ger");
+    expect(new Set(languageCodes.map(toISO6391)).size).toBe(languageCodes.length);
+  });
+
+  it.each([
+    [
+      ["hr-HR", "en-US", "en"],
+      ["hrv", "eng"],
+    ],
+    [["pt-BR", "pt"], ["pob"]],
+    [["sr-Latn-RS"], ["srp"]],
+    [["xx", "tlh"], ["eng"]],
+    [[], ["eng"]],
+  ])("reads the browser languages %j as %j", (locales, codes) => {
+    expect(fromLocales(locales)).toEqual(codes);
   });
 });

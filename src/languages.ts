@@ -50,3 +50,17 @@ const to6392 = new Map(pairs.toReversed().map(([code6392, code6391]) => [code639
 export const toISO6391 = (code6392: string) => to6391.get(code6392.toLowerCase());
 
 export const toISO6392 = (code6391: string) => to6392.get(code6391.toLowerCase());
+
+export const languageCodes = pairs
+  .filter(([code6392, code6391]) => toISO6392(code6391) === code6392)
+  .map(([code6392]) => code6392);
+
+export const fromLocales = (locales: readonly string[]) => {
+  const codes = locales.flatMap((locale) => {
+    const code = toISO6392(locale) ?? toISO6392(locale.split("-")[0] ?? "");
+
+    return code === undefined ? [] : [code];
+  });
+
+  return codes.length === 0 ? ["eng"] : [...new Set(codes)];
+};

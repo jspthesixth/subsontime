@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { baseURL } from "../base-url.ts";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import { searchAll } from "../sources/search-all.ts";
 import type { Candidate } from "../sources/source.ts";
@@ -24,19 +25,6 @@ const readExtras = (context: Context<AppEnv>) => {
   const text = raw.includes("=") ? raw : (extra ?? "");
 
   return new URLSearchParams(extra === undefined ? "" : text.replace(/\.json$/, ""));
-};
-
-const baseURL = (context: Context<AppEnv>, publicURL: string | undefined) => {
-  const [proto] = context.req.header("x-forwarded-proto")?.split(",") ?? [];
-  const [host] = context.req.header("x-forwarded-host")?.split(",") ?? [];
-
-  if (publicURL !== undefined) {
-    return publicURL.replace(/\/+$/, "");
-  }
-
-  return proto !== undefined && host !== undefined
-    ? `${proto.trim()}://${host.trim()}`
-    : new URL(context.req.url).origin;
 };
 
 export const subtitlesRoute =

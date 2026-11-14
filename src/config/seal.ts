@@ -7,6 +7,9 @@ const ivLength = 12;
 const tagLength = 16;
 const invalidMessage = "This install link is not valid";
 
+export const invalidLinkMessage = "This install link is not valid. Set up again.";
+export const sealedConfigPattern = /^[A-Za-z0-9_-]{40,}$/;
+
 function deriveKey(secret: string): Buffer {
   return createHash("sha256").update(secret).digest();
 }
