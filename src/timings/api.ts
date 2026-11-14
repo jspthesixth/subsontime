@@ -91,6 +91,7 @@ const cacheMs = 300_000;
 const versionSeconds = 30 * 24 * 60 * 60;
 const maxCachedVideos = 1000;
 const maxCachedCues = 2_000_000;
+const sharedReadMs = 300;
 
 type CacheEntry = { at: number; digest: Digest; cues: number };
 type StoredSection = Omit<Digest[number], "mismatchers"> & {
@@ -120,6 +121,7 @@ const keepWithinBudget = (cache: Map<string, CacheEntry>) => {
 
 const memorySummaries = (): Summaries => {
   const cache = new Map<string, CacheEntry>();
+  const reading = new Map<string, Promise<Digest>>();
   let forgets = 0;
 
   return {
@@ -136,18 +138,38 @@ const memorySummaries = (): Summaries => {
         return cached.digest;
       }
 
-      const sections = await load();
+      const pending = reading.get(key);
 
-      if (forgets === started) {
-        cache.set(key, { at: now, digest: sections, cues: cuesIn(sections) });
-        keepWithinBudget(cache);
+      if (pending !== undefined) {
+        return pending;
       }
 
-      return sections;
+      const read = load().then((sections) => {
+        if (forgets === started) {
+          cache.set(key, { at: now, digest: sections, cues: cuesIn(sections) });
+          keepWithinBudget(cache);
+        }
+
+        return sections;
+      });
+      const settle = () => {
+        if (reading.get(key) === read) {
+          reading.delete(key);
+        }
+      };
+
+      reading.set(key, read);
+      read.then(settle, settle);
+      setTimeout(settle, sharedReadMs).unref();
+
+      return read;
     },
     async forget(video) {
+      const key = cacheKey(video);
+
       forgets += 1;
-      cache.delete(cacheKey(video));
+      cache.delete(key);
+      reading.delete(key);
     },
   };
 };

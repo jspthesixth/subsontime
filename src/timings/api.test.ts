@@ -609,6 +609,46 @@ describe("in-process handlers", () => {
   });
 });
 
+describe("in-process lookups", () => {
+  it("merge simultaneous lookups for one video into one read", async () => {
+    const store = memoryStore();
+    const counted = { ...store, fixesFor: vi.fn<TimingsStore["fixesFor"]>(store.fixesFor) };
+
+    await submitFix(store, fixBody(), writer);
+
+    const [first, second] = await Promise.all([
+      lookUp(counted, video, { groupingKey }),
+      lookUp(counted, video, { groupingKey }),
+    ]);
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(1);
+    expect(first.fixes).toHaveLength(1);
+    expect(second).toEqual(first);
+  });
+
+  it("share a failed read with the lookups waiting on it and never cache it", async () => {
+    const store = memoryStore();
+    const counted = {
+      ...store,
+      fixesFor: vi
+        .fn<TimingsStore["fixesFor"]>(store.fixesFor)
+        .mockRejectedValueOnce(new TypeError("down")),
+    };
+
+    await submitFix(store, fixBody(), writer);
+
+    const failed = await Promise.allSettled([
+      lookUp(counted, video, { groupingKey }),
+      lookUp(counted, video, { groupingKey }),
+    ]);
+    const recovered = await lookUp(counted, video, { groupingKey });
+
+    expect(failed.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(counted.fixesFor).toHaveBeenCalledTimes(2);
+    expect(recovered.fixes).toHaveLength(1);
+  });
+});
+
 describe("sharedSummaries", () => {
   const viewer = { submitter: "b".repeat(32), origin: "fedcba9876543210" };
 
