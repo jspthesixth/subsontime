@@ -8,6 +8,7 @@ type Aligned = {
   reference: Track;
   cues: Cue[];
   score: number;
+  offsetScore: number;
   speedRatio: number;
   offsetMs: number;
   cuts: number;
@@ -52,23 +53,28 @@ const bestAlignment = async (subtitle: Track, reference: Track, speedRatio: numb
   const offset = alignOffset(reference.cues, subtitle.cues, { speedRatio });
 
   if (offset.score >= splitWorthScore) {
-    return offset;
+    return { ...offset, offsetScore: offset.score };
   }
 
   const split = await alignCues(reference.cues, subtitle.cues, { speedRatio });
+  const best = offset.score >= retimedMinimumScore && offset.score >= split.score ? offset : split;
 
-  return offset.score >= retimedMinimumScore && offset.score >= split.score ? offset : split;
+  return { ...best, offsetScore: offset.score };
 };
 
 const alignTo = async (subtitle: Track, reference: Track): Promise<Aligned> => {
   const speedRatio = speedRatioFor(subtitle, reference);
-  const { cues, score } = await bestAlignment(subtitle, reference, speedRatio);
-  const deltas = cues.map((cue, index) => cue.start - (subtitle.cues[index]?.start ?? cue.start));
+  const { cues, score, offsetScore } = await bestAlignment(subtitle, reference, speedRatio);
+  const deltas = cues.map(
+    (cue, index) =>
+      cue.start - (subtitle.cues[index]?.start ?? cue.start * speedRatio) / speedRatio,
+  );
 
   return {
     reference,
     cues,
     score,
+    offsetScore,
     speedRatio,
     offsetMs: Math.round(median(deltas)),
     cuts: deltas
@@ -93,22 +99,32 @@ const alignAll = async (subtitle: Track, references: Track[]) => {
   return aligned;
 };
 
-const consensus = (aligned: Aligned[]) => {
-  const passing = aligned.filter((result) => result.score >= retimedMinimumScore);
+const choose = (aligned: Aligned[]) => {
+  const passing = aligned
+    .filter((result) => result.score >= retimedMinimumScore)
+    .toSorted((a, b) => b.score - a.score);
   const center = median(passing.map((result) => result.offsetMs));
 
-  return passing
-    .filter((result) => Math.abs(result.offsetMs - center) <= agreementMs)
-    .toSorted((a, b) => b.score - a.score)[0];
+  return passing.find((result) => Math.abs(result.offsetMs - center) <= agreementMs) ?? passing[0];
 };
+
+const isMismatch = (result: Aligned) =>
+  result.offsetScore < mismatchMaximumScore &&
+  Math.max(result.offsetScore, result.score) < retimedMinimumScore;
+
+const sameCandidate = (a: Candidate, b: Candidate) =>
+  a.sourceName === b.sourceName && a.ref === b.ref;
 
 export const retime = async (subtitle: Track, references: Track[]): Promise<RetimeResult> => {
   if (subtitle.candidate.hashMatch) {
     return { kind: "made-for-file", cues: subtitle.cues };
   }
 
-  const aligned = await alignAll(subtitle, references);
-  const chosen = consensus(aligned);
+  const aligned = await alignAll(
+    subtitle,
+    references.filter((reference) => !sameCandidate(reference.candidate, subtitle.candidate)),
+  );
+  const chosen = choose(aligned);
   const hashMatched = aligned.filter((result) => result.reference.candidate.hashMatch);
 
   if (chosen !== undefined) {
@@ -123,10 +139,7 @@ export const retime = async (subtitle: Track, references: Track[]): Promise<Reti
     };
   }
 
-  if (
-    hashMatched.length > 0 &&
-    hashMatched.every((result) => result.score < mismatchMaximumScore)
-  ) {
+  if (hashMatched.length > 0 && hashMatched.every(isMismatch)) {
     return { kind: "mismatch" };
   }
 

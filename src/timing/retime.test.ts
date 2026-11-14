@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Candidate } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import { alignCues, speedRatioFromFPS } from "./alass.ts";
+import { alignCues, alignOffset, speedRatioFromFPS } from "./alass.ts";
 import { pickReferences } from "./references.ts";
 import { mismatchMaximumScore, retime, retimedMinimumScore } from "./retime.ts";
 import { fastestOfThree, resegment, syntheticTrack, transform } from "./test-tracks.ts";
@@ -19,19 +19,37 @@ const candidate = (overrides: Partial<Candidate>): Candidate => ({
 });
 
 const byHash = (cues: Cue[], fps?: number) => ({
-  candidate: candidate({ hashMatch: true, fps }),
+  candidate: candidate({ ref: "reference", hashMatch: true, fps }),
   cues,
 });
 
-const byReleaseName = (cues: Cue[], fps?: number) => ({ candidate: candidate({ fps }), cues });
+const byReleaseName = (cues: Cue[], fps?: number) => ({
+  candidate: candidate({ ref: "reference", fps }),
+  cues,
+});
 
-const subtitleOf = (cues: Cue[], fps?: number) => ({ candidate: candidate({ fps }), cues });
+const subtitleOf = (cues: Cue[], fps?: number) => ({
+  candidate: candidate({ ref: "subtitle", fps }),
+  cues,
+});
 
 const track = syntheticTrack(1, 200);
 const nudged = transform(track, (time) => time + 100);
 const shifted = transform(resegment(track, 7), (time) => time + 2000);
 const outlier = transform(track, (time) => time + 5000);
-const unrelated = syntheticTrack(4, 200);
+const weakOutlier = transform(
+  track.filter((_, index) => index % 10 !== 0),
+  (time) => time + 5000,
+);
+const unrelated = syntheticTrack(2, 200);
+const differentCut = transform(
+  resegment(track, 7),
+  (time, cue) => time + 2000 + (cue.origin >= 100 ? 90_000 : 0),
+);
+const withSilence = [
+  ...track.slice(0, 100),
+  ...transform(track.slice(100), (time) => time + 60_000),
+];
 
 const partlyUnrelated = (() => {
   const kept = Math.round(track.length / 2);
@@ -91,10 +109,36 @@ describe("retime", () => {
     expect(result.kind === "retimed" && Math.abs(result.offsetMs + 2000)).toBeLessThanOrEqual(150);
   });
 
-  it("does not retime when two references disagree", async () => {
-    const result = await retime(subtitleOf(shifted), [byHash(track), byHash(outlier)]);
+  it("follows the higher-scoring reference when two references disagree", async () => {
+    const result = await retime(subtitleOf(shifted), [byHash(weakOutlier), byHash(track)]);
 
-    expect(result).toEqual({ kind: "not-retimed", cues: shifted });
+    expect(result.kind === "retimed" && Math.abs(result.offsetMs + 2000)).toBeLessThanOrEqual(150);
+  });
+
+  it("measures offset and cuts on the speed-scaled times", async () => {
+    const speedRatio = speedRatioFromFPS(25, 23.976);
+    const scaled = transform(resegment(withSilence, 7), (time) => (time + 2000) * speedRatio);
+
+    const result = await retime(subtitleOf(scaled, 25), [byHash(withSilence, 23.976)]);
+
+    expect(result).toMatchObject({ kind: "retimed", cuts: 0 });
+    expect(result.kind === "retimed" && Math.abs(result.offsetMs + 2000)).toBeLessThanOrEqual(150);
+  });
+
+  it("ignores a reference that is the subtitle itself", async () => {
+    const self = (sourceName: string) => ({
+      candidate: candidate({ sourceName, ref: "subtitle" }),
+      cues: shifted,
+    });
+
+    expect(await retime(subtitleOf(shifted), [self("test")])).toEqual({
+      kind: "not-retimed",
+      cues: shifted,
+    });
+    expect(await retime(subtitleOf(shifted), [self("other")])).toMatchObject({
+      kind: "retimed",
+      offsetMs: 0,
+    });
   });
 
   it("stops at the first hash reference that fits well", async () => {
@@ -112,18 +156,32 @@ describe("retime", () => {
   });
 
   it("reports a mismatch when every hash reference is unrelated", async () => {
-    const { score } = await alignCues(track, unrelated);
+    const offset = alignOffset(track, unrelated);
+    const split = await alignCues(track, unrelated);
 
-    expect(score).toBeLessThan(mismatchMaximumScore);
+    expect(offset.score).toBeLessThan(mismatchMaximumScore);
+    expect(split.score).toBeGreaterThanOrEqual(mismatchMaximumScore);
+    expect(split.score).toBeLessThan(retimedMinimumScore);
     expect(await retime(subtitleOf(unrelated, 25), [byHash(track, 25)])).toEqual({
       kind: "mismatch",
     });
   });
 
-  it("never reports a mismatch from a release-name reference", async () => {
-    const { score } = await alignCues(track, unrelated);
+  it("retimes a different cut that only the split alignment fits", async () => {
+    const offset = alignOffset(track, differentCut);
+    const split = await alignCues(track, differentCut);
 
-    expect(score).toBeLessThan(mismatchMaximumScore);
+    expect(offset.score).toBeGreaterThanOrEqual(mismatchMaximumScore);
+    expect(offset.score).toBeLessThan(retimedMinimumScore);
+    expect(split.score).toBeGreaterThanOrEqual(retimedMinimumScore);
+    expect(await retime(subtitleOf(differentCut, 25), [byHash(track, 25)])).toMatchObject({
+      kind: "retimed",
+      cuts: 1,
+    });
+  });
+
+  it("never reports a mismatch from a release-name reference", async () => {
+    expect(alignOffset(track, unrelated).score).toBeLessThan(mismatchMaximumScore);
     expect(await retime(subtitleOf(unrelated, 25), [byReleaseName(track, 25)])).toEqual({
       kind: "not-retimed",
       cues: unrelated,
