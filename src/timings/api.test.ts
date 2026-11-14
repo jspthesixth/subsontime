@@ -5,7 +5,7 @@ import { memoryTokenCache } from "../sources/token-cache.ts";
 import { TimingsInputError, lookUp, submitFix, submitMismatch } from "./api.ts";
 import { memoryStore, subtitleKey, type TimingsStore } from "./db.ts";
 import type { FixCue } from "./fingerprint.ts";
-import { submitterOf } from "./submitter.ts";
+import { groupingKeyOf, submitterOf } from "./submitter.ts";
 
 const secret = "a-test-secret-that-is-long-enough-1234";
 const installSalt = "an-install-salt-that-is-long-enough-12";
@@ -30,6 +30,8 @@ const cues = (count: number): FixCue[] =>
     s: index * 1000,
     e: index * 1000 + 900,
   }));
+
+const groupingKey = groupingKeyOf(installSalt);
 
 const writer = { submitter: "a".repeat(32), origin: "0123456789abcdef" };
 
@@ -316,7 +318,7 @@ describe("write limit", () => {
     const refused = await post(app, "/api/v1/fixes", fixBody());
 
     expect(refused.status).toBe(429);
-    expect(await store.fixesFor(video)).toHaveLength(20);
+    expect(await store.fixesFor(video)).toHaveLength(8);
   });
 
   it("counts writes per client", async () => {
@@ -542,8 +544,10 @@ describe("in-process handlers", () => {
 
     await submitFix(store, fixBody(), writer);
 
-    expect((await lookUp(store, video)).fixes).toHaveLength(1);
-    await expect(lookUp(store, { hash: "x", size: 1 })).rejects.toThrow(TimingsInputError);
+    expect((await lookUp(store, video, { groupingKey })).fixes).toHaveLength(1);
+    await expect(lookUp(store, { hash: "x", size: 1 }, { groupingKey })).rejects.toThrow(
+      TimingsInputError,
+    );
   });
 
   it("look up a video for one viewer", async () => {
@@ -551,8 +555,8 @@ describe("in-process handlers", () => {
 
     await submitMismatch(store, mismatchBody(), writer);
 
-    expect((await lookUp(store, video)).hidden).toEqual([]);
-    expect((await lookUp(store, video, { viewer: writer.submitter })).hidden).toEqual([
+    expect((await lookUp(store, video, { groupingKey })).hidden).toEqual([]);
+    expect((await lookUp(store, video, { groupingKey, viewer: writer.submitter })).hidden).toEqual([
       { subtitleSketch: mismatchBody().subtitleHashes, reason: "mismatch", count: 1 },
     ]);
   });
@@ -562,10 +566,10 @@ describe("in-process handlers", () => {
 
     await submitFix(store, fixBody(), writer);
 
-    expect((await lookUp(store, video, { withCues: true })).fixes).toMatchObject([
+    expect((await lookUp(store, video, { groupingKey, withCues: true })).fixes).toMatchObject([
       { cues: cues(3), cueCount: 3 },
     ]);
-    expect((await lookUp(store, video)).fixes[0]).not.toHaveProperty("cues");
+    expect((await lookUp(store, video, { groupingKey })).fixes[0]).not.toHaveProperty("cues");
   });
 
   it("store the origin of each write", async () => {
@@ -584,21 +588,21 @@ describe("in-process handlers", () => {
     const store = memoryStore();
     const counted = { ...store, fixesFor: vi.fn<TimingsStore["fixesFor"]>(store.fixesFor) };
 
-    await lookUp(counted, video);
-    await lookUp(counted, video);
-    await lookUp(counted, { ...video, size: video.size + 1 });
+    await lookUp(counted, video, { groupingKey });
+    await lookUp(counted, video, { groupingKey });
+    await lookUp(counted, { ...video, size: video.size + 1 }, { groupingKey });
 
     expect(counted.fixesFor).toHaveBeenCalledTimes(2);
 
     await submitFix(counted, fixBody(), writer);
 
-    expect((await lookUp(counted, video)).fixes).toHaveLength(1);
+    expect((await lookUp(counted, video, { groupingKey })).fixes).toHaveLength(1);
     expect(counted.fixesFor).toHaveBeenCalledTimes(3);
 
     vi.advanceTimersByTime(299_000);
-    await lookUp(counted, video);
+    await lookUp(counted, video, { groupingKey });
     vi.advanceTimersByTime(2000);
-    await lookUp(counted, video);
+    await lookUp(counted, video, { groupingKey });
 
     expect(counted.fixesFor).toHaveBeenCalledTimes(4);
     vi.useRealTimers();

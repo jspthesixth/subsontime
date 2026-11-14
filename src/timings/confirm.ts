@@ -52,6 +52,8 @@ const sameSubtitleShare = 0.9;
 const sketchFloor = 0.75;
 const maximumGroups = 64;
 const groupStartsPerSlot = 8;
+const privateSketchSize = 128;
+const exactChecks = 3;
 const toleranceMs = 100;
 const agreeingPercent = 80;
 const minimumSharedCues = 20;
@@ -87,12 +89,39 @@ const independent = (a: Row, b: Row) =>
 
 const hasIndependentPair = (rows: Row[]) => rows.some((a) => rows.some((b) => independent(a, b)));
 
-type Leader = { row: Row; hashes: Set<CueHash>; sketch: CueHash[]; estimate: number };
+type Leader = { row: Row; hashes: Set<CueHash>; sketch: Float64Array };
 
-const representatives = (rows: Row[]): Map<Row, Row> => {
+const scramble = (value: number, key: number) => {
+  const mixed = Math.imul(value ^ key, 0x85ebca6b);
+  const again = Math.imul(mixed ^ (mixed >>> 13), 0xc2b2ae35);
+
+  return (again ^ (again >>> 16)) >>> 0;
+};
+
+const keyedOrders = (groupingKey: Buffer) => {
+  const [first = 0, second = 0, third = 0, fourth = 0] = [0, 4, 8, 12].map((at) =>
+    groupingKey.readUInt32BE(at),
+  );
+
+  return (hash: CueHash) => {
+    const high = Number.parseInt(hash.slice(0, 8), 16);
+    const low = Number.parseInt(hash.slice(8, 16), 16);
+
+    return (
+      scramble(high ^ scramble(low, second), first) * 2 ** 21 +
+      (scramble(low ^ scramble(high, fourth), third) >>> 11)
+    );
+  };
+};
+
+const privateSketch = (hashes: Set<CueHash>, keyedOrder: (hash: CueHash) => number) =>
+  Float64Array.from(hashes, keyedOrder).toSorted().subarray(0, privateSketchSize);
+
+const representatives = (rows: Row[], groupingKey: Buffer): Map<Row, Row> => {
   const leaders: Leader[] = [];
   const byList = new Map<string, Row>();
   const starts = new Map<string, number>();
+  const keyedOrder = keyedOrders(groupingKey);
 
   const leaderFor = (row: Row) => {
     const list = row.subtitleHashes.join();
@@ -103,25 +132,19 @@ const representatives = (rows: Row[]): Map<Row, Row> => {
     }
 
     const hashes = new Set(row.subtitleHashes);
-    const sketch = subtitleSketch(row.subtitleHashes);
-    const best = leaders
-      .map((leader) => ({ ...leader, estimate: sketchesSimilarity(sketch, leader.sketch) }))
-      .reduce<Leader | undefined>(
-        (top, leader) => (top === undefined || leader.estimate > top.estimate ? leader : top),
-        undefined,
-      );
-    const joined =
-      best !== undefined &&
-      best.estimate >= sketchFloor &&
-      setSimilarity(best.hashes, hashes) >= sameSubtitleShare
-        ? best.row
-        : undefined;
+    const sketch = privateSketch(hashes, keyedOrder);
+    const joined = leaders
+      .map((leader) => ({ leader, estimate: sketchesSimilarity(sketch, leader.sketch) }))
+      .filter(({ estimate }) => estimate >= sketchFloor)
+      .toSorted((a, b) => b.estimate - a.estimate)
+      .slice(0, exactChecks)
+      .find(({ leader }) => setSimilarity(leader.hashes, hashes) >= sameSubtitleShare)?.leader.row;
     const slot = slotOf(row);
     const started = starts.get(slot) ?? 0;
     const canStart = leaders.length < maximumGroups && started < groupStartsPerSlot;
 
     if (joined === undefined && canStart) {
-      leaders.push({ row, hashes, sketch, estimate: 0 });
+      leaders.push({ row, hashes, sketch });
       starts.set(slot, started + 1);
     }
 
@@ -276,7 +299,9 @@ const rankedView = (leader: FixRow, group: FixRow[]): Ranked => {
     .map(newestOf)
     .toSorted(byAge)
     .slice(-weighedFixes);
-  const component = largest(agreeingComponents(weighed.map(timedOf)));
+  const components = agreeingComponents(weighed.map(timedOf));
+  const confirming = components.filter((component) => isConfirmed(component.map(({ fix }) => fix)));
+  const component = largest(confirming.length > 0 ? confirming : components);
   const name = {
     id: subtitleKey(oldestOf(group).subtitleHashes),
     subtitleSketch: subtitleSketch(leader.subtitleHashes),
@@ -342,11 +367,15 @@ export const digest = (
   fixes: FixRow[],
   mismatches: MismatchRow[],
   reports: ReportRow[],
+  groupingKey: Buffer,
 ): Digest => {
-  const leaderOf = representatives([
-    ...fixes.toSorted(byAge).toReversed(),
-    ...[...mismatches, ...reports].toSorted(byAge).toReversed(),
-  ]);
+  const leaderOf = representatives(
+    [
+      ...fixes.toSorted(byAge).toReversed(),
+      ...[...mismatches, ...reports].toSorted(byAge).toReversed(),
+    ],
+    groupingKey,
+  );
   const byLeader = <Item extends Row>(rows: Item[]) =>
     Map.groupBy(rows, (row) => leaderOf.get(row));
   const fixGroups = byLeader(fixes);
@@ -426,5 +455,5 @@ export const summarize = (
   fixes: FixRow[],
   mismatches: MismatchRow[],
   reports: ReportRow[],
-  viewer?: string,
-): VideoTimings<FixWithCues> => present(digest(fixes, mismatches, reports), viewer);
+  { groupingKey, viewer }: { groupingKey: Buffer; viewer?: string },
+): VideoTimings<FixWithCues> => present(digest(fixes, mismatches, reports, groupingKey), viewer);

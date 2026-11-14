@@ -35,3 +35,6 @@ export const submitterOf = (installId: string, salt: string): string => {
     .digest("hex")
     .slice(0, 32);
 };
+
+export const groupingKeyOf = (salt: string): Buffer =>
+  createHash("sha256").update(`grouping:${salt}`).digest();

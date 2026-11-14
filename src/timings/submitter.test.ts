@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { TimingsInputError } from "./api.ts";
-import { readInstallSalt, submitterOf } from "./submitter.ts";
+import { groupingKeyOf, readInstallSalt, submitterOf } from "./submitter.ts";
 
 const salt = "s".repeat(32);
 const installId = "6f1c2b9e-4d3a-4f5e-9a8b-7c6d5e4f3a2b";
@@ -53,4 +53,10 @@ test("submitterOf rejects a salt under 32 characters", () => {
   expect(() => submitterOf(installId, "short")).toThrow(
     "INSTALL_SALT must be set to at least 32 characters",
   );
+});
+
+test("groupingKeyOf is 32 bytes, stable, and differs per salt", () => {
+  expect(groupingKeyOf(salt)).toHaveLength(32);
+  expect(groupingKeyOf(salt).equals(groupingKeyOf(salt))).toBe(true);
+  expect(groupingKeyOf(salt).equals(groupingKeyOf("t".repeat(32)))).toBe(false);
 });

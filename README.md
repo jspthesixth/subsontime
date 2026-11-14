@@ -39,7 +39,7 @@ Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point a
 
 ## Privacy
 
-Submissions carry no account and no address. A daily-changing code tells apart submissions from different connections for one day, so one person cannot confirm their own fix; it cannot be traced back after that day.
+Submissions carry no account and no address. A daily-changing code makes it harder for one connection to confirm its own fix or hide a subtitle; it cannot be traced back after that day.
 
 ## Development
 

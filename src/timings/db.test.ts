@@ -132,6 +132,50 @@ const contract = (makeStore: () => TimingsStore) => {
     expect(rows[0]?.submitter).toBe((1).toString(16).padStart(32, "0"));
   });
 
+  it("keeps an older honest pair readable after 600 rows from one origin", async () => {
+    const flood = "f".repeat(16);
+    const honest = [submitterA, submitterB];
+
+    for (const [index, submitter] of honest.entries()) {
+      await store.putFix(fix({ submitter, origin: String(index).repeat(16) }));
+    }
+
+    for (const index of Array.from({ length: 600 }, (_, at) => at)) {
+      await store.putFix(fix({ submitter: index.toString(16).padStart(32, "0"), origin: flood }));
+    }
+
+    const rows = await store.fixesFor(video);
+
+    expect(rows.map((row) => row.submitter)).toEqual(expect.arrayContaining(honest));
+    expect(rows.filter((row) => row.origin === flood)).toHaveLength(8);
+  });
+
+  it("reads at most 8 newest mismatches and reports per origin, or per submitter without one", async () => {
+    const origin = "e".repeat(16);
+    const submitters = Array.from({ length: 10 }, (_, at) => at.toString(16).padStart(32, "0"));
+
+    for (const submitter of submitters) {
+      await store.putMismatch(mismatch({ submitter, origin }));
+      await store.putReport(report({ submitter, origin }));
+    }
+
+    for (const index of Array.from({ length: 10 }, (_, at) => at)) {
+      await store.putMismatch(
+        mismatch({ subtitleHashes: [index.toString(16).padStart(16, "0")], submitter: submitterA }),
+      );
+    }
+
+    const mismatches = await store.mismatchesFor(video);
+
+    expect(mismatches.filter((row) => row.origin === origin).map((row) => row.submitter)).toEqual(
+      submitters.slice(2),
+    );
+    expect(mismatches.filter((row) => row.origin === undefined)).toHaveLength(8);
+    expect((await store.reportsFor(video)).map((row) => row.submitter)).toEqual(
+      submitters.slice(2),
+    );
+  });
+
   it("keeps the origin of each row and replaces it on a re-put", async () => {
     const origin = "0123456789abcdef";
     const later = "fedcba9876543210";

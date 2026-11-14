@@ -82,10 +82,14 @@ const parse = <Schema extends v.GenericSchema>(
 
 const cacheMs = 300_000;
 const maxCachedVideos = 1000;
-const caches = new WeakMap<TimingsStore, Map<string, { at: number; digest: Promise<Digest> }>>();
+const maxCachedCues = 2_000_000;
+
+type CacheEntry = { at: number; digest: Promise<Digest>; cues: number };
+
+const caches = new WeakMap<TimingsStore, Map<string, CacheEntry>>();
 
 const cacheOf = (store: TimingsStore) => {
-  const cache = caches.get(store) ?? new Map<string, { at: number; digest: Promise<Digest> }>();
+  const cache = caches.get(store) ?? new Map<string, CacheEntry>();
 
   caches.set(store, cache);
 
@@ -96,38 +100,62 @@ const cacheKey = (video: VideoKey) => `${video.hash}:${video.size}`;
 
 const forget = (store: TimingsStore, video: VideoKey) => cacheOf(store).delete(cacheKey(video));
 
-const read = async (store: TimingsStore, video: VideoKey) => {
+const cuesIn = (sections: Digest) =>
+  sections.reduce((total, section) => total + (section.fixView?.view.cues.length ?? 0), 0);
+
+const dropExpired = (cache: Map<string, CacheEntry>, now: number) =>
+  [...cache].filter(([, entry]) => now - entry.at >= cacheMs).forEach(([key]) => cache.delete(key));
+
+const keepWithinBudget = (cache: Map<string, CacheEntry>) => {
+  const newestFirst = [...cache].toReversed();
+  const held = newestFirst.reduce<number[]>(
+    (totals, [, entry]) => [...totals, (totals.at(-1) ?? 0) + entry.cues],
+    [],
+  );
+
+  newestFirst
+    .filter((_, index) => index >= maxCachedVideos || (held[index] ?? 0) > maxCachedCues)
+    .forEach(([key]) => cache.delete(key));
+};
+
+const read = async (store: TimingsStore, video: VideoKey, groupingKey: Buffer) => {
   const [fixes, mismatches, reports] = await Promise.all([
     store.fixesFor(video),
     store.mismatchesFor(video),
     store.reportsFor(video),
   ]);
 
-  return digest(fixes, mismatches, reports);
+  return digest(fixes, mismatches, reports, groupingKey);
 };
 
-const cachedDigest = (store: TimingsStore, video: VideoKey) => {
+const cachedDigest = (store: TimingsStore, video: VideoKey, groupingKey: Buffer) => {
   const cache = cacheOf(store);
   const key = cacheKey(video);
+  const now = Date.now();
+
+  dropExpired(cache, now);
+
   const cached = cache.get(key);
 
-  if (cached !== undefined && Date.now() - cached.at < cacheMs) {
+  if (cached !== undefined) {
     return cached.digest;
   }
 
-  const entry = { at: Date.now(), digest: read(store, video) };
-  const [oldest] = cache.keys();
-
-  if (cache.size >= maxCachedVideos && oldest !== undefined) {
-    cache.delete(oldest);
-  }
+  const entry: CacheEntry = { at: now, digest: read(store, video, groupingKey), cues: 0 };
 
   cache.set(key, entry);
-  entry.digest.catch(() => {
-    if (cache.get(key) === entry) {
-      cache.delete(key);
-    }
-  });
+  keepWithinBudget(cache);
+  entry.digest.then(
+    (sections) => {
+      entry.cues = cuesIn(sections);
+      keepWithinBudget(cache);
+    },
+    () => {
+      if (cache.get(key) === entry) {
+        cache.delete(key);
+      }
+    },
+  );
 
   return entry.digest;
 };
@@ -173,12 +201,12 @@ export const submitReport = async (
   forget(store, video);
 };
 
-type LookUpOptions = { viewer?: string; withCues?: boolean };
+type LookUpOptions = { groupingKey: Buffer; viewer?: string; withCues?: boolean };
 
 export async function lookUp(
   store: TimingsStore,
   video: unknown,
-  options?: LookUpOptions & { withCues?: false },
+  options: LookUpOptions & { withCues?: false },
 ): Promise<VideoTimings>;
 export async function lookUp(
   store: TimingsStore,
@@ -188,10 +216,10 @@ export async function lookUp(
 export async function lookUp(
   store: TimingsStore,
   video: unknown,
-  { viewer, withCues = false }: LookUpOptions = {},
+  { groupingKey, viewer, withCues = false }: LookUpOptions,
 ): Promise<VideoTimings | VideoTimings<FixWithCues>> {
   const timings = present(
-    await cachedDigest(store, parse(videoSchema, video, videoMessage)),
+    await cachedDigest(store, parse(videoSchema, video, videoMessage), groupingKey),
     viewer,
   );
 

@@ -34,46 +34,52 @@ const videoOf = (param: string | undefined) => {
   return hash === undefined || size === undefined ? undefined : { hash, size: Number(size) };
 };
 
-export const lookUpRoute = (store: TimingsStore) => async (context: Context) => {
-  const video = videoOf(context.req.query("video"));
+type ReadDeps = { store: TimingsStore; groupingKey: Buffer };
 
-  if (video === undefined) {
-    return context.json({ error: videoParamMessage }, 400);
-  }
+export const lookUpRoute =
+  ({ store, groupingKey }: ReadDeps) =>
+  async (context: Context) => {
+    const video = videoOf(context.req.query("video"));
 
-  try {
-    const timings = await lookUp(store, video);
-
-    context.header("cache-control", "public, max-age=300");
-
-    return context.json(timings);
-  } catch (error) {
-    return inputErrorResponse(context, error);
-  }
-};
-
-export const cuesRoute = (store: TimingsStore) => async (context: Context) => {
-  const video = videoOf(context.req.param("video"));
-
-  if (video === undefined) {
-    return context.json({ error: videoParamMessage }, 400);
-  }
-
-  try {
-    const { fixes } = await lookUp(store, video, { withCues: true });
-    const view = fixes.find((candidate) => candidate.id === context.req.param("id"));
-
-    if (view === undefined) {
-      return context.json({ error: goneMessage }, 404);
+    if (video === undefined) {
+      return context.json({ error: videoParamMessage }, 400);
     }
 
-    context.header("cache-control", "public, max-age=300");
+    try {
+      const timings = await lookUp(store, video, { groupingKey });
 
-    return context.json({ cues: view.cues });
-  } catch (error) {
-    return inputErrorResponse(context, error);
-  }
-};
+      context.header("cache-control", "public, max-age=300");
+
+      return context.json(timings);
+    } catch (error) {
+      return inputErrorResponse(context, error);
+    }
+  };
+
+export const cuesRoute =
+  ({ store, groupingKey }: ReadDeps) =>
+  async (context: Context) => {
+    const video = videoOf(context.req.param("video"));
+
+    if (video === undefined) {
+      return context.json({ error: videoParamMessage }, 400);
+    }
+
+    try {
+      const { fixes } = await lookUp(store, video, { groupingKey, withCues: true });
+      const view = fixes.find((candidate) => candidate.id === context.req.param("id"));
+
+      if (view === undefined) {
+        return context.json({ error: goneMessage }, 404);
+      }
+
+      context.header("cache-control", "public, max-age=300");
+
+      return context.json({ cues: view.cues });
+    } catch (error) {
+      return inputErrorResponse(context, error);
+    }
+  };
 
 export const writeRoute =
   (handler: WriteHandler, { store, installSalt, allow, clientKey, originOf }: WriteDeps) =>

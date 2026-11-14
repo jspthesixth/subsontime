@@ -52,7 +52,9 @@ const readLimit = 500;
 export const subtitleKey = (hashes: CueHash[]) =>
   createHash("md5").update(hashes.join(",")).digest("hex");
 
-type Keyed = { video: VideoKey; submitter: string; subtitleHashes: CueHash[] };
+const rowsPerSlot = 8;
+
+type Keyed = { video: VideoKey; submitter: string; subtitleHashes: CueHash[]; origin?: string };
 
 const sameVideo = (a: VideoKey, b: VideoKey) => a.hash === b.hash && a.size === b.size;
 
@@ -65,8 +67,16 @@ const memoryTable = <Row extends Keyed>() => {
   let rows: (Row & { createdAt: Date })[] = [];
 
   return {
-    for: (video: VideoKey, limit = readLimit) =>
-      rows.filter((row) => sameVideo(row.video, video)).slice(-limit),
+    for: (video: VideoKey, limit = readLimit) => {
+      const videoRows = rows.filter((row) => sameVideo(row.video, video));
+      const kept = new Set(
+        [...Map.groupBy(videoRows, (row) => row.origin ?? row.submitter).values()].flatMap(
+          (slotRows) => slotRows.slice(-rowsPerSlot),
+        ),
+      );
+
+      return videoRows.filter((row) => kept.has(row)).slice(-limit);
+    },
     put: (row: Row) => {
       rows = [
         ...rows.filter((existing) => !sameSlot(existing, row)),
@@ -124,8 +134,14 @@ export const postgresStore = (url: string): TimingsStore => {
     fixesFor: async (video, limit = readLimit) => {
       const rows = await sql<FixColumns[]>`
         select video_hash, video_size, subtitle_hashes, cues, method, reference_key, submitter, origin, created_at
-        from fixes
-        where video_hash = ${video.hash} and video_size = ${video.size}
+        from (
+          select *, row_number() over (
+            partition by coalesce(origin, submitter) order by created_at desc, id desc
+          ) as slot_rank
+          from fixes
+          where video_hash = ${video.hash} and video_size = ${video.size}
+        ) ranked
+        where slot_rank <= ${rowsPerSlot}
         order by created_at desc, id desc
         limit ${limit}`;
 
@@ -143,8 +159,14 @@ export const postgresStore = (url: string): TimingsStore => {
     mismatchesFor: async (video, limit = readLimit) => {
       const rows = await sql<MismatchColumns[]>`
         select video_hash, video_size, subtitle_hashes, submitter, origin, created_at
-        from mismatches
-        where video_hash = ${video.hash} and video_size = ${video.size}
+        from (
+          select *, row_number() over (
+            partition by coalesce(origin, submitter) order by created_at desc, id desc
+          ) as slot_rank
+          from mismatches
+          where video_hash = ${video.hash} and video_size = ${video.size}
+        ) ranked
+        where slot_rank <= ${rowsPerSlot}
         order by created_at desc, id desc
         limit ${limit}`;
 
@@ -159,8 +181,14 @@ export const postgresStore = (url: string): TimingsStore => {
     reportsFor: async (video, limit = readLimit) => {
       const rows = await sql<ReportColumns[]>`
         select video_hash, video_size, subtitle_hashes, reason, submitter, origin, created_at
-        from reports
-        where video_hash = ${video.hash} and video_size = ${video.size}
+        from (
+          select *, row_number() over (
+            partition by coalesce(origin, submitter) order by created_at desc, id desc
+          ) as slot_rank
+          from reports
+          where video_hash = ${video.hash} and video_size = ${video.size}
+        ) ranked
+        where slot_rank <= ${rowsPerSlot}
         order by created_at desc, id desc
         limit ${limit}`;
 

@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { dialogueTrack, fastestOfThree } from "../timing/test-tracks.ts";
-import { digest, present, publicTimings, summarize, type Digest } from "./confirm.ts";
+import {
+  digest as digestWith,
+  present,
+  publicTimings,
+  summarize as summarizeWith,
+  type Digest,
+} from "./confirm.ts";
 import { subtitleKey, type FixRow, type MismatchRow, type NewFix, type ReportRow } from "./db.ts";
 import { subtitleSketch, toFixCues, type CueHash, type FixCue } from "./fingerprint.ts";
+import { groupingKeyOf } from "./submitter.ts";
 
 const video = { hash: "0123456789abcdef", size: 7_345_678_901 };
 const alice = "a".repeat(32);
@@ -59,6 +66,20 @@ const report = (
   reason: ReportRow["reason"] = "timing-off",
   origin = originOf(submitter),
 ): ReportRow => ({ video, subtitleHashes, reason, submitter, origin, createdAt: nextTime() });
+
+const groupingKey = groupingKeyOf("s".repeat(32));
+
+const summarize = (
+  fixes: FixRow[],
+  mismatches: MismatchRow[],
+  reports: ReportRow[],
+  viewer?: string,
+) => summarizeWith(fixes, mismatches, reports, { groupingKey, viewer });
+
+const digest = (fixes: FixRow[], mismatches: MismatchRow[], reports: ReportRow[]) =>
+  digestWith(fixes, mismatches, reports, groupingKey);
+
+const cuesFor = (list: CueHash[]) => list.map((h, at) => ({ h, s: at * 1000, e: at * 1000 + 900 }));
 
 const listed = (sections: Digest) => sections.filter((section) => section.fixView).length;
 
@@ -217,7 +238,7 @@ describe("summarize confirmation", () => {
     expect(view).toMatchObject({ status: "confirmed", agreeing: 3 });
   });
 
-  it("keeps honest fixes together when an older row sends hashes that sort first", () => {
+  it("groups a row whose hashes sort first with the fixes it matches", () => {
     const long = subtitle(12, 2000);
     const lowered = long.map((cue, at) =>
       at < 100 ? { ...cue, h: at.toString(16).padStart(16, "0") } : cue,
@@ -225,7 +246,7 @@ describe("summarize confirmation", () => {
 
     expect(
       fixesOnly([fix(lowered, { submitter: dave }), fix(long), fix(long, { submitter: bob })]),
-    ).toMatchObject([{ status: "confirmed", agreeing: 2, id: idOf(long) }, { status: "hint" }]);
+    ).toMatchObject([{ status: "confirmed", agreeing: 3, id: idOf(lowered) }]);
   });
 
   it("weighs only the 50 newest fixes of a subtitle", () => {
@@ -292,6 +313,19 @@ describe("summarize confirmation", () => {
         subtitleSketch: subtitleSketch(hashesOf(cues.slice(1))),
       },
     ]);
+  });
+
+  it("confirms the largest component that confirms", () => {
+    const reference = { method: "reference", referenceKey: referenceOne } as const;
+    const [view] = fixesOnly([
+      fix(cues, reference),
+      fix(cues, { ...reference, submitter: bob }),
+      fix(cues, { ...reference, submitter: carol }),
+      fix(shifted(cues, 2000), { submitter: dave }),
+      fix(shifted(cues, 2000), { submitter: submitterAt(1) }),
+    ]);
+
+    expect(view).toMatchObject({ status: "confirmed", agreeing: 2, cues: shifted(cues, 2000) });
   });
 
   it("weighs only the newest fix of each origin", () => {
@@ -671,7 +705,49 @@ describe("summarize grouping bounds", () => {
     );
 
     expect(fixesOnly([...pair, ...skewed])).toContainEqual(
-      expect.objectContaining({ status: "confirmed", agreeing: 2, id: idOf(base) }),
+      expect.objectContaining({ status: "confirmed", id: idOf(base) }),
+    );
+  });
+
+  it("tries the next best group when the best sketch match fails the exact check", () => {
+    const ours = Array.from({ length: 1000 }, (_, at) => hashLike(`4-base-${at}`));
+    const nearer = [
+      ...ours.slice(47),
+      ...Array.from({ length: 47 }, (_, at) => hashLike(`4-b-${at}`)),
+    ];
+    const farther = [
+      ...ours.slice(0, 940),
+      ...Array.from({ length: 60 }, (_, at) => hashLike(`4-a-${at}`)),
+    ];
+    const sections = digest(
+      [
+        fix(cuesFor(ours)),
+        fix(cuesFor(farther), { submitter: bob }),
+        fix(cuesFor(nearer), { submitter: carol }),
+      ],
+      [],
+      [],
+    );
+
+    expect(sections).toHaveLength(2);
+  });
+
+  it("keeps an honest pair together when a newer fix sends only the public sketch", () => {
+    const listB = Array.from({ length: 1000 }, (_, at) => hashLike(`b-${at}`));
+    const listA = [
+      ...listB.slice(40),
+      ...Array.from({ length: 40 }, (_, at) => hashLike(`a-${at}`)),
+    ];
+    const at = new Map([...listB, ...listA].map((hash, index) => [hash, index]));
+    const cuesOf = (list: CueHash[]) =>
+      list
+        .map((h) => ({ h, s: (at.get(h) ?? 0) * 1000, e: (at.get(h) ?? 0) * 1000 + 900 }))
+        .toSorted((left, right) => left.s - right.s);
+    const honest = [fix(cuesOf(listA)), fix(cuesOf(listB), { submitter: bob })];
+    const capture = fix(cuesOf(subtitleSketch(listB)), { submitter: carol });
+
+    expect(fixesOnly([...honest, capture])).toContainEqual(
+      expect.objectContaining({ status: "confirmed", agreeing: 2 }),
     );
   });
 });

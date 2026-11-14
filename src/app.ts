@@ -14,6 +14,7 @@ import { submitFix, submitMismatch, submitReport } from "./timings/api.ts";
 import { cuesRoute, lookUpRoute, writeRoute } from "./timings/api-route.ts";
 import { memoryStore, type TimingsStore } from "./timings/db.ts";
 import { dailyOrigins } from "./timings/origin.ts";
+import { groupingKeyOf } from "./timings/submitter.ts";
 import { checkPage } from "./web/check-page.ts";
 import { checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
@@ -133,10 +134,11 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       allow: rateLimit(writesPerHour, hourMs).allow,
       clientKey,
       originOf: dailyOrigins(),
+      groupingKey: groupingKeyOf(deps.installSalt),
     };
 
-    app.get("/api/v1/fixes", lookUpRoute(timingsDeps.store));
-    app.get("/api/v1/fixes/:video/:id/cues", cuesRoute(timingsDeps.store));
+    app.get("/api/v1/fixes", lookUpRoute(timingsDeps));
+    app.get("/api/v1/fixes/:video/:id/cues", cuesRoute(timingsDeps));
     app.post("/api/v1/fixes", writeRoute(submitFix, timingsDeps));
     app.post("/api/v1/mismatches", writeRoute(submitMismatch, timingsDeps));
     app.post("/api/v1/reports", writeRoute(submitReport, timingsDeps));
