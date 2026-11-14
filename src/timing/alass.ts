@@ -5,7 +5,7 @@ type AlignOptions = { speedRatio?: number };
 
 type Alignment = { cues: Cue[]; score: number };
 
-export const speedRatios = [
+export const speedRatios: readonly number[] = [
   1,
   25 / 23.976,
   23.976 / 25,
@@ -74,4 +74,7 @@ export const bestSpeedRatio = (reference: Cue[], subtitle: Cue[], ratios: readon
       speedRatio,
       score: alignOffset(reference, subtitle, { speedRatio }).score,
     }))
-    .reduce((best, candidate) => (candidate.score > best.score ? candidate : best)).speedRatio;
+    .reduce((best, candidate) => (candidate.score > best.score ? candidate : best), {
+      speedRatio: ratios[0] ?? 1,
+      score: -Infinity,
+    }).speedRatio;

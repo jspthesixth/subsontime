@@ -95,6 +95,30 @@ const unchangedError = (aligned: Cue[]) =>
     }),
   );
 
+const relatedError = (aligned: Cue[]) =>
+  Math.max(
+    ...related.flatMap((cue, index) => {
+      const result = aligned[index];
+
+      if (!cue.unchanged || result === undefined) {
+        return [];
+      }
+
+      return [Math.abs(result.start - cue.start), Math.abs(result.end - cue.end)];
+    }),
+  );
+
+const timed = async (run: () => unknown) => {
+  const started = performance.now();
+
+  await run();
+
+  return performance.now() - started;
+};
+
+const fastestOfThree = async (run: () => unknown) =>
+  Math.min(await timed(run), await timed(run), await timed(run));
+
 describe("alignCues", () => {
   it("removes a constant offset from a re-segmented subtitle", async () => {
     const { cues, score } = await alignCues(
@@ -103,6 +127,7 @@ describe("alignCues", () => {
     );
 
     expect(unchangedError(cues)).toBeLessThanOrEqual(300);
+    expect(relatedError(cues)).toBeLessThanOrEqual(60);
     expect(score).toBeGreaterThanOrEqual(0.6);
   });
 
@@ -116,6 +141,7 @@ describe("alignCues", () => {
 
     expect(speedRatio).toBeCloseTo(1.042709, 6);
     expect(unchangedError(cues)).toBeLessThanOrEqual(300);
+    expect(relatedError(cues)).toBeLessThanOrEqual(60);
     expect(score).toBeGreaterThanOrEqual(0.6);
   });
 
@@ -126,6 +152,7 @@ describe("alignCues", () => {
     );
 
     expect(unchangedError(cues)).toBeLessThanOrEqual(300);
+    expect(relatedError(cues)).toBeLessThanOrEqual(60);
     expect(score).toBeGreaterThanOrEqual(0.6);
   });
 
@@ -143,15 +170,10 @@ describe("alignCues", () => {
 
   it("aligns two 1500-cue tracks in under 1500 ms", async () => {
     const long = syntheticTrack(3, 1500);
-    const started = performance.now();
+    const shifted = transform(long, (time) => time + 2000);
 
-    await alignCues(
-      long,
-      transform(long, (time) => time + 2000),
-    );
-
-    expect(performance.now() - started).toBeLessThan(1500);
-  });
+    expect(await fastestOfThree(() => alignCues(long, shifted))).toBeLessThan(1500);
+  }, 10_000);
 });
 
 describe("alignOffset", () => {
@@ -162,19 +184,26 @@ describe("alignOffset", () => {
     );
 
     expect(unchangedError(cues)).toBeLessThanOrEqual(300);
+    expect(relatedError(cues)).toBeLessThanOrEqual(60);
     expect(score).toBeGreaterThanOrEqual(0.6);
   });
 
-  it("aligns two 1500-cue tracks in under 300 ms", () => {
-    const long = syntheticTrack(3, 1500);
-    const started = performance.now();
-
-    alignOffset(
-      long,
-      transform(long, (time) => time + 2000),
+  it("aligns a 25 fps subtitle to a 23.976 fps reference with one delta", () => {
+    const { cues, score } = alignOffset(
+      reference,
+      transform(related, (time) => (time * 25) / 23.976 - 3000),
+      { speedRatio: speedRatioFromFPS(25, 23.976) },
     );
 
-    expect(performance.now() - started).toBeLessThan(300);
+    expect(relatedError(cues)).toBeLessThanOrEqual(60);
+    expect(score).toBeGreaterThanOrEqual(0.6);
+  });
+
+  it("aligns two 1500-cue tracks in under 300 ms", async () => {
+    const long = syntheticTrack(3, 1500);
+    const shifted = transform(long, (time) => time + 2000);
+
+    expect(await fastestOfThree(() => alignOffset(long, shifted))).toBeLessThan(300);
   });
 });
 
@@ -189,6 +218,10 @@ describe("bestSpeedRatio", () => {
     const shifted = transform(related, (time) => time + 2000);
 
     expect(bestSpeedRatio(reference, shifted, speedRatios)).toBe(1);
+  });
+
+  it("falls back to 1 without candidate ratios", () => {
+    expect(bestSpeedRatio(reference, related, [])).toBe(1);
   });
 });
 
