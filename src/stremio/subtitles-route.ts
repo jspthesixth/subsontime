@@ -79,7 +79,7 @@ export const subtitlesRoute =
       filename,
       languages: config.languages,
     };
-    const found = await searchVideo(sourcesFor(config), query);
+    const found = await searchVideo(sourcesFor(config, context.get("tokens")), query);
     const references = found.references.map(toCandidateRef);
     const subURL = (candidates: Candidate[]) => {
       const ref = encodeRef(

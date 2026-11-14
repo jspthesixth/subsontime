@@ -1,5 +1,6 @@
 import { titloviSource } from "../../src/sources/titlovi.ts";
-import { memoryTokenCache } from "../../src/sources/token-cache.ts";
+import { memorySharedState } from "../../src/jobs/shared-state.ts";
+import { installKeyOf, tokenCacheFor } from "../../src/sources/token-cache.ts";
 
 const required = (name: string) => {
   const value = process.env[name];
@@ -15,7 +16,10 @@ const username = required("TITLOVI_USERNAME");
 const password = required("TITLOVI_PASSWORD");
 const signal = () => AbortSignal.timeout(10000);
 
-const source = titloviSource({ username, password }, memoryTokenCache());
+const source = titloviSource(
+  { username, password },
+  tokenCacheFor(memorySharedState(), installKeyOf("")),
+);
 const candidates = await source.search(
   { type: "movie", imdbId: "tt0111161", languages: ["hrv"] },
   signal(),

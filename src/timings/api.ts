@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import {
   digest,
   present,
@@ -13,7 +14,12 @@ export class TimingsInputError extends Error {
   override name = "TimingsInputError";
 }
 
-export type WriteContext = { submitter: string; origin: string };
+export type Summaries = {
+  read(video: VideoKey, load: () => Promise<Digest>): Promise<Digest>;
+  forget(video: VideoKey): Promise<void>;
+};
+
+export type WriteContext = { submitter: string; origin: string; summaries?: Summaries };
 
 const bodyMessage = "Send a JSON object";
 const videoMessage = "Send video as a 16-character hex hash and a size in bytes";
@@ -85,20 +91,12 @@ const maxCachedVideos = 1000;
 const maxCachedCues = 2_000_000;
 
 type CacheEntry = { at: number; digest: Promise<Digest>; cues: number };
-
-const caches = new WeakMap<TimingsStore, Map<string, CacheEntry>>();
-
-const cacheOf = (store: TimingsStore) => {
-  const cache = caches.get(store) ?? new Map<string, CacheEntry>();
-
-  caches.set(store, cache);
-
-  return cache;
+type StoredSection = Omit<Digest[number], "mismatchers"> & {
+  mismatchers: string[];
+  hiddenMismatch: number;
 };
 
 const cacheKey = (video: VideoKey) => `${video.hash}:${video.size}`;
-
-const forget = (store: TimingsStore, video: VideoKey) => cacheOf(store).delete(cacheKey(video));
 
 const cuesIn = (sections: Digest) =>
   sections.reduce((total, section) => total + (section.fixView?.view.cues.length ?? 0), 0);
@@ -118,6 +116,93 @@ const keepWithinBudget = (cache: Map<string, CacheEntry>) => {
   });
 };
 
+const memorySummaries = (): Summaries => {
+  const cache = new Map<string, CacheEntry>();
+
+  return {
+    read(video, load) {
+      const key = cacheKey(video);
+      const now = Date.now();
+
+      dropExpired(cache, now);
+
+      const cached = cache.get(key);
+
+      if (cached !== undefined) {
+        return cached.digest;
+      }
+
+      const entry: CacheEntry = { at: now, digest: load(), cues: 0 };
+
+      cache.set(key, entry);
+      keepWithinBudget(cache);
+      entry.digest.then(
+        (sections) => {
+          entry.cues = cuesIn(sections);
+          keepWithinBudget(cache);
+        },
+        () => {
+          if (cache.get(key) === entry) {
+            cache.delete(key);
+          }
+        },
+      );
+
+      return entry.digest;
+    },
+    async forget(video) {
+      cache.delete(cacheKey(video));
+    },
+  };
+};
+
+const summariesByStore = new WeakMap<TimingsStore, Summaries>();
+
+const summariesOf = (store: TimingsStore) => {
+  const summaries = summariesByStore.get(store) ?? memorySummaries();
+
+  summariesByStore.set(store, summaries);
+
+  return summaries;
+};
+
+const encodeDigest = (sections: Digest) =>
+  JSON.stringify(
+    sections.map((section): StoredSection => ({
+      ...section,
+      mismatchers: [...section.mismatchers],
+      hiddenMismatch:
+        section.mismatch === undefined ? -1 : section.hidden.indexOf(section.mismatch),
+    })),
+  );
+
+const decodeDigest = (text: string): Digest =>
+  (JSON.parse(text) as StoredSection[]).map(({ mismatchers, hiddenMismatch, ...section }) => ({
+    ...section,
+    mismatch: section.hidden[hiddenMismatch] ?? section.mismatch,
+    mismatchers: new Set(mismatchers),
+  }));
+
+export const sharedSummaries = (state: SharedState): Summaries => ({
+  async read(video, load) {
+    const key = `sum:${cacheKey(video)}`;
+    const cached = await orMiss(() => state.get(key), undefined);
+
+    if (cached !== undefined) {
+      return decodeDigest(cached);
+    }
+
+    const sections = await load();
+
+    await orMiss(() => state.set(key, encodeDigest(sections), cacheMs / 1000), undefined);
+
+    return sections;
+  },
+  async forget(video) {
+    await orMiss(() => state.delete(`sum:${cacheKey(video)}`), undefined);
+  },
+});
+
 const read = async (store: TimingsStore, video: VideoKey, groupingKey: Buffer) => {
   const [fixes, mismatches, reports] = await Promise.all([
     store.fixesFor(video),
@@ -128,42 +213,10 @@ const read = async (store: TimingsStore, video: VideoKey, groupingKey: Buffer) =
   return digest(fixes, mismatches, reports, groupingKey);
 };
 
-const cachedDigest = (store: TimingsStore, video: VideoKey, groupingKey: Buffer) => {
-  const cache = cacheOf(store);
-  const key = cacheKey(video);
-  const now = Date.now();
-
-  dropExpired(cache, now);
-
-  const cached = cache.get(key);
-
-  if (cached !== undefined) {
-    return cached.digest;
-  }
-
-  const entry: CacheEntry = { at: now, digest: read(store, video, groupingKey), cues: 0 };
-
-  cache.set(key, entry);
-  keepWithinBudget(cache);
-  entry.digest.then(
-    (sections) => {
-      entry.cues = cuesIn(sections);
-      keepWithinBudget(cache);
-    },
-    () => {
-      if (cache.get(key) === entry) {
-        cache.delete(key);
-      }
-    },
-  );
-
-  return entry.digest;
-};
-
 export const submitFix = async (
   store: TimingsStore,
   input: unknown,
-  { submitter, origin }: WriteContext,
+  { submitter, origin, summaries = summariesOf(store) }: WriteContext,
 ) => {
   const { video, subtitle, method, referenceKey } = parse(fixSchema, input);
 
@@ -176,32 +229,37 @@ export const submitFix = async (
     submitter,
     origin,
   });
-  forget(store, video);
+  await summaries.forget(video);
 };
 
 export const submitMismatch = async (
   store: TimingsStore,
   input: unknown,
-  { submitter, origin }: WriteContext,
+  { submitter, origin, summaries = summariesOf(store) }: WriteContext,
 ) => {
   const { video, subtitleHashes } = parse(mismatchSchema, input);
 
   await store.putMismatch({ video, subtitleHashes, submitter, origin });
-  forget(store, video);
+  await summaries.forget(video);
 };
 
 export const submitReport = async (
   store: TimingsStore,
   input: unknown,
-  { submitter, origin }: WriteContext,
+  { submitter, origin, summaries = summariesOf(store) }: WriteContext,
 ) => {
   const { video, subtitleHashes, reason } = parse(reportSchema, input);
 
   await store.putReport({ video, subtitleHashes, reason, submitter, origin });
-  forget(store, video);
+  await summaries.forget(video);
 };
 
-type LookUpOptions = { groupingKey: Buffer; viewer?: string; withCues?: boolean };
+type LookUpOptions = {
+  groupingKey: Buffer;
+  viewer?: string;
+  withCues?: boolean;
+  summaries?: Summaries;
+};
 
 export async function lookUp(
   store: TimingsStore,
@@ -216,12 +274,10 @@ export async function lookUp(
 export async function lookUp(
   store: TimingsStore,
   video: unknown,
-  { groupingKey, viewer, withCues = false }: LookUpOptions,
+  { groupingKey, viewer, withCues = false, summaries = summariesOf(store) }: LookUpOptions,
 ): Promise<VideoTimings | VideoTimings<FixWithCues>> {
-  const timings = present(
-    await cachedDigest(store, parse(videoSchema, video, videoMessage), groupingKey),
-    viewer,
-  );
+  const key = parse(videoSchema, video, videoMessage);
+  const timings = present(await summaries.read(key, () => read(store, key, groupingKey)), viewer);
 
   return withCues ? timings : publicTimings(timings);
 }

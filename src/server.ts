@@ -5,7 +5,7 @@ import type { Context } from "hono";
 import { createApp } from "./app.ts";
 import { addressKey } from "./client-key.ts";
 import { readSecret } from "./config/secret.ts";
-import { memoryTokenCache } from "./sources/token-cache.ts";
+import { sharedStateFrom } from "./jobs/shared-state.ts";
 import { memoryStore, postgresStore } from "./timings/db.ts";
 import { readInstallSalt } from "./timings/submitter.ts";
 
@@ -18,7 +18,7 @@ const proxiedClient = (context: Context) =>
 
 const app = createApp({
   secret: readSecret(process.env),
-  tokens: memoryTokenCache(),
+  state: sharedStateFrom(process.env),
   openSubtitlesAppKey: process.env["OPENSUBTITLES_APP_KEY"] || undefined,
   publicURL: process.env["PUBLIC_URL"] || undefined,
   staticFiles: serveStatic({ root: "./public" }),

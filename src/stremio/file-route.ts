@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import type { Context } from "hono";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
-import { singleFlight } from "../jobs/single-flight.ts";
+import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
@@ -15,9 +16,16 @@ import { decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 export type Track = { candidate: Candidate; cues: Cue[] };
 export type Attempt = { candidate: CandidateRef; track?: Track; result?: RetimeResult };
 export type Download = (candidate: CandidateRef) => Promise<Track>;
+export type SubtitleCache = {
+  get(id: string): Promise<string | undefined>;
+  set(id: string, srt: string): Promise<void>;
+};
+
+type Served = { found: boolean; srt: string };
 
 const downloadTimeoutMs = 8000;
 const srtType = "application/x-subrip; charset=utf-8";
+const srtSeconds = 24 * 60 * 60;
 
 const toCandidate = (ref: CandidateRef): Candidate => ({
   sourceName: ref.n,
@@ -139,8 +147,41 @@ export const recordAttempts = async (attempts: AsyncIterable<Attempt>, into: Att
   return into;
 };
 
+export const subtitleCache = (state: SharedState): SubtitleCache => ({
+  get: (id) => orMiss(() => state.get(`srt:${id}`), undefined),
+  set: (id, srt) => orMiss(() => state.set(`srt:${id}`, srt, srtSeconds), undefined),
+});
+
+const encodeServed = ({ found, srt }: Served) =>
+  JSON.stringify({ found, srt: Buffer.from(srt).toString("base64") });
+
+const decodeServed = (text: string): Served => {
+  const { found, srt } = JSON.parse(text) as Served;
+
+  return { found, srt: Buffer.from(srt, "base64").toString("utf8") };
+};
+
+const serve = async (ref: SubtitleRef, config: Config, sources: SourceSet): Promise<Served> => {
+  const attempts = await recordAttempts(resolveAttempts(ref, config, downloader(sources)));
+  const cues = attempts
+    .map((attempt) => servedCues(attempt, config))
+    .find((each) => each !== undefined);
+
+  if (cues !== undefined) {
+    return { found: true, srt: writeSRT(cues) };
+  }
+
+  return {
+    found: attempts.some((attempt) => attempt.result?.kind === "mismatch") && !config.bestOnly,
+    srt: "",
+  };
+};
+
+const srtResponse = (context: Context<AppEnv>, srt: string) =>
+  context.body(srt, 200, { "content-type": srtType, "cache-control": "public, max-age=86400" });
+
 export const fileRoute =
-  ({ sourcesFor, refKey }: RouteDeps) =>
+  ({ sourcesFor, refKey, singleFlight, subtitles }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const ref = (() => {
@@ -155,23 +196,30 @@ export const fileRoute =
       return context.text("Invalid subtitle reference", 400);
     }
 
-    const attempts = await singleFlight(new URL(context.req.url).pathname, () =>
-      recordAttempts(resolveAttempts(ref, config, downloader(sourcesFor(config)))),
+    const id = createHash("sha256").update(new URL(context.req.url).pathname).digest("hex");
+    const cached = await subtitles?.get(id);
+
+    if (cached !== undefined) {
+      return srtResponse(context, cached);
+    }
+
+    const served = decodeServed(
+      await singleFlight(id, async () => {
+        const fresh = await serve(ref, config, sourcesFor(config, context.get("tokens")));
+
+        if (fresh.srt !== "") {
+          await subtitles?.set(id, fresh.srt);
+        }
+
+        return encodeServed(fresh);
+      }),
     );
-    const cues = attempts
-      .map((attempt) => servedCues(attempt, config))
-      .find((each) => each !== undefined);
 
-    if (cues !== undefined) {
-      return context.body(writeSRT(cues), 200, {
-        "content-type": srtType,
-        "cache-control": "public, max-age=86400",
-      });
+    if (!served.found) {
+      return context.text("No subtitle fits this file", 404);
     }
 
-    if (attempts.some((attempt) => attempt.result?.kind === "mismatch") && !config.bestOnly) {
-      return context.body("", 200, { "content-type": srtType });
-    }
-
-    return context.text("No subtitle fits this file", 404);
+    return served.srt === ""
+      ? context.body("", 200, { "content-type": srtType })
+      : srtResponse(context, served.srt);
   };

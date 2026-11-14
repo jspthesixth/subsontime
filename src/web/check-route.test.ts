@@ -4,7 +4,6 @@ import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource } from "../sources/test-sources.ts";
-import { memoryTokenCache } from "../sources/token-cache.ts";
 import type { Source } from "../sources/source.ts";
 import { retime } from "../timing/retime.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
@@ -40,7 +39,6 @@ const mismatchReason =
 const appWith = (sources: SourceSet) =>
   createApp({
     secret,
-    tokens: memoryTokenCache(),
     sourcesFor: () => sources,
     clientKey: (context) => context.req.header("x-test-client") ?? "none",
   });

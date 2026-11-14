@@ -5,9 +5,11 @@ import { configSchema, type Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { invalidLinkMessage } from "../config/seal.ts";
 import { fetchWithTimeout } from "../http.ts";
+import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
+import { installKeyOf, tokenCacheFor } from "../sources/token-cache.ts";
 import {
   downloader,
   recordAttempts,
@@ -32,17 +34,19 @@ export type CheckRow = {
 };
 
 type LimitDeps = {
-  allow: (key: string) => boolean;
+  allow: (key: string) => Promise<boolean>;
   clientKey: (context: Context) => string;
 };
 
-type CheckDeps = RouteDeps & LimitDeps & { secret: string };
+type CheckDeps = RouteDeps & LimitDeps & { secret: string; state: SharedState };
 
 type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
 type CatalogType = "movie" | "series";
 
 const budgetMs = 20_000;
 const maximumRunning = 2;
+const runningKey = "check-running";
+const slotSeconds = 30;
 const cinemetaURL = "https://v3-cinemeta.strem.io";
 const cinemetaTimeoutMs = 4000;
 const maximumTitles = 10;
@@ -147,14 +151,15 @@ const referenceText = (config: Config, references: Candidate[]) => {
   return `${nameOf(first.lang)}, ${first.hashMatch ? "made for this exact file" : "same release name"}`;
 };
 
-const configOf = (installURL: string | undefined, languages: string[], secret: string) => {
+const installOf = (installURL: string | undefined, languages: string[], secret: string) => {
   if (installURL === undefined) {
-    return defaultConfig(languages);
+    return { config: defaultConfig(languages), sealed: "" };
   }
 
-  const sealed = sealedConfigOf(installURL);
+  const sealed = sealedConfigOf(installURL) ?? "";
+  const config = unsealSafely(sealed, secret);
 
-  return sealed === undefined ? undefined : unsealSafely(sealed, secret);
+  return config === undefined ? undefined : { config, sealed };
 };
 
 const videoOf = (type: string, id: string) => {
@@ -234,15 +239,14 @@ const runCheck = async (config: Config, sources: SourceSet, query: VideoQuery, s
   };
 };
 
-export const checkRoute = ({ sourcesFor, secret, allow, clientKey }: CheckDeps) => {
-  let running = 0;
-
-  return async (context: Context) => {
+export const checkRoute =
+  ({ sourcesFor, secret, allow, clientKey, state }: CheckDeps) =>
+  async (context: Context) => {
     const started = performance.now();
 
     context.header("Cache-Control", "no-store");
 
-    if (!allow(clientKey(context))) {
+    if (!(await allow(clientKey(context)))) {
       return context.json({ error: tooManyMessage }, 429);
     }
 
@@ -255,10 +259,10 @@ export const checkRoute = ({ sourcesFor, secret, allow, clientKey }: CheckDeps) 
     }
 
     const { installURL, languages = ["eng"], type, id, ...file } = body.output;
-    const config = configOf(installURL, languages, secret);
+    const install = installOf(installURL, languages, secret);
     const video = videoOf(type, id);
 
-    if (config === undefined) {
+    if (install === undefined) {
       return context.json({ error: invalidLinkMessage }, 400);
     }
 
@@ -266,26 +270,36 @@ export const checkRoute = ({ sourcesFor, secret, allow, clientKey }: CheckDeps) 
       return context.json({ error: unsupportedVideoMessage }, 400);
     }
 
-    if (running >= maximumRunning) {
+    const running = await orMiss(() => state.increment(runningKey, slotSeconds), undefined);
+
+    const release = async () => {
+      if (running !== undefined) {
+        await orMiss(() => state.decrement(runningKey), 0);
+      }
+    };
+
+    if (running !== undefined && running > maximumRunning) {
+      await release();
+
       return context.json({ error: busyMessage }, 429);
     }
 
-    running += 1;
+    const { config, sealed } = install;
+    const tokens = tokenCacheFor(state, installKeyOf(sealed));
 
     try {
       return context.json(
         await runCheck(
           config,
-          sourcesFor(config),
+          sourcesFor(config, tokens),
           { ...video, ...file, languages: config.languages },
           started,
         ),
       );
     } finally {
-      running -= 1;
+      await release();
     }
   };
-};
 
 const searchCatalog = async (type: CatalogType, query: string) => {
   const response = await fetchWithTimeout(
@@ -323,7 +337,7 @@ const matchRank = (name: string, query: string) => {
 const limited =
   ({ allow, clientKey }: LimitDeps, route: (context: Context) => Promise<Response>) =>
   async (context: Context) =>
-    allow(clientKey(context))
+    (await allow(clientKey(context)))
       ? route(context)
       : context.json({ error: tooManySearchesMessage }, 429);
 

@@ -1,12 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
-import { memoryTokenCache } from "../sources/token-cache.ts";
-import { rateLimit } from "./rate-limit.ts";
 
 const newApp = () =>
   createApp({
     secret: "a-test-secret-that-is-long-enough-1234",
-    tokens: memoryTokenCache(),
     clientKey: (context) => context.req.header("x-test-client") ?? "none",
   });
 
@@ -166,35 +163,5 @@ describe("POST /api/sources/check", () => {
     expect(statuses.slice(0, 10)).toEqual(Array.from({ length: 10 }, () => 400));
     expect(statuses[10]).toBe(429);
     expect((await check(app, {}, "198.51.100.9")).status).toBe(400);
-  });
-});
-
-describe("rateLimit", () => {
-  it("allows again once the window has passed", () => {
-    let time = 0;
-    const { allow } = rateLimit(2, 60_000, () => time);
-
-    expect([allow("a"), allow("a"), allow("a")]).toEqual([true, true, false]);
-
-    time = 60_001;
-
-    expect(allow("a")).toBe(true);
-  });
-
-  it("keeps a separate count for each key", () => {
-    const { allow } = rateLimit(1, 60_000, () => 0);
-
-    expect([allow("a"), allow("b"), allow("a"), allow("b")]).toEqual([true, true, false, false]);
-  });
-
-  it("forgets keys whose hits have expired once it holds too many", () => {
-    let time = 0;
-    const limiter = rateLimit(5, 60_000, () => time, 2);
-
-    ["a", "b", "c"].forEach((key) => limiter.allow(key));
-    time = 60_001;
-    limiter.allow("d");
-
-    expect(limiter.keyCount()).toBe(1);
   });
 });

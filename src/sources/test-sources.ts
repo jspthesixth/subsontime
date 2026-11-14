@@ -1,8 +1,10 @@
 import { vi } from "vitest";
+import { memorySharedState } from "../jobs/shared-state.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import type { Candidate, Source } from "./source.ts";
+import { installKeyOf, tokenCacheFor } from "./token-cache.ts";
 
 export type Entry = {
   ref: string;
@@ -47,3 +49,5 @@ export const fakeSource = (name: string, entries: Entry[]) => {
 
   return { name, search, download };
 };
+
+export const memoryTokenCache = () => tokenCacheFor(memorySharedState(), installKeyOf("test"));

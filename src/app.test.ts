@@ -2,7 +2,6 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createApp } from "./app.ts";
 import { defaultConfig } from "./config/default-config.ts";
 import { seal } from "./config/seal.ts";
-import { memoryTokenCache } from "./sources/token-cache.ts";
 
 const secret = "a-test-secret-that-is-long-enough-1234";
 
@@ -11,9 +10,7 @@ afterEach(() => {
 });
 
 test("GET /health returns 200 and { ok: true }", async () => {
-  const response = await createApp({ secret: "test-secret", tokens: memoryTokenCache() }).request(
-    "/health",
-  );
+  const response = await createApp({ secret: "test-secret" }).request("/health");
 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ ok: true });
@@ -23,7 +20,6 @@ test("an unexpected error logs only its name and route pattern", async () => {
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   const app = createApp({
     secret,
-    tokens: memoryTokenCache(),
     sourcesFor: () => {
       throw new Error("a message that may hold a link");
     },

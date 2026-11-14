@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
-import { memoryTokenCache } from "../sources/token-cache.ts";
-import { TimingsInputError, lookUp, submitFix, submitMismatch } from "./api.ts";
+import { memorySharedState } from "../jobs/shared-state.ts";
+import { TimingsInputError, lookUp, sharedSummaries, submitFix, submitMismatch } from "./api.ts";
 import { memoryStore, subtitleKey, type TimingsStore } from "./db.ts";
 import type { FixCue } from "./fingerprint.ts";
 import { groupingKeyOf, submitterOf } from "./submitter.ts";
@@ -15,7 +15,7 @@ const subtitleMessage =
   "Send subtitle as 1 to 5000 cues, each a 16-character hex hash with start and end times in order";
 
 const appWith = (store: TimingsStore, clientKey = () => "1.2.3.4") =>
-  createApp({ secret, tokens: memoryTokenCache(), installSalt, timings: store, clientKey });
+  createApp({ secret, installSalt, timings: store, clientKey });
 
 const post = (app: ReturnType<typeof createApp>, path: string, body: unknown) =>
   app.request(path, {
@@ -606,5 +606,46 @@ describe("in-process handlers", () => {
 
     expect(counted.fixesFor).toHaveBeenCalledTimes(4);
     vi.useRealTimers();
+  });
+});
+
+describe("sharedSummaries", () => {
+  const viewer = { submitter: "b".repeat(32), origin: "fedcba9876543210" };
+
+  it.each([
+    ["only the viewer", [viewer]],
+    ["the viewer and another connection", [writer, viewer]],
+  ])("answers a cached lookup like a fresh one when %s reported a mismatch", async (_, from) => {
+    const store = memoryStore();
+    const summaries = sharedSummaries(memorySharedState());
+    const options = { groupingKey, viewer: viewer.submitter, summaries };
+
+    await submitFix(store, fixBody(), writer);
+
+    for (const context of from) {
+      await submitMismatch(store, mismatchBody(), context);
+    }
+
+    const fresh = await lookUp(store, video, { ...options, withCues: true });
+    const cached = await lookUp(store, video, { ...options, withCues: true });
+
+    expect(fresh.hidden).toHaveLength(1);
+    expect(cached).toEqual(fresh);
+  });
+
+  it("reads the store once until a write for that video", async () => {
+    const store = memoryStore();
+    const counted = { ...store, fixesFor: vi.fn<TimingsStore["fixesFor"]>(store.fixesFor) };
+    const summaries = sharedSummaries(memorySharedState());
+
+    await lookUp(counted, video, { groupingKey, summaries });
+    await lookUp(counted, video, { groupingKey, summaries });
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(1);
+
+    await submitFix(counted, fixBody(), { ...writer, summaries });
+
+    expect((await lookUp(counted, video, { groupingKey, summaries })).fixes).toHaveLength(1);
+    expect(counted.fixesFor).toHaveBeenCalledTimes(2);
   });
 });

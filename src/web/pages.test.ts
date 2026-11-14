@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
-import { memoryTokenCache } from "../sources/token-cache.ts";
 
 const app = createApp({
   secret: "a-test-secret-that-is-long-enough-1234",
-  tokens: memoryTokenCache(),
 });
 
 describe.each(["/", "/stremio", "/check"])("GET %s", (path) => {

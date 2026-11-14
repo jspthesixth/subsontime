@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import * as v from "valibot";
-import { TimingsInputError, lookUp, type WriteContext } from "./api.ts";
+import { orMiss } from "../jobs/shared-state.ts";
+import { TimingsInputError, lookUp, type Summaries, type WriteContext } from "./api.ts";
 import type { TimingsStore } from "./db.ts";
 import { submitterOf } from "./submitter.ts";
 
@@ -9,14 +10,16 @@ type WriteHandler = (store: TimingsStore, input: unknown, context: WriteContext)
 type WriteDeps = {
   store: TimingsStore;
   installSalt: string;
-  allow: (key: string) => boolean;
+  allow: (key: string) => Promise<boolean>;
   clientKey: (context: Context) => string;
-  originOf: (clientKey: string) => string;
+  originOf: (clientKey: string) => Promise<string>;
+  summaries?: Summaries;
 };
 
 const videoParamMessage = "Send video as a 16-character hex hash and a size in bytes";
 const tooManyWritesMessage = "Too many submissions. Try again in an hour.";
 const goneMessage = "This fix is no longer listed";
+const unavailableMessage = "Try again in a moment";
 const videoParam = /^([0-9a-f]{16}):([1-9]\d{0,15})$/;
 const installIdSchema = v.object({ installId: v.string() });
 
@@ -34,10 +37,10 @@ const videoOf = (param: string | undefined) => {
   return hash === undefined || size === undefined ? undefined : { hash, size: Number(size) };
 };
 
-type ReadDeps = { store: TimingsStore; groupingKey: Buffer };
+type ReadDeps = { store: TimingsStore; groupingKey: Buffer; summaries?: Summaries };
 
 export const lookUpRoute =
-  ({ store, groupingKey }: ReadDeps) =>
+  ({ store, groupingKey, summaries }: ReadDeps) =>
   async (context: Context) => {
     const video = videoOf(context.req.query("video"));
 
@@ -46,7 +49,7 @@ export const lookUpRoute =
     }
 
     try {
-      const timings = await lookUp(store, video, { groupingKey });
+      const timings = await lookUp(store, video, { groupingKey, summaries });
 
       context.header("cache-control", "public, max-age=300");
 
@@ -57,7 +60,7 @@ export const lookUpRoute =
   };
 
 export const cuesRoute =
-  ({ store, groupingKey }: ReadDeps) =>
+  ({ store, groupingKey, summaries }: ReadDeps) =>
   async (context: Context) => {
     const video = videoOf(context.req.param("video"));
 
@@ -66,7 +69,11 @@ export const cuesRoute =
     }
 
     try {
-      const { fixes } = await lookUp(store, video, { groupingKey, withCues: true });
+      const { fixes } = await lookUp(store, video, {
+        groupingKey,
+        summaries,
+        withCues: true,
+      });
       const view = fixes.find((candidate) => candidate.id === context.req.param("id"));
 
       if (view === undefined) {
@@ -82,22 +89,36 @@ export const cuesRoute =
   };
 
 export const writeRoute =
-  (handler: WriteHandler, { store, installSalt, allow, clientKey, originOf }: WriteDeps) =>
+  (
+    handler: WriteHandler,
+    { store, installSalt, allow, clientKey, originOf, summaries }: WriteDeps,
+  ) =>
   async (context: Context) => {
     const client = clientKey(context);
+    const allowed = await orMiss(() => allow(client), undefined);
 
-    if (!allow(client)) {
+    if (allowed === undefined) {
+      return context.json({ error: unavailableMessage }, 503);
+    }
+
+    if (!allowed) {
       return context.json({ error: tooManyWritesMessage }, 429);
     }
 
     const body: unknown = await context.req.json().catch(() => undefined);
+    const origin = await orMiss(() => originOf(client), undefined);
+
+    if (origin === undefined) {
+      return context.json({ error: unavailableMessage }, 503);
+    }
 
     try {
       const installId = v.is(installIdSchema, body) ? body.installId : "";
 
       await handler(store, body, {
         submitter: submitterOf(installId, installSalt),
-        origin: originOf(client),
+        origin,
+        summaries,
       });
     } catch (error) {
       return inputErrorResponse(context, error);

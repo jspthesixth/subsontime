@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { unseal } from "../config/seal.ts";
-import { memoryTokenCache } from "../sources/token-cache.ts";
 import { toStremioURL, toWebURL } from "./config-route.ts";
 
 const secret = "a-test-secret-that-is-long-enough-1234";
-const app = createApp({ secret, tokens: memoryTokenCache() });
+const app = createApp({ secret });
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -66,7 +65,6 @@ describe("POST /api/config", () => {
   it("builds the link from the public URL", async () => {
     const publicApp = createApp({
       secret: "a-test-secret-that-is-long-enough-1234",
-      tokens: memoryTokenCache(),
       publicURL: "https://subs.example.com/",
     });
     const response = await publicApp.request("/api/config", {

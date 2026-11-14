@@ -1,5 +1,6 @@
 import { openSubtitlesSource } from "../../src/sources/opensubtitles.ts";
-import { memoryTokenCache } from "../../src/sources/token-cache.ts";
+import { memorySharedState } from "../../src/jobs/shared-state.ts";
+import { installKeyOf, tokenCacheFor } from "../../src/sources/token-cache.ts";
 
 const required = (name: string) => {
   const value = process.env[name];
@@ -19,7 +20,11 @@ const hash = "8e245d9679d31e12";
 const languages = ["hrv", "eng"];
 const signal = () => AbortSignal.timeout(10000);
 
-const source = openSubtitlesSource({ username, password }, appKey, memoryTokenCache());
+const source = openSubtitlesSource(
+  { username, password },
+  appKey,
+  tokenCacheFor(memorySharedState(), installKeyOf("")),
+);
 const byImdb = await source.search({ type: "movie", imdbId, languages }, signal());
 const byHash = await source.search({ type: "movie", imdbId, videoHash: hash, languages }, signal());
 

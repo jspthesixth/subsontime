@@ -7,7 +7,7 @@ import packageJSON from "../../package.json" with { type: "json" };
 import { parseRelease } from "../subtitles/release.ts";
 import { openSubtitlesSource } from "./opensubtitles.ts";
 import type { VideoQuery } from "./source.ts";
-import { memoryTokenCache } from "./token-cache.ts";
+import { memoryTokenCache } from "./test-sources.ts";
 
 const credentials = { username: "alice", password: "secret" };
 const appKey = "app-key";

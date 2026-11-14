@@ -8,7 +8,7 @@ import { parseRelease } from "../subtitles/release.ts";
 import type { VideoQuery } from "./source.ts";
 import { titloviSource } from "./titlovi.ts";
 import type { TokenCache } from "./token-cache.ts";
-import { memoryTokenCache } from "./token-cache.ts";
+import { memoryTokenCache } from "./test-sources.ts";
 
 const credentials = { username: "alice", password: "secret" };
 const signal = () => AbortSignal.timeout(1000);

@@ -9,7 +9,7 @@ import { checkTitlovi } from "../sources/titlovi.ts";
 type Checkable = Extract<SourceSettings, { kind: "titlovi" | "subdl" | "subsource" }>;
 
 type SourceCheckDeps = {
-  allow: (key: string) => boolean;
+  allow: (key: string) => Promise<boolean>;
   clientKey: (context: Context) => string;
 };
 
@@ -42,7 +42,7 @@ export const sourceCheckRoute =
   async (context: Context) => {
     context.header("Cache-Control", "no-store");
 
-    if (!allow(clientKey(context))) {
+    if (!(await allow(clientKey(context)))) {
       return context.json({ error: tooManyMessage }, 429);
     }
 

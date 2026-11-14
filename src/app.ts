@@ -4,13 +4,15 @@ import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
 import { ConfigError, type Config } from "./config/config.ts";
 import { invalidLinkMessage, sealedConfigPattern, unseal } from "./config/seal.ts";
+import { memorySingleFlight, sharedSingleFlight, type SingleFlight } from "./jobs/single-flight.ts";
+import { memorySharedState, orMiss, type SharedState } from "./jobs/shared-state.ts";
 import { sourcesFromConfig, type SourceSet } from "./sources/from-config.ts";
-import type { TokenCache } from "./sources/token-cache.ts";
-import { fileRoute } from "./stremio/file-route.ts";
+import { installKeyOf, tokenCacheFor, type TokenCache } from "./sources/token-cache.ts";
+import { fileRoute, subtitleCache, type SubtitleCache } from "./stremio/file-route.ts";
 import { manifest } from "./stremio/manifest.ts";
 import { refKey } from "./stremio/refs.ts";
 import { subtitlesRoute } from "./stremio/subtitles-route.ts";
-import { submitFix, submitMismatch, submitReport } from "./timings/api.ts";
+import { sharedSummaries, submitFix, submitMismatch, submitReport } from "./timings/api.ts";
 import { cuesRoute, lookUpRoute, writeRoute } from "./timings/api-route.ts";
 import { memoryStore, type TimingsStore } from "./timings/db.ts";
 import { dailyOrigins } from "./timings/origin.ts";
@@ -25,22 +27,25 @@ import { sourceCheckRoute } from "./web/source-check-route.ts";
 
 export type AppDeps = {
   secret: string;
-  tokens: TokenCache;
+  state?: SharedState;
   openSubtitlesAppKey?: string;
   publicURL?: string;
-  sourcesFor?: (config: Config) => SourceSet;
+  sourcesFor?: (config: Config, tokens: TokenCache) => SourceSet;
   staticFiles?: MiddlewareHandler;
   clientKey?: (context: Context) => string;
   installSalt?: string;
   timings?: TimingsStore;
 };
 
-export type AppEnv = { Variables: { config: Config } };
+export type AppEnv = { Variables: { config: Config; tokens: TokenCache } };
 
 export type RouteDeps = {
-  sourcesFor: (config: Config) => SourceSet;
+  sourcesFor: (config: Config, tokens: TokenCache) => SourceSet;
   refKey: Buffer;
   publicURL?: string;
+  state: SharedState;
+  singleFlight: SingleFlight;
+  subtitles?: SubtitleCache;
 };
 
 const newerLinkMessage = "This install link is from a newer version";
@@ -54,22 +59,29 @@ const hourMs = 3_600_000;
 
 const tooLarge = (context: Context) => context.json({ error: tooLargeMessage }, 413);
 
+const failOpen =
+  (allow: (key: string) => Promise<boolean>) =>
+  (key: string): Promise<boolean> =>
+    orMiss(() => allow(key), true);
+
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const clientKey = deps.clientKey ?? (() => "anonymous");
-  const titleLimit = { allow: rateLimit(60, 60_000).allow, clientKey };
+  const shared = deps.state;
+  const state = shared ?? memorySharedState();
+  const titleLimit = { allow: failOpen(rateLimit(state, "titles", 60, 60_000)), clientKey };
   const apiBody = bodyLimit({ maxSize: apiBodyLimit, onError: tooLarge });
   const timingsBody = bodyLimit({ maxSize: timingsBodyLimit, onError: tooLarge });
   const routeDeps: RouteDeps = {
     sourcesFor:
       deps.sourcesFor ??
-      ((config: Config) =>
-        sourcesFromConfig(config, {
-          tokens: deps.tokens,
-          openSubtitlesAppKey: deps.openSubtitlesAppKey,
-        })),
+      ((config, tokens) =>
+        sourcesFromConfig(config, { tokens, openSubtitlesAppKey: deps.openSubtitlesAppKey })),
     refKey: refKey(deps.secret),
     publicURL: deps.publicURL,
+    state,
+    singleFlight: shared === undefined ? memorySingleFlight() : sharedSingleFlight(shared),
+    subtitles: shared === undefined ? undefined : subtitleCache(shared),
   };
 
   app.notFound((context) => context.text("Not found", 404));
@@ -111,7 +123,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.post(
     "/api/sources/check",
     sourceCheckRoute({
-      allow: rateLimit(10, 60_000).allow,
+      allow: failOpen(rateLimit(state, "sources", 10, 60_000)),
       clientKey,
     }),
   );
@@ -120,7 +132,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     checkRoute({
       ...routeDeps,
       secret: deps.secret,
-      allow: rateLimit(10, 60_000).allow,
+      allow: failOpen(rateLimit(state, "check", 10, 60_000)),
       clientKey,
     }),
   );
@@ -131,10 +143,11 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     const timingsDeps = {
       store: deps.timings ?? memoryStore(),
       installSalt: deps.installSalt,
-      allow: rateLimit(writesPerHour, hourMs).allow,
+      allow: rateLimit(state, "writes", writesPerHour, hourMs),
       clientKey,
-      originOf: dailyOrigins(),
+      originOf: dailyOrigins(state),
       groupingKey: groupingKeyOf(deps.installSalt),
+      summaries: shared === undefined ? undefined : sharedSummaries(shared),
     };
 
     app.get("/api/v1/fixes", lookUpRoute(timingsDeps));
@@ -153,6 +166,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
     try {
       context.set("config", unseal(token, deps.secret));
+      context.set("tokens", tokenCacheFor(state, installKeyOf(token)));
     } catch (error) {
       const newer = error instanceof ConfigError && error.message === newerLinkMessage;
 

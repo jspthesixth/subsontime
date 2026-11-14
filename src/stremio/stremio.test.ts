@@ -7,9 +7,8 @@ import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
-import { fakeSource } from "../sources/test-sources.ts";
-import { memoryTokenCache } from "../sources/token-cache.ts";
-import { singleFlight } from "../jobs/single-flight.ts";
+import { fakeSource, memoryTokenCache } from "../sources/test-sources.ts";
+import { memorySingleFlight } from "../jobs/single-flight.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { retime } from "../timing/retime.ts";
@@ -30,7 +29,7 @@ const sealed = (overrides: Partial<Config> = {}) =>
   seal({ ...defaultConfig(["eng"]), ...overrides }, secret);
 
 const appWith = (sources: SourceSet, deps: Partial<AppDeps> = {}) =>
-  createApp({ secret, tokens: memoryTokenCache(), sourcesFor: () => sources, ...deps });
+  createApp({ secret, sourcesFor: () => sources, ...deps });
 
 const list = async (app: ReturnType<typeof appWith>, token: string, path: string) => {
   const response = await app.request(`/${token}/subtitles/${path}`);
@@ -458,7 +457,7 @@ describe("subtitle file", () => {
       c: [{ n: "OpenSubtitles", r: `http://127.0.0.1:${port}/internal`, l: "eng" }],
       x: [],
     };
-    const app = createApp({ secret, tokens: memoryTokenCache() });
+    const app = createApp({ secret });
     const token = sealed();
 
     try {
@@ -519,6 +518,7 @@ describe("refs", () => {
 
 describe("singleFlight", () => {
   it("runs one job for concurrent callers and forgets it once settled", async () => {
+    const singleFlight = memorySingleFlight();
     const run = vi.fn<() => Promise<string>>(async () => "done");
     const fail = vi.fn<() => Promise<string>>(async () => {
       throw new Error("failed");
