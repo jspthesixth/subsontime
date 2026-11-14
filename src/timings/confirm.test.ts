@@ -742,14 +742,14 @@ describe("summarize grouping bounds", () => {
   });
 
   it("tries the next best group when the best sketch match fails the exact check", () => {
-    const ours = Array.from({ length: 1000 }, (_, at) => hashLike(`4-base-${at}`));
+    const ours = Array.from({ length: 1000 }, (_, at) => hashLike(`5-base-${at}`));
     const nearer = [
       ...ours.slice(47),
-      ...Array.from({ length: 47 }, (_, at) => hashLike(`4-b-${at}`)),
+      ...Array.from({ length: 47 }, (_, at) => hashLike(`5-b-${at}`)),
     ];
     const farther = [
       ...ours.slice(0, 940),
-      ...Array.from({ length: 60 }, (_, at) => hashLike(`4-a-${at}`)),
+      ...Array.from({ length: 60 }, (_, at) => hashLike(`5-a-${at}`)),
     ];
     const sections = digest(
       [

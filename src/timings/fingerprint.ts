@@ -58,7 +58,7 @@ export const subtitleSketch = (hashes: CueHash[]): CueHash[] => {
     .slice(0, sketchSize);
 };
 
-export const sketchesSimilarity = <Key extends string | number>(
+export const sketchesSimilarity = <Key extends string | number | bigint>(
   left: ArrayLike<Key>,
   right: ArrayLike<Key>,
 ): number => {

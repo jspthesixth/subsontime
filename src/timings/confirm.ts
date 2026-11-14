@@ -1,3 +1,4 @@
+import { createCipheriv } from "node:crypto";
 import {
   subtitleKey,
   type FixRow,
@@ -89,39 +90,31 @@ const independent = (a: Row, b: Row) =>
 
 const hasIndependentPair = (rows: Row[]) => rows.some((a) => rows.some((b) => independent(a, b)));
 
-type Leader = { row: Row; hashes: Set<CueHash>; sketch: Float64Array };
+type Leader = { row: Row; hashes: Set<CueHash>; sketch: BigUint64Array };
 
-const scramble = (value: number, key: number) => {
-  const mixed = Math.imul(value ^ key, 0x85ebca6b);
-  const again = Math.imul(mixed ^ (mixed >>> 13), 0xc2b2ae35);
+const blockBytes = 16;
 
-  return (again ^ (again >>> 16)) >>> 0;
+const privateSketch = (hashes: Set<CueHash>, cipherKey: Buffer) => {
+  const blocks = Buffer.alloc(hashes.size * blockBytes);
+
+  [...hashes].forEach((hash, index) => blocks.write(hash, index * blockBytes, 8, "hex"));
+
+  const encrypted = createCipheriv("aes-128-ecb", cipherKey, null)
+    .setAutoPadding(false)
+    .update(blocks);
+
+  return BigUint64Array.from({ length: hashes.size }, (_, index) =>
+    encrypted.readBigUInt64BE(index * blockBytes),
+  )
+    .toSorted()
+    .subarray(0, sketchSize);
 };
-
-const keyedOrders = (groupingKey: Buffer) => {
-  const [first = 0, second = 0, third = 0, fourth = 0] = [0, 4, 8, 12].map((at) =>
-    groupingKey.readUInt32BE(at),
-  );
-
-  return (hash: CueHash) => {
-    const high = Number.parseInt(hash.slice(0, 8), 16);
-    const low = Number.parseInt(hash.slice(8, 16), 16);
-
-    return (
-      scramble(high ^ scramble(low, second), first) * 2 ** 21 +
-      (scramble(low ^ scramble(high, fourth), third) >>> 11)
-    );
-  };
-};
-
-const privateSketch = (hashes: Set<CueHash>, keyedOrder: (hash: CueHash) => number) =>
-  Float64Array.from(hashes, keyedOrder).toSorted().subarray(0, sketchSize);
 
 const representatives = (rows: Row[], groupingKey: Buffer): Map<Row, Row> => {
   const leaders: Leader[] = [];
   const byList = new Map<string, Row>();
   const starts = new Map<string, number>();
-  const keyedOrder = keyedOrders(groupingKey);
+  const cipherKey = groupingKey.subarray(0, 16);
 
   const leaderFor = (row: Row) => {
     const list = row.subtitleHashes.join();
@@ -132,7 +125,7 @@ const representatives = (rows: Row[], groupingKey: Buffer): Map<Row, Row> => {
     }
 
     const hashes = new Set(row.subtitleHashes);
-    const sketch = privateSketch(hashes, keyedOrder);
+    const sketch = privateSketch(hashes, cipherKey);
     const ranked = leaders
       .map((leader) => ({ leader, estimate: sketchesSimilarity(sketch, leader.sketch) }))
       .filter(({ estimate }) => estimate >= sketchFloor)
