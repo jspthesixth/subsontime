@@ -1,7 +1,7 @@
 import * as v from "valibot";
+import { isPublicURL } from "../http.ts";
 
 const openSubtitlesAddonURL = "https://opensubtitles-v3.strem.io/manifest.json";
-const localManifestPattern = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/.*manifest\.json$/;
 
 export class ConfigError extends Error {}
 
@@ -9,10 +9,9 @@ const manifestURL = v.pipe(
   v.string(),
   v.check(
     (url) =>
-      localManifestPattern.test(url) ||
-      (URL.canParse(url) &&
-        new URL(url).protocol === "https:" &&
-        new URL(url).pathname.endsWith("/manifest.json")),
+      !/[?#]/.test(url) &&
+      isPublicURL(url, process.env["ALLOW_LOCAL_ADDONS"] === "1") &&
+      new URL(url).pathname.endsWith("/manifest.json"),
     "Must be an https manifest.json URL",
   ),
 );

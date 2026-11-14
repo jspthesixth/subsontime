@@ -39,17 +39,21 @@ const fetchTrack = async (sources: Map<string, Source>, ref: CandidateRef): Prom
   return { candidate: toCandidate(ref), cues: parseSubtitle(decodeSubtitle(bytes, ref.l)) };
 };
 
-const fetchReferences = async (sources: Map<string, Source>, refs: CandidateRef[]) =>
-  (await Promise.allSettled(refs.map((ref) => fetchTrack(sources, ref)))).flatMap((result) =>
+const settledTracks = async (tracks: Promise<Track>[]) =>
+  (await Promise.allSettled(tracks)).flatMap((result) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
 
-const timedCues = async (track: Track, references: Track[], config: Config): Promise<Outcome> => {
-  if (config.timing === "off") {
+const timedCues = async (
+  track: Track,
+  references: Promise<Track[]>,
+  config: Config,
+): Promise<Outcome> => {
+  if (config.timing === "off" || track.candidate.hashMatch) {
     return track.cues;
   }
 
-  const result = await retime(track, references);
+  const result = await retime(track, await references);
 
   if (result.kind !== "mismatch") {
     return result.cues;
@@ -66,15 +70,24 @@ const resolveSubtitle = async (
   const byName = new Map(
     [...sources.listed, ...sources.references].map((source) => [source.name, source]),
   );
-  const references = config.timing === "off" ? Promise.resolve([]) : fetchReferences(byName, ref.x);
+  const downloads = new Map<string, Promise<Track>>();
+  const download = (candidate: CandidateRef) => {
+    const key = JSON.stringify([candidate.n, candidate.r]);
+    const track = downloads.get(key) ?? fetchTrack(byName, candidate);
+
+    downloads.set(key, track);
+
+    return track;
+  };
+  const references =
+    config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
   let outcome: Outcome;
 
   for (const candidate of ref.c) {
-    const track = await fetchTrack(byName, candidate).catch(() => undefined);
-
-    if (track !== undefined) {
-      outcome = await timedCues(track, await references, config);
-    }
+    outcome =
+      (await download(candidate)
+        .then((track) => timedCues(track, references, config))
+        .catch(() => undefined)) ?? outcome;
 
     if (Array.isArray(outcome)) {
       return outcome;

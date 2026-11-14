@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJSON from "../../package.json" with { type: "json" };
 import { createApp, type AppDeps } from "../app.ts";
 import { defaultConfig, type Config } from "../config/config.ts";
@@ -27,6 +27,7 @@ type Entry = {
   hashMatch?: boolean;
   releaseName?: string;
   cues?: Cue[];
+  hang?: boolean;
 };
 
 const secret = "a-test-secret-that-is-long-enough-1234";
@@ -49,7 +50,12 @@ const fakeSource = (name: string, entries: Entry[]) => {
   }));
   const search = vi.fn<Source["search"]>(async () => candidates);
   const download = vi.fn<Source["download"]>(async (ref) => {
-    const cues = entries.find((entry) => entry.ref === ref)?.cues;
+    const entry = entries.find((candidate) => candidate.ref === ref);
+    const cues = entry?.cues;
+
+    if (entry?.hang === true) {
+      return new Promise<Uint8Array>(() => {});
+    }
 
     if (cues === undefined) {
       throw new Error("Download failed");
@@ -81,6 +87,10 @@ const refOf = (url: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("manifest", () => {
@@ -272,6 +282,11 @@ describe("subtitle list", () => {
       "https://proxy.example.com/",
     ],
     [{}, { "x-forwarded-proto": "https" }, "http://localhost/"],
+    [
+      {},
+      { "x-forwarded-proto": "https, http", "x-forwarded-host": "edge.example.com, internal" },
+      "https://edge.example.com/",
+    ],
   ])("builds subtitle URLs from %o and headers %o", async (deps, headers, base) => {
     const token = sealed();
     const response = await appWith(
@@ -420,6 +435,41 @@ describe("subtitle file", () => {
     expect(source.download.mock.calls.map(([ref]) => ref)).toEqual(["broken", "a"]);
   });
 
+  it("serves a hash match without waiting for the references", async () => {
+    const { app, url } = await firstSlot({
+      listed: [fakeSource("Fake", [{ ref: "a", hashMatch: true, cues: shifted }])],
+      references: [fakeSource("Reference", [{ ref: "r", hashMatch: true, hang: true }])],
+    });
+
+    const response = await app.request(url);
+
+    expect(await response.text()).toBe(writeSRT(shifted));
+  });
+
+  it("downloads a candidate that is also a reference once", async () => {
+    const source = fakeSource("Fake", [{ ref: "a", hashMatch: true, cues: track }]);
+    const { app, url } = await firstSlot({ listed: [source], references: [] });
+
+    expect(refOf(url).x.map((reference) => reference.r)).toEqual(["a"]);
+
+    await app.request(url);
+
+    expect(source.download).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls through to the next candidate when retiming throws", async () => {
+    vi.mocked(retime).mockRejectedValueOnce(new Error("Alignment failed"));
+
+    const { app, url } = await firstSlot(mismatchSources());
+
+    const response = await app.request(url);
+    const cues = parseSubtitle(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(cues[0]?.text).toBe("Line 0");
+    expect(vi.mocked(retime)).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects a reference that does not decode", async () => {
     const response = await appWith({ listed: [], references: [] }).request(
       `/${sealed()}/sub/garbage.srt`,
@@ -448,16 +498,21 @@ describe("subtitle file", () => {
     };
     const app = createApp({ secret, tokens: memoryTokenCache() });
     const token = sealed();
-    const responses = await Promise.all(
-      [
-        Buffer.from(JSON.stringify(forged)).toString("base64url"),
-        encodeRef(forged, refKey("another-secret-that-is-long-enough-12345")),
-      ].map((ref) => app.request(`/${token}/sub/${ref}.srt`)),
-    );
 
-    listener.close();
+    try {
+      const responses = await Promise.all(
+        [
+          Buffer.from(JSON.stringify(forged)).toString("base64url"),
+          encodeRef(forged, refKey("another-secret-that-is-long-enough-12345")),
+          encodeRef(forged, refKey(secret)),
+        ].map((ref) => app.request(`/${token}/sub/${ref}.srt`)),
+      );
 
-    expect(responses.map((response) => response.status)).toEqual([400, 400]);
+      expect(responses.map((response) => response.status)).toEqual([400, 400, 404]);
+    } finally {
+      listener.close();
+    }
+
     expect(hits).toEqual([]);
   });
 });
@@ -594,8 +649,6 @@ describe("sourcesFromConfig", () => {
       { type: "movie", imdbId: "tt0111161", languages: ["eng"] },
       AbortSignal.timeout(1000),
     );
-
-    vi.unstubAllGlobals();
 
     expect(candidates?.map((candidate) => [candidate.sourceName, candidate.ref])).toEqual([
       ["OpenSubtitles API", "7"],

@@ -1,6 +1,15 @@
 import * as v from "valibot";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { configSchema, defaultConfig } from "./config.ts";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+const withAddon = (url: string) => ({
+  ...defaultConfig(["eng"]),
+  sources: [{ kind: "stremio-addon", url }],
+});
 
 describe("configSchema", () => {
   it("rejects an empty language list", () => {
@@ -25,12 +34,32 @@ describe("configSchema", () => {
   });
 
   it("accepts a local http manifest", () => {
+    vi.stubEnv("ALLOW_LOCAL_ADDONS", "1");
+
     const config = {
       ...defaultConfig(["eng"]),
       sources: [{ kind: "stremio-addon", url: "http://127.0.0.1:7000/manifest.json" }],
     };
 
     expect(v.safeParse(configSchema, config).success).toBe(true);
+  });
+
+  it("rejects a local http manifest unless local addons are allowed", () => {
+    expect(
+      v.safeParse(configSchema, withAddon("http://127.0.0.1:7000/manifest.json")).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    ["http://127.0.0.1:6379/x?manifest.json"],
+    ["https://addon.example.com/x?/manifest.json"],
+    ["https://addon.example.com/manifest.json#x"],
+    ["https://10.0.0.5/manifest.json"],
+    ["https://[::1]/manifest.json"],
+  ])("rejects %s", (url) => {
+    vi.stubEnv("ALLOW_LOCAL_ADDONS", "1");
+
+    expect(v.safeParse(configSchema, withAddon(url)).success).toBe(false);
   });
 
   it("rejects an empty credential", () => {
