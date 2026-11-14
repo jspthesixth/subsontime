@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@hono/node-server": "2.1.8",
-    "hono": "4.13.18"
+    "hono": "4.13.18",
+    "valibot": "1.5.0"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "6.0.0",
