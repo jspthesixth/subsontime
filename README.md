@@ -19,14 +19,16 @@ Open `http://localhost:7000/stremio` to configure the addon and get its install 
 
 ## Environment variables
 
-| Variable                | Required | Purpose                                                         |
-| ----------------------- | -------- | --------------------------------------------------------------- |
-| `SECRET`                | yes      | Key that seals the addon configuration. At least 32 characters. |
-| `OPENSUBTITLES_APP_KEY` | no       | App key for the OpenSubtitles source.                           |
-| `PUBLIC_URL`            | no       | Public address of the server, used for the links it hands out.  |
-| `PORT`                  | no       | Port to listen on. Defaults to 7000.                            |
-| `TRUST_PROXY`           | no       | Set to `1` to take the client address from `X-Forwarded-For`.   |
-| `ALLOW_LOCAL_ADDONS`    | no       | Set to `1` to accept addon URLs on private and local addresses. |
+| Variable                | Required | Purpose                                                                                 |
+| ----------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `SECRET`                | yes      | Key that seals the addon configuration. At least 32 characters.                         |
+| `OPENSUBTITLES_APP_KEY` | no       | App key for the OpenSubtitles source.                                                   |
+| `PUBLIC_URL`            | no       | Public address of the server, used for the links it hands out.                          |
+| `PORT`                  | no       | Port to listen on. Defaults to 7000.                                                    |
+| `TRUST_PROXY`           | no       | Set to `1` to take the client address from `X-Forwarded-For`.                           |
+| `ALLOW_LOCAL_ADDONS`    | no       | Set to `1` to accept addon URLs on private and local addresses.                         |
+| `DATABASE_URL`          | no       | Postgres connection string for Open Timings.                                            |
+| `DATABASE_URL_TEST`     | no       | Postgres connection string the database tests run against. They are skipped without it. |
 
 ## Self-hosting notes
 
