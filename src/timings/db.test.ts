@@ -105,6 +105,33 @@ const contract = (makeStore: () => TimingsStore) => {
     expect(await store.fixesFor({ hash: video.hash, size: video.size + 1 })).toEqual([]);
   });
 
+  it("returns the newest rows up to the limit, oldest first", async () => {
+    const submitters = [submitterA, submitterB, "c".repeat(32)];
+
+    for (const submitter of submitters) {
+      await store.putFix(fix({ submitter }));
+      await store.putMismatch(mismatch({ submitter }));
+      await store.putReport(report({ submitter }));
+    }
+
+    const newest = submitters.slice(1);
+
+    expect((await store.fixesFor(video, 2)).map((row) => row.submitter)).toEqual(newest);
+    expect((await store.mismatchesFor(video, 2)).map((row) => row.submitter)).toEqual(newest);
+    expect((await store.reportsFor(video, 2)).map((row) => row.submitter)).toEqual(newest);
+  });
+
+  it("reads at most 500 rows by default", async () => {
+    for (const index of Array.from({ length: 501 }, (_, at) => at)) {
+      await store.putMismatch(mismatch({ submitter: index.toString(16).padStart(32, "0") }));
+    }
+
+    const rows = await store.mismatchesFor(video);
+
+    expect(rows).toHaveLength(500);
+    expect(rows[0]?.submitter).toBe((1).toString(16).padStart(32, "0"));
+  });
+
   it("replaces a submitter's mismatch for the same video and subtitle", async () => {
     await store.putMismatch(mismatch());
     await store.putMismatch(mismatch());

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { memoryTokenCache } from "../sources/token-cache.ts";
-import { TimingsInputError, lookUp, submitFix } from "./api.ts";
+import { TimingsInputError, lookUp, submitFix, submitMismatch } from "./api.ts";
 import { memoryStore, type TimingsStore } from "./db.ts";
 import type { FixCue } from "./fingerprint.ts";
 import { submitterOf } from "./submitter.ts";
@@ -348,8 +348,12 @@ describe("GET /api/v1/fixes", () => {
     const app = appWith(store);
     const installIds = [randomUUID(), randomUUID()];
 
-    for (const installId of installIds) {
-      await post(app, "/api/v1/fixes", fixBody({ installId }));
+    for (const [position, installId] of installIds.entries()) {
+      await post(
+        app,
+        "/api/v1/fixes",
+        fixBody({ installId, subtitle: cues(6).slice(position * 3, position * 3 + 3) }),
+      );
     }
 
     const response = await app.request(`/api/v1/fixes?video=${videoParam}`);
@@ -422,5 +426,17 @@ describe("in-process handlers", () => {
 
     expect((await lookUp(store, video)).fixes).toHaveLength(1);
     await expect(lookUp(store, { hash: "x", size: 1 })).rejects.toThrow(TimingsInputError);
+  });
+
+  it("look up a video for one viewer", async () => {
+    const store = memoryStore();
+    const viewer = "a".repeat(32);
+
+    await submitMismatch(store, mismatchBody(), { submitter: viewer });
+
+    expect((await lookUp(store, video)).hidden).toEqual([]);
+    expect((await lookUp(store, video, viewer)).hidden).toEqual([
+      { subtitleHashes: mismatchBody().subtitleHashes, reason: "mismatch", count: 1 },
+    ]);
   });
 });

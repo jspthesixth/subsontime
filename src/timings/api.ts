@@ -110,7 +110,11 @@ export const submitReport = async (
   await store.putReport({ video, subtitleHashes, reason, submitter });
 };
 
-export const lookUp = async (store: TimingsStore, video: unknown): Promise<VideoTimings> => {
+export const lookUp = async (
+  store: TimingsStore,
+  video: unknown,
+  viewer?: string,
+): Promise<VideoTimings> => {
   const key = parse(videoSchema, video, videoMessage);
   const [fixes, mismatches, reports] = await Promise.all([
     store.fixesFor(key),
@@ -118,5 +122,5 @@ export const lookUp = async (store: TimingsStore, video: unknown): Promise<Video
     store.reportsFor(key),
   ]);
 
-  return summarize(fixes, mismatches, reports);
+  return summarize(fixes, mismatches, reports, viewer);
 };

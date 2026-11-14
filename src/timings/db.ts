@@ -31,13 +31,15 @@ export type MismatchRow = NewMismatch & { createdAt: Date };
 export type ReportRow = NewReport & { createdAt: Date };
 
 export type TimingsStore = {
-  fixesFor(video: VideoKey): Promise<FixRow[]>;
-  mismatchesFor(video: VideoKey): Promise<MismatchRow[]>;
-  reportsFor(video: VideoKey): Promise<ReportRow[]>;
+  fixesFor(video: VideoKey, limit?: number): Promise<FixRow[]>;
+  mismatchesFor(video: VideoKey, limit?: number): Promise<MismatchRow[]>;
+  reportsFor(video: VideoKey, limit?: number): Promise<ReportRow[]>;
   putFix(row: NewFix): Promise<void>;
   putMismatch(row: NewMismatch): Promise<void>;
   putReport(row: NewReport): Promise<void>;
 };
+
+const readLimit = 500;
 
 type Keyed = { video: VideoKey; submitter: string; subtitleHashes: CueHash[] };
 
@@ -52,7 +54,8 @@ const memoryTable = <Row extends Keyed>() => {
   let rows: (Row & { createdAt: Date })[] = [];
 
   return {
-    for: (video: VideoKey) => rows.filter((row) => sameVideo(row.video, video)),
+    for: (video: VideoKey, limit = readLimit) =>
+      rows.filter((row) => sameVideo(row.video, video)).slice(-limit),
     put: (row: Row) => {
       rows = [
         ...rows.filter((existing) => !sameSlot(existing, row)),
@@ -68,9 +71,9 @@ export const memoryStore = (): TimingsStore => {
   const reports = memoryTable<NewReport>();
 
   return {
-    fixesFor: async (video) => fixes.for(video),
-    mismatchesFor: async (video) => mismatches.for(video),
-    reportsFor: async (video) => reports.for(video),
+    fixesFor: async (video, limit) => fixes.for(video, limit),
+    mismatchesFor: async (video, limit) => mismatches.for(video, limit),
+    reportsFor: async (video, limit) => reports.for(video, limit),
     putFix: async (row) => fixes.put(row),
     putMismatch: async (row) => mismatches.put(row),
     putReport: async (row) => reports.put(row),
@@ -105,14 +108,15 @@ export const postgresStore = (url: string): TimingsStore => {
   const sql = postgres(url, { max: 1, prepare: false, idle_timeout: 20, connect_timeout: 5 });
 
   return {
-    fixesFor: async (video) => {
+    fixesFor: async (video, limit = readLimit) => {
       const rows = await sql<FixColumns[]>`
         select video_hash, video_size, subtitle_hashes, cues, method, reference_key, submitter, created_at
         from fixes
         where video_hash = ${video.hash} and video_size = ${video.size}
-        order by created_at, id`;
+        order by created_at desc, id desc
+        limit ${limit}`;
 
-      return rows.map((row) => ({
+      return rows.toReversed().map((row) => ({
         video: videoOf(row),
         subtitleHashes: row.subtitle_hashes,
         cues: row.cues,
@@ -122,28 +126,30 @@ export const postgresStore = (url: string): TimingsStore => {
         createdAt: row.created_at,
       }));
     },
-    mismatchesFor: async (video) => {
+    mismatchesFor: async (video, limit = readLimit) => {
       const rows = await sql<MismatchColumns[]>`
         select video_hash, video_size, subtitle_hashes, submitter, created_at
         from mismatches
         where video_hash = ${video.hash} and video_size = ${video.size}
-        order by created_at, id`;
+        order by created_at desc, id desc
+        limit ${limit}`;
 
-      return rows.map((row) => ({
+      return rows.toReversed().map((row) => ({
         video: videoOf(row),
         subtitleHashes: row.subtitle_hashes,
         submitter: row.submitter,
         createdAt: row.created_at,
       }));
     },
-    reportsFor: async (video) => {
+    reportsFor: async (video, limit = readLimit) => {
       const rows = await sql<ReportColumns[]>`
         select video_hash, video_size, subtitle_hashes, reason, submitter, created_at
         from reports
         where video_hash = ${video.hash} and video_size = ${video.size}
-        order by created_at, id`;
+        order by created_at desc, id desc
+        limit ${limit}`;
 
-      return rows.map((row) => ({
+      return rows.toReversed().map((row) => ({
         video: videoOf(row),
         subtitleHashes: row.subtitle_hashes,
         reason: row.reason,
