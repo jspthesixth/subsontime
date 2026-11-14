@@ -43,7 +43,7 @@ export const setSimilarity = (left: Set<CueHash>, right: Set<CueHash>): number =
 export const similarity = (a: CueHash[], b: CueHash[]): number =>
   setSimilarity(new Set(a), new Set(b));
 
-const sketchSize = 128;
+export const sketchSize = 128;
 
 export const hashOrder = (hash: CueHash) => Number.parseInt(hash.slice(0, 8), 16);
 

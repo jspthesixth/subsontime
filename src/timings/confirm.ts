@@ -7,6 +7,7 @@ import {
 } from "./db.ts";
 import {
   setSimilarity,
+  sketchSize,
   sketchesSimilarity,
   subtitleSketch,
   type CueHash,
@@ -52,7 +53,6 @@ const sameSubtitleShare = 0.9;
 const sketchFloor = 0.75;
 const maximumGroups = 64;
 const groupStartsPerSlot = 8;
-const privateSketchSize = 128;
 const exactChecks = 3;
 const toleranceMs = 100;
 const agreeingPercent = 80;
@@ -115,7 +115,7 @@ const keyedOrders = (groupingKey: Buffer) => {
 };
 
 const privateSketch = (hashes: Set<CueHash>, keyedOrder: (hash: CueHash) => number) =>
-  Float64Array.from(hashes, keyedOrder).toSorted().subarray(0, privateSketchSize);
+  Float64Array.from(hashes, keyedOrder).toSorted().subarray(0, sketchSize);
 
 const representatives = (rows: Row[], groupingKey: Buffer): Map<Row, Row> => {
   const leaders: Leader[] = [];
@@ -133,10 +133,12 @@ const representatives = (rows: Row[], groupingKey: Buffer): Map<Row, Row> => {
 
     const hashes = new Set(row.subtitleHashes);
     const sketch = privateSketch(hashes, keyedOrder);
-    const joined = leaders
+    const ranked = leaders
       .map((leader) => ({ leader, estimate: sketchesSimilarity(sketch, leader.sketch) }))
       .filter(({ estimate }) => estimate >= sketchFloor)
-      .toSorted((a, b) => b.estimate - a.estimate)
+      .toSorted((a, b) => b.estimate - a.estimate);
+    const joined = [...Map.groupBy(ranked, ({ leader }) => slotOf(leader.row)).values()]
+      .flatMap(([best]) => best ?? [])
       .slice(0, exactChecks)
       .find(({ leader }) => setSimilarity(leader.hashes, hashes) >= sameSubtitleShare)?.leader.row;
     const slot = slotOf(row);

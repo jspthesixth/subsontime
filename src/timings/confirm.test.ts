@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { dialogueTrack, fastestOfThree } from "../timing/test-tracks.ts";
+import { dialogueTrack, fastestOfThree, seededRandom } from "../timing/test-tracks.ts";
 import {
   digest as digestWith,
   present,
@@ -80,6 +80,38 @@ const digest = (fixes: FixRow[], mismatches: MismatchRow[], reports: ReportRow[]
   digestWith(fixes, mismatches, reports, groupingKey);
 
 const cuesFor = (list: CueHash[]) => list.map((h, at) => ({ h, s: at * 1000, e: at * 1000 + 900 }));
+
+const decoyRun = (run: number, origins: string[]) => {
+  const random = seededRandom(run);
+  const listB = Array.from({ length: 1000 }, (_, at) => hashLike(`${run}-b-${at}`));
+  const listA = [
+    ...listB.slice(40),
+    ...Array.from({ length: 40 }, (_, at) => hashLike(`${run}-a-${at}`)),
+  ];
+  const position = new Map([...listB, ...listA].map((hash, index) => [hash, index]));
+  const timed = (list: CueHash[]) =>
+    list
+      .map((h) => ({ h, s: (position.get(h) ?? 0) * 1000, e: (position.get(h) ?? 0) * 1000 + 900 }))
+      .toSorted((left, right) => left.s - right.s);
+  const pair = [fix(timed(listA)), fix(timed(listB), { submitter: bob })];
+  const decoys = Array.from({ length: 8 }, (_, index) =>
+    fix(
+      timed(
+        listA
+          .map((hash) => [random(), hash] as const)
+          .toSorted((left, right) => left[0] - right[0])
+          .slice(0, 899)
+          .map(([, hash]) => hash),
+      ),
+      { submitter: submitterAt(index + 1), origin: origins[index % origins.length] },
+    ),
+  );
+  const timings = summarizeWith([...pair, ...decoys], [], [], {
+    groupingKey: groupingKeyOf(`run-${run}`.padEnd(32, "-")),
+  });
+
+  return timings.fixes.some((view) => view.status === "confirmed" && view.agreeing >= 2);
+};
 
 const listed = (sections: Digest) => sections.filter((section) => section.fixView).length;
 
@@ -705,7 +737,7 @@ describe("summarize grouping bounds", () => {
     );
 
     expect(fixesOnly([...pair, ...skewed])).toContainEqual(
-      expect.objectContaining({ status: "confirmed", id: idOf(base) }),
+      expect.objectContaining({ status: "confirmed", agreeing: 3, id: idOf(base) }),
     );
   });
 
@@ -749,5 +781,18 @@ describe("summarize grouping bounds", () => {
     expect(fixesOnly([...honest, capture])).toContainEqual(
       expect.objectContaining({ status: "confirmed", agreeing: 2 }),
     );
+  });
+
+  it("confirms an honest pair in 100 of 100 runs against 8 decoys from one origin", () => {
+    const runs = Array.from({ length: 100 }, (_, run) => decoyRun(run, [originOf(carol)]));
+
+    expect(runs.filter(Boolean)).toHaveLength(100);
+  });
+
+  it("can still be split by decoys from 3 different origins", () => {
+    const origins = [originOf(carol), originOf(dave), originOf(submitterAt(99))];
+    const runs = Array.from({ length: 100 }, (_, run) => decoyRun(run, origins));
+
+    expect(runs.filter((confirmed) => !confirmed).length).toBeGreaterThan(0);
   });
 });

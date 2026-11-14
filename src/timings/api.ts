@@ -107,15 +107,15 @@ const dropExpired = (cache: Map<string, CacheEntry>, now: number) =>
   [...cache].filter(([, entry]) => now - entry.at >= cacheMs).forEach(([key]) => cache.delete(key));
 
 const keepWithinBudget = (cache: Map<string, CacheEntry>) => {
-  const newestFirst = [...cache].toReversed();
-  const held = newestFirst.reduce<number[]>(
-    (totals, [, entry]) => [...totals, (totals.at(-1) ?? 0) + entry.cues],
-    [],
-  );
+  let held = 0;
 
-  newestFirst
-    .filter((_, index) => index >= maxCachedVideos || (held[index] ?? 0) > maxCachedCues)
-    .forEach(([key]) => cache.delete(key));
+  [...cache].toReversed().forEach(([key, entry], index) => {
+    held += entry.cues;
+
+    if (index >= maxCachedVideos || held > maxCachedCues) {
+      cache.delete(key);
+    }
+  });
 };
 
 const read = async (store: TimingsStore, video: VideoKey, groupingKey: Buffer) => {
