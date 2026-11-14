@@ -44,6 +44,14 @@ describe("configSchema", () => {
     expect(v.safeParse(configSchema, config).success).toBe(true);
   });
 
+  it.each([
+    ["https://localhost/manifest.json"],
+    ["https://addon.localhost/manifest.json"],
+    ["https://localhost./manifest.json"],
+  ])("rejects the local name %s", (url) => {
+    expect(v.safeParse(configSchema, withAddon(url)).success).toBe(false);
+  });
+
   it("rejects a local http manifest unless local addons are allowed", () => {
     expect(
       v.safeParse(configSchema, withAddon("http://127.0.0.1:7000/manifest.json")).success,
@@ -54,6 +62,7 @@ describe("configSchema", () => {
     ["http://127.0.0.1:6379/x?manifest.json"],
     ["https://addon.example.com/x?/manifest.json"],
     ["https://addon.example.com/manifest.json#x"],
+    ["https://[64:ff9b::a00:5]/manifest.json"],
     ["https://10.0.0.5/manifest.json"],
     ["https://[::1]/manifest.json"],
   ])("rejects %s", (url) => {

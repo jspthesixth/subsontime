@@ -1,6 +1,12 @@
-import { lookup } from "node:dns";
+import { lookup, type LookupAddress, type LookupAllOptions } from "node:dns";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { Agent, type Dispatcher } from "undici";
+
+type Resolve = (
+  hostname: string,
+  options: LookupAllOptions,
+  callback: (error: NodeJS.ErrnoException | null, addresses: LookupAddress[]) => void,
+) => void;
 
 export type Guard = { allowLocal: boolean; dispatcher: Dispatcher };
 
@@ -28,8 +34,8 @@ const loopback = new BlockList();
 ].forEach(([network, prefix]) => blocked.addSubnet(String(network), Number(prefix), "ipv4"));
 
 [
-  ["::", 128],
-  ["::1", 128],
+  ["::", 96],
+  ["64:ff9b::", 96],
   ["fc00::", 7],
   ["fe80::", 10],
 ].forEach(([network, prefix]) => blocked.addSubnet(String(network), Number(prefix), "ipv6"));
@@ -44,32 +50,42 @@ const isBlockedAddress = (address: string, allowLocal: boolean) => {
 };
 
 const isAllowedURL = (url: URL, allowLocal: boolean) => {
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  const local = allowLocal && url.protocol === "http:" && localHosts.has(host);
+  const host = url.hostname
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "")
+    .toLowerCase();
+  const localName = host === "localhost" || host.endsWith(".localhost");
 
-  if (local) {
+  if (allowLocal && url.protocol === "http:" && localHosts.has(host)) {
     return true;
   }
 
-  return url.protocol === "https:" && (isIP(host) === 0 || !isBlockedAddress(host, false));
+  if (url.protocol !== "https:" || localName) {
+    return false;
+  }
+
+  return isIP(host) === 0 || !isBlockedAddress(host, false);
 };
 
 export const isPublicURL = (text: string, allowLocal: boolean) =>
   URL.canParse(text) && isAllowedURL(new URL(text), allowLocal);
 
 const guardedLookup =
-  (allowLocal: boolean): LookupFunction =>
+  (allowLocal: boolean, resolve: Resolve): LookupFunction =>
   (hostname, options, callback) => {
-    lookup(hostname, { ...options, all: true }, (error, addresses) => {
-      const first = addresses[0];
-
-      if (error !== null || first === undefined) {
-        callback(error ?? new Error(`Could not resolve ${hostname}`), "", 0);
+    resolve(hostname, { ...options, all: true }, (error, addresses) => {
+      if (error !== null) {
+        callback(error, "", 0);
 
         return;
       }
 
-      if (addresses.some(({ address }) => isBlockedAddress(address, allowLocal))) {
+      const first = addresses[0];
+
+      if (
+        first === undefined ||
+        addresses.some(({ address }) => isBlockedAddress(address, allowLocal))
+      ) {
         callback(new BlockedAddressError(), "", 0);
 
         return;
@@ -85,9 +101,15 @@ const guardedLookup =
     });
   };
 
-export const createGuard = ({ allowLocal }: { allowLocal: boolean }): Guard => ({
+export const createGuard = ({
   allowLocal,
-  dispatcher: new Agent({ connect: { lookup: guardedLookup(allowLocal) } }),
+  resolve = lookup,
+}: {
+  allowLocal: boolean;
+  resolve?: Resolve;
+}): Guard => ({
+  allowLocal,
+  dispatcher: new Agent({ connect: { lookup: guardedLookup(allowLocal, resolve) } }),
 });
 
 const defaultGuard = createGuard({ allowLocal: process.env["ALLOW_LOCAL_ADDONS"] === "1" });
@@ -95,15 +117,22 @@ const defaultGuard = createGuard({ allowLocal: process.env["ALLOW_LOCAL_ADDONS"]
 const blockedCause = (error: unknown) =>
   error instanceof Error && error.cause instanceof BlockedAddressError ? error.cause : error;
 
+const credentialHeaders = ["authorization", "proxy-authorization", "cookie"];
+
+const switchesToGet = (status: number, method: string) =>
+  status === 303 || ((status === 301 || status === 302) && method === "POST");
+
 const nextInit = (init: RequestInit, status: number, from: URL, to: URL): RequestInit => {
   const headers = new Headers(init.headers);
-  const keepsBody = status === 307 || status === 308;
+  const toGet = switchesToGet(status, (init.method ?? "GET").toUpperCase());
+  const dropped = [
+    ...(from.origin === to.origin ? [] : credentialHeaders),
+    ...(toGet ? [...headers.keys()].filter((name) => name.startsWith("content-")) : []),
+  ];
 
-  if (from.origin !== to.origin) {
-    headers.delete("authorization");
-  }
+  dropped.forEach((name) => headers.delete(name));
 
-  return keepsBody ? { ...init, headers } : { ...init, headers, method: "GET", body: undefined };
+  return toGet ? { ...init, headers, method: "GET", body: undefined } : { ...init, headers };
 };
 
 const fetchHop = async (

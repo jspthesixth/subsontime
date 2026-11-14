@@ -1,6 +1,13 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { text } from "node:stream/consumers";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGuard, fetchWithTimeout, isPublicURL } from "./http.ts";
 
 const strict = createGuard({ allowLocal: false });
@@ -8,9 +15,11 @@ const local = createGuard({ allowLocal: true });
 const servers: Server[] = [];
 
 const listen = async (handle: (request: IncomingMessage, response: ServerResponse) => void) => {
-  const requests: IncomingMessage[] = [];
-  const server = createServer((request, response) => {
-    requests.push(request);
+  const requests: { method?: string; headers: IncomingHttpHeaders; body: string }[] = [];
+  const server = createServer(async (request, response) => {
+    const body = await text(request);
+
+    requests.push({ method: request.method, headers: request.headers, body });
     handle(request, response);
   });
 
@@ -23,10 +32,12 @@ const listen = async (handle: (request: IncomingMessage, response: ServerRespons
   return { requests, port, origin: `http://127.0.0.1:${port}` };
 };
 
-const redirectTo = (location: string) => (_: IncomingMessage, response: ServerResponse) => {
-  response.writeHead(302, { location });
-  response.end();
-};
+const redirectTo =
+  (location: string, status = 302) =>
+  (_: IncomingMessage, response: ServerResponse) => {
+    response.writeHead(status, { location });
+    response.end();
+  };
 
 afterEach(async () => {
   await Promise.all(
@@ -50,6 +61,9 @@ describe("fetchWithTimeout guard", () => {
     ["https://[fc00::1]/"],
     ["https://2130706433/"],
     ["file:///etc/passwd"],
+    ["https://[64:ff9b::7f00:1]/"],
+    ["https://[::7f00:1]/"],
+    ["https://[::a00:5]/"],
   ])("blocks %s", async (url) => {
     await expect(fetchWithTimeout(url, {}, 1000, strict)).rejects.toThrow("Blocked address");
   });
@@ -115,5 +129,84 @@ describe("fetchWithTimeout guard", () => {
       "Too many redirects",
     );
     expect(loop.requests).toHaveLength(4);
+  });
+});
+
+describe("fetchWithTimeout lookups", () => {
+  it("rejects a host that does not resolve without crashing the process", async () => {
+    const uncaught = vi.fn<(error: Error) => void>();
+
+    process.on("uncaughtException", uncaught);
+
+    try {
+      await expect(
+        fetchWithTimeout("https://does-not-exist.invalid/manifest.json", {}, 3000, strict),
+      ).rejects.toThrow("fetch failed");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      process.off("uncaughtException", uncaught);
+    }
+
+    expect(uncaught).not.toHaveBeenCalled();
+  });
+
+  it("blocks a host whose lookup returns no address", async () => {
+    const empty = createGuard({
+      allowLocal: false,
+      resolve: (_hostname, _options, callback) => callback(null, []),
+    });
+
+    await expect(fetchWithTimeout("https://example.test/", {}, 1000, empty)).rejects.toThrow(
+      "Blocked address",
+    );
+  });
+});
+
+describe("fetchWithTimeout redirects", () => {
+  it.each([
+    [301, "POST", "GET", ""],
+    [302, "POST", "GET", ""],
+    [303, "PUT", "GET", ""],
+    [302, "PUT", "PUT", "payload"],
+    [307, "POST", "POST", "payload"],
+  ])("a %i after %s continues as %s", async (status, method, nextMethod, nextBody) => {
+    const target = await listen((_, response) => response.end("final"));
+    const hop = await listen(redirectTo(`${target.origin}/final`, status));
+
+    await fetchWithTimeout(
+      `${hop.origin}/`,
+      { method, body: "payload", headers: { "Content-Type": "text/plain" } },
+      1000,
+      local,
+    );
+
+    expect(target.requests[0]).toMatchObject({ method: nextMethod, body: nextBody });
+    expect(target.requests[0]?.headers["content-type"]).toBe(
+      nextBody === "" ? undefined : "text/plain",
+    );
+  });
+
+  it("drops credentials and cookies across origins", async () => {
+    const target = await listen((_, response) => response.end("final"));
+    const hop = await listen(redirectTo(`${target.origin}/final`));
+
+    await fetchWithTimeout(
+      `${hop.origin}/`,
+      {
+        headers: {
+          Authorization: "Bearer token",
+          "Proxy-Authorization": "Basic secret",
+          Cookie: "session=1",
+          Accept: "application/json",
+        },
+      },
+      1000,
+      local,
+    );
+
+    expect(target.requests[0]?.headers).toMatchObject({ accept: "application/json" });
+    expect(target.requests[0]?.headers).not.toHaveProperty("authorization");
+    expect(target.requests[0]?.headers).not.toHaveProperty("proxy-authorization");
+    expect(target.requests[0]?.headers).not.toHaveProperty("cookie");
   });
 });
