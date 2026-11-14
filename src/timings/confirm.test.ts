@@ -284,6 +284,16 @@ describe("summarize confirmation", () => {
     expect(view).toMatchObject({ status: "confirmed", agreeing: 3 });
   });
 
+  it("names a group by its oldest fix", () => {
+    expect(fixesOnly([fix(cues), fix(cues.slice(1), { submitter: bob })])).toMatchObject([
+      {
+        status: "confirmed",
+        id: idOf(cues),
+        subtitleSketch: subtitleSketch(hashesOf(cues.slice(1))),
+      },
+    ]);
+  });
+
   it("weighs only the newest fix of each origin", () => {
     const [view] = fixesOnly([
       fix(cues),

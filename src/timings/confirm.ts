@@ -68,6 +68,9 @@ const byViewRank = (a: Ranked, b: Ranked) =>
 const newestOf = <Item extends Row>(rows: Item[]) =>
   rows.reduce((newest, row) => (row.createdAt >= newest.createdAt ? row : newest));
 
+const oldestOf = <Item extends Row>(rows: Item[]) =>
+  rows.reduce((oldest, row) => (row.createdAt < oldest.createdAt ? row : oldest));
+
 const submittersOf = (rows: Row[]) => new Set(rows.map((row) => row.submitter));
 
 const originsOf = (rows: Row[]) => new Set(rows.flatMap((row) => row.origin ?? []));
@@ -233,14 +236,11 @@ const median = (values: number[]) => {
   );
 };
 
-const viewOf = (leader: FixRow, cues: FixCue[]) => ({
-  id: subtitleKey(leader.subtitleHashes),
-  subtitleSketch: subtitleSketch(leader.subtitleHashes),
-  cues,
-  cueCount: cues.length,
-});
+type Name = Pick<FixView, "id" | "subtitleSketch">;
 
-const confirmedView = (leader: FixRow, component: Timed[]): Ranked => {
+const viewOf = (name: Name, cues: FixCue[]) => ({ ...name, cues, cueCount: cues.length });
+
+const confirmedView = (name: Name, component: Timed[]): Ranked => {
   const fixes = component.map(({ fix }) => fix);
   const repeated = new Set(component.flatMap((timed) => timed.repeated));
   const timings = Map.groupBy(
@@ -261,7 +261,7 @@ const confirmedView = (leader: FixRow, component: Timed[]): Ranked => {
 
   return {
     view: {
-      ...viewOf(leader, cues),
+      ...viewOf(name, cues),
       status: "confirmed",
       method: fromAudio ? "audio" : mostCommon,
       agreeing: slotsOf(fixes),
@@ -277,16 +277,20 @@ const rankedView = (leader: FixRow, group: FixRow[]): Ranked => {
     .toSorted(byAge)
     .slice(-weighedFixes);
   const component = largest(agreeingComponents(weighed.map(timedOf)));
+  const name = {
+    id: subtitleKey(oldestOf(group).subtitleHashes),
+    subtitleSketch: subtitleSketch(leader.subtitleHashes),
+  };
 
   if (isConfirmed(component.map(({ fix }) => fix))) {
-    return confirmedView(leader, component);
+    return confirmedView(name, component);
   }
 
   const newest = newestOf(weighed);
 
   return {
     view: {
-      ...viewOf(leader, newest.cues),
+      ...viewOf(name, newest.cues),
       status: "hint",
       method: newest.method,
       agreeing: 1,

@@ -428,6 +428,29 @@ describe("GET /api/v1/fixes/:video/:id/cues", () => {
     expect(await response.json()).toEqual({ cues: other });
   });
 
+  it("keeps the id of a group when a newer fix with a slightly different list joins", async () => {
+    let client = "1.1.1.1";
+    const app = appWith(memoryStore(), () => client);
+    const listedIds = async () =>
+      (await (await app.request(`/api/v1/fixes?video=${videoParam}`)).json()).fixes.map(
+        (view: { id: string }) => view.id,
+      );
+
+    await post(app, "/api/v1/fixes", fixBody({ subtitle: cues(30) }));
+
+    const [before] = await listedIds();
+
+    client = "2.2.2.2";
+    await post(app, "/api/v1/fixes", fixBody({ subtitle: cues(30).slice(1) }));
+
+    const response = await app.request(`/api/v1/fixes/${videoParam}/${before}/cues`);
+
+    expect(before).toBe(subtitleKey(cues(30).map((cue) => cue.h)));
+    expect(await listedIds()).toEqual([before]);
+    expect(response.status).toBe(200);
+    expect((await response.json()).cues).toHaveLength(30);
+  });
+
   it("answers 404 for a fix that is no longer listed", async () => {
     const response = await appWith(memoryStore()).request(
       `/api/v1/fixes/${videoParam}/${"0".repeat(32)}/cues`,
