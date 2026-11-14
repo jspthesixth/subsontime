@@ -85,3 +85,49 @@ describe("releaseSimilarity", () => {
     expect(releaseSimilarity(a, a)).toBe(3);
   });
 });
+
+describe("parseRelease with language codes and glued groups", () => {
+  it("drops a language code before the extension", () => {
+    expect(parseRelease("Movie.2021.1080p.WEB-DL.x264-GROUP.hr.srt")).toEqual({
+      source: "web-dl",
+      resolution: "1080p",
+      group: "GROUP",
+      extended: false,
+    });
+  });
+
+  it("drops a language code and a forced marker", () => {
+    expect(parseRelease("Movie.2021.1080p.WEB-DL.x264-GROUP.eng.forced.srt").group).toBe("GROUP");
+  });
+
+  it("reads the source from a token with the group glued on", () => {
+    expect(parseRelease("Example.Movie.2024.1080p.WEB-DL-GROUP.mkv")).toEqual({
+      source: "web-dl",
+      resolution: "1080p",
+      group: "GROUP",
+      extended: false,
+    });
+    expect(parseRelease("Movie.2021.1080p.BluRay-GROUP")).toMatchObject({
+      source: "bluray",
+      group: "GROUP",
+    });
+  });
+
+  it("prefers the last matching source over a title word", () => {
+    expect(parseRelease("The.Web.2020.720p.HDTV.x264-GRP").source).toBe("hdtv");
+  });
+
+  it("matches a video against its subtitle with a language code", () => {
+    const video = parseRelease("Movie.2021.1080p.WEB-DL.x264-GROUP.mkv");
+
+    expect(sameRelease(video, parseRelease("Movie.2021.1080p.WEB-DL.x264-GROUP.hr.srt"))).toBe(
+      true,
+    );
+  });
+
+  it("is not the same release when only the source differs", () => {
+    const video = parseRelease("Movie.2021.1080p.WEB-DL.x264-GROUP.mkv");
+
+    expect(sameRelease(video, parseRelease("Movie.2021.1080p.BluRay.x264-GROUP.srt"))).toBe(false);
+  });
+});

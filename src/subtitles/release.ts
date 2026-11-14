@@ -22,15 +22,35 @@ const resolutions: [RegExp, NonNullable<Release["resolution"]>][] = [
 
 const tokenize = (text: string) => text.split(/[.\s_[\]()]+/).filter((token) => token !== "");
 
+const withoutGroup = (token: string) => token.replace(/-[A-Za-z0-9]+$/, "");
+
+const matches = (pattern: RegExp, token: string) =>
+  pattern.test(token) || pattern.test(withoutGroup(token));
+
 const findLabel = <T>(tokens: string[], table: [RegExp, T][]) =>
-  table.find(([pattern]) => tokens.some((token) => pattern.test(token)))?.[1];
+  tokens
+    .flatMap((token) => table.filter(([pattern]) => matches(pattern, token)).slice(0, 1))
+    .at(-1)?.[1];
+
+const isAlias = (token: string) =>
+  [...sources, ...resolutions].some(([pattern]) => matches(pattern, token));
+
+const isTrailingNoise = (token: string) =>
+  /^(forced|sdh|hi|cc)$/i.test(token) || (/^[a-z]{2,3}$/i.test(token) && !isAlias(token));
+
+const dropTrailingNoise = (tokens: string[]): string[] =>
+  tokens.length > 1 && isTrailingNoise(tokens.at(-1) ?? "")
+    ? dropTrailingNoise(tokens.slice(0, -1))
+    : tokens;
 
 export const parseRelease = (name: string): Release => {
   const base = name
     .replace(/\.(mkv|mp4|avi|srt|sub|ass|vtt)$/i, "")
     .replace(/\s*[[(][^\])]*[\])]$/, "");
   const tokens = tokenize(base);
-  const group = tokens.at(-1)?.match(/-([A-Za-z0-9]{2,})$/)?.[1];
+  const group = dropTrailingNoise(tokens)
+    .at(-1)
+    ?.match(/-([A-Za-z0-9]{2,})$/)?.[1];
 
   return {
     source: findLabel(tokens, sources),
