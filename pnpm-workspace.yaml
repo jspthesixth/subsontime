@@ -1,0 +1,2 @@
+minimumReleaseAgeExclude:
+  - "@stylistic/eslint-plugin@6.0.0"

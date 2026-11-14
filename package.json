@@ -1,0 +1,33 @@
+{
+  "name": "subsontime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Subtitles that fit the file you are playing. A Stremio addon that retimes every subtitle to your exact video.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --experimental-strip-types src/server.ts",
+    "check": "oxfmt --check . && oxlint && tsc --noEmit && vitest run",
+    "test": "vitest run",
+    "lint": "oxlint",
+    "format": "oxfmt .",
+    "typecheck": "tsc --noEmit",
+    "build:wasm": "echo 'wasm build arrives in Task 10' && exit 1",
+    "build:client": "echo 'client build arrives in Task 13' && exit 1"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.8",
+    "hono": "4.13.18"
+  },
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "6.0.0",
+    "@types/node": "24.19.2",
+    "oxfmt": "0.78.0",
+    "oxlint": "1.93.0",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
