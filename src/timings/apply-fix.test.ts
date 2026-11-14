@@ -62,18 +62,22 @@ describe("applyFix", () => {
   });
 
   it("keeps the cues sorted and apart", () => {
-    const cues = applyFix(ours, fix)?.cues ?? [];
+    const result = applyFix(ours, fix);
+    const cues = result?.cues ?? [];
+
+    expect(result).toBeDefined();
 
     expect(cues.slice(1).every((cue, index) => cue.start >= (cues[index]?.end ?? 0))).toBe(true);
   });
 
-  it("does not anchor on a line that repeats", () => {
-    const repeated = replaceText(dialogue, [10, 30], "Yes.");
-    const result = applyFix(repeated, toFixCues(transform(repeated, move)));
+  it("does not anchor on a line we repeat", () => {
+    const twice = replaceText(dialogue, [10, 11], "Yes.");
+    const fixOnce = toFixCues(transform(replaceText(dialogue, [10], "Yes."), move));
+    const result = applyFix(twice, fixOnce);
 
-    expect(result?.matched).toBe(repeated.length - 2);
+    expect(result?.matched).toBe(twice.length - 2);
     expect(
-      Math.abs((result?.cues[30]?.start ?? 0) - move(repeated[30]?.start ?? 0)),
+      Math.abs((result?.cues[11]?.start ?? 0) - move(twice[11]?.start ?? 0)),
     ).toBeLessThanOrEqual(1);
   });
 
@@ -148,6 +152,17 @@ describe("applyFix", () => {
     expect(result?.matched).toBe(dialogue.length - 1);
     expect(Math.abs((cues[2]?.start ?? 0) - move(dialogue[2]?.start ?? 0))).toBeLessThanOrEqual(1);
     expect(cues[100]?.start).toBe(move(dialogue[100]?.start ?? 0));
+  });
+
+  it("caps an interpolated cue at three times its length", () => {
+    const stretched = plain.map((cue, index) =>
+      index > 20 ? { ...cue, s: cue.s + 100_000, e: cue.e + 100_000 } : cue,
+    );
+    const ownLine = replaceText(dialogue, [20], "Only this copy says this.");
+    const placed = applyFix(ownLine, stretched)?.cues[20];
+    const length = (dialogue[20]?.end ?? 0) - (dialogue[20]?.start ?? 0);
+
+    expect((placed?.end ?? 0) - (placed?.start ?? 0)).toBe(3 * length);
   });
 
   it("returns undefined when under 60 % of the cues match", () => {

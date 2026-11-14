@@ -8,9 +8,9 @@ export type CueHash = string;
 export type FixCue = { h: CueHash; s: number; e: number };
 
 export const normalizeCueText = (text: string): string =>
-  stripSoundDescriptions(stripMarkup(text.normalize("NFKC")))
+  stripSoundDescriptions(stripMarkup(text.normalize("NFKC").replace(/\p{Cf}/gu, "")))
     .toLowerCase()
-    .replace(/[\p{P}\p{S}]/gu, " ")
+    .replace(/[\p{P}\p{S}\p{C}]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 

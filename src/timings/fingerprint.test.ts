@@ -25,12 +25,27 @@ describe("normalizeCueText", () => {
     ["Ｈｅｌｌｏ ﬁne", "hello fine"],
     ["- JOHN: Wait...\n- What?!", "wait what"],
     ["[MUSIC PLAYING]", ""],
+    ["Hello\u200Bworld", "helloworld"],
+    ["\u200FJOHN: Hi.\u200F", "hi"],
   ])("normalizes %j to %j", (text, expected) => {
     expect(normalizeCueText(text)).toBe(expected);
   });
 });
 
 describe("cueHashes", () => {
+  it("hashes a right-to-left line the same with and without direction marks", () => {
+    const plainLine = "مرحبا، كيف حالك؟";
+
+    expect(
+      cueHashes([
+        { start: 0, end: 1000, text: `\u202B${plainLine}\u202C` },
+        { start: 1000, end: 2000, text: `\u200F${plainLine}\u200F` },
+      ]),
+    ).toEqual(
+      cueHashes([{ start: 0, end: 1000, text: plainLine }]).flatMap((hash) => [hash, hash]),
+    );
+  });
+
   it("hashes the first 8 bytes of SHA-256 over the normalized text", () => {
     expect(cueHashes([{ start: 0, end: 1000, text: "Hello,   World!" }])).toEqual([
       "b94d27b9934d3e08",

@@ -4,6 +4,7 @@ import { cueHashes, type FixCue } from "./fingerprint.ts";
 type Anchor = { index: number; from: number; fix: FixCue };
 
 const minimumMatchedShare = 0.6;
+const maximumStretch = 3;
 
 const shift = (cue: Cue, anchor: Anchor): Cue => {
   const offset = anchor.fix.s - anchor.from;
@@ -19,18 +20,16 @@ const interpolate = (cue: Cue, before: Anchor, after: Anchor): Cue => {
   return {
     ...cue,
     start: Math.round(start),
-    end: Math.round(start + (cue.end - cue.start) * ratio),
+    end: Math.round(start + (cue.end - cue.start) * Math.min(ratio, maximumStretch)),
   };
 };
 
-const place = (cue: Cue, before?: Anchor, after?: Anchor): Cue => {
-  if (before !== undefined && after !== undefined) {
-    return interpolate(cue, before, after);
+const place = (cue: Cue, first: Anchor, before?: Anchor, after?: Anchor): Cue => {
+  if (before === undefined) {
+    return shift(cue, first);
   }
 
-  const nearest = before ?? after;
-
-  return nearest === undefined ? cue : shift(cue, nearest);
+  return after === undefined ? shift(cue, before) : interpolate(cue, before, after);
 };
 
 const longestInOrder = (matches: Anchor[]): Anchor[] => {
@@ -95,8 +94,9 @@ export const applyFix = (
   });
 
   const anchors = longestInOrder(matches);
+  const [first] = anchors;
 
-  if (hashed === 0 || anchors.length / hashed < minimumMatchedShare) {
+  if (first === undefined || anchors.length / hashed < minimumMatchedShare) {
     return undefined;
   }
 
@@ -111,6 +111,7 @@ export const applyFix = (
 
     return place(
       cue,
+      first,
       anchors.findLast((candidate) => candidate.index < index),
       anchors.find((candidate) => candidate.index > index),
     );

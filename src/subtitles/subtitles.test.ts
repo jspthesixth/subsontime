@@ -3,7 +3,7 @@ import iconv from "iconv-lite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeSubtitle } from "./decode.ts";
 import { SubtitleError } from "./cue.ts";
-import { parseSubtitle } from "./parse.ts";
+import { parseSubtitle, stripMarkup } from "./parse.ts";
 import { writeSRT } from "./write.ts";
 
 const fixture = (name: string) =>
@@ -114,6 +114,21 @@ describe("parseSubtitle", () => {
 
   it("throws when nothing parses", () => {
     expect(() => parseSubtitle("not a subtitle")).toThrow(SubtitleError);
+  });
+});
+
+describe("stripMarkup", () => {
+  it.each([
+    ['<i>Hello</i> <font color="#fff">there</font>', "Hello there"],
+    ["If x < 3 and y > 2 then", "If x < 3 and y > 2 then"],
+    ["Tom &amp; Jerry &lt;3 &gt; &quot;hi&quot; it&#39;s", 'Tom & Jerry <3 > "hi" it\'s'],
+    ["a&nbsp;b", "a\u00A0b"],
+    ["&#269;a&#x161;a", "čaša"],
+    ["&amp;lt;i&amp;gt;", "&lt;i&gt;"],
+    ["&bogus; &#x110000;", "&bogus; &#x110000;"],
+    ["{\\an8}Up\\hhere\\Nnext", "Up here\nnext"],
+  ])("turns %j into %j", (text, expected) => {
+    expect(stripMarkup(text)).toBe(expected);
   });
 });
 
