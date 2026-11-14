@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
-import { createApp } from "./app.ts";
+import { createApp, detached } from "./app.ts";
 import { addressKey } from "./client-key.ts";
 import { readSecret } from "./config/secret.ts";
 import { sharedStateFrom } from "./jobs/shared-state.ts";
@@ -24,6 +24,7 @@ const app = createApp({
   staticFiles: serveStatic({ root: "./public" }),
   installSalt: readInstallSalt(process.env),
   timings: databaseURL ? postgresStore(databaseURL) : memoryStore(),
+  defer: detached,
   clientKey: (context) =>
     addressKey(proxiedClient(context) || getConnInfo(context).remote.address || "unknown"),
 });

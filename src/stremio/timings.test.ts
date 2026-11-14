@@ -1,9 +1,9 @@
-import type { ExecutionContext } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp } from "../app.ts";
+import { createApp, type AppDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
+import { memorySharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource } from "../sources/test-sources.ts";
 import type { Cue } from "../subtitles/cue.ts";
@@ -40,13 +40,18 @@ const hanging = (): Promise<never> => new Promise(() => {});
 
 const hashesOf = (cues: Cue[]) => cueHashes(cues).filter((hash) => hash !== undefined);
 
-const appWith = (sources: SourceSet, store: TimingsStore = memoryStore()) =>
+const appWith = (
+  sources: SourceSet,
+  store: TimingsStore = memoryStore(),
+  deps: Partial<AppDeps> = {},
+) =>
   createApp({
     secret,
     installSalt,
     timings: store,
     sourcesFor: () => sources,
     clientKey: (context) => context.req.header("x-test-client") ?? "client-a",
+    ...deps,
   });
 
 const installed = (overrides: Partial<Config> = {}) => {
@@ -348,6 +353,53 @@ describe("reading Open Timings", () => {
     expect(hung.fileMs).toBeLessThan(normal.fileMs + budgetMs + 150);
   });
 
+  it("keeps the hidden list longer than Stremio keeps a listing", async () => {
+    const store = memoryStore();
+    let clock = Date.now();
+    const state = memorySharedState(() => clock);
+    const { token } = installed();
+
+    await hideByMismatch(store, shifted);
+
+    const app = appWith(
+      { listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])], references: [] },
+      store,
+      { state },
+    );
+    const key = refOf(await firstURL(app, token)).d ?? "";
+
+    clock += 3650_000;
+
+    const afterListingCache = await state.get(key);
+
+    clock += 60_000;
+
+    expect(key).toMatch(/^hid:/);
+    expect(afterListingCache).toBeDefined();
+    expect(await state.get(key)).toBeUndefined();
+  });
+
+  it("reads the store again after a read that timed out", async () => {
+    const store = memoryStore();
+    const fixesFor = vi
+      .fn<TimingsStore["fixesFor"]>(store.fixesFor)
+      .mockImplementationOnce(hanging);
+    const { token } = installed({ share: false });
+
+    await confirmFix(store, track);
+
+    const { text } = await play(
+      appWith(
+        { listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])], references: [] },
+        { ...store, fixesFor },
+      ),
+      token,
+    );
+
+    expect(fixesFor).toHaveBeenCalledTimes(2);
+    expect(text).toBe(writeSRT(track));
+  });
+
   it("keeps a ref with ten hidden subtitles under 8 KB", async () => {
     const store = memoryStore();
     const { token } = installed();
@@ -435,22 +487,46 @@ describe("sharing to Open Timings", () => {
     );
   });
 
-  it("hands the write to waitUntil when the platform gives one", async () => {
+  it("hands every write to the host's defer", async () => {
     const store = memoryStore();
     const { token } = installed();
-    const app = appWith(retimedSources(), store);
-    const waitUntil = vi.fn<(promise: Promise<unknown>) => void>();
-    const executionContext: ExecutionContext = {
-      waitUntil,
-      passThroughOnException: () => {},
-      props: {},
-    };
+    const defer = vi.fn<(work: Promise<unknown>) => void>();
+    const app = appWith(retimedSources(), store, { defer });
 
-    await app.request(await firstURL(app, token), undefined, undefined, executionContext);
-    await waitUntil.mock.calls[0]?.[0];
+    const url = await firstURL(app, token);
+    const deferredAtListing = defer.mock.calls.length;
 
-    expect(waitUntil).toHaveBeenCalledTimes(1);
+    await app.request(url);
+    await defer.mock.calls[0]?.[0];
+
+    expect(deferredAtListing).toBe(0);
+    expect(defer).toHaveBeenCalledTimes(1);
     expect(await store.fixesFor(video)).toHaveLength(1);
+  });
+
+  it("keys the fix on the reference that produced the result", async () => {
+    const store = memoryStore();
+    const { token } = installed();
+    const app = appWith(
+      {
+        listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])],
+        references: [
+          fakeSource("Reference", [
+            { ref: "first", hashMatch: true, cues: unrelated },
+            { ref: "second", hashMatch: true, cues: track },
+          ]),
+        ],
+      },
+      store,
+    );
+
+    await play(app, token);
+
+    await vi.waitFor(async () => expect(await store.fixesFor(video)).toHaveLength(1));
+
+    expect((await store.fixesFor(video))[0]?.referenceKey).toBe(
+      hashesOf(track).slice(0, 8).join(","),
+    );
   });
 
   it("shares a mismatch against a hash-matched reference", async () => {
@@ -576,7 +652,7 @@ describe("the check page with Open Timings", () => {
         lang: "English",
         source: "Fake",
         label: "Shared fix, confirmed",
-        detail: "2 agree · 1 from audio",
+        detail: "2 agree · from audio",
         playsFirst: true,
       },
     ]);

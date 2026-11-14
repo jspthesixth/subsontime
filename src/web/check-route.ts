@@ -130,7 +130,7 @@ const retimedDetail = ({ offsetMs, speedRatio, cuts }: Retimed, fps: number | un
   ].join(" · ");
 
 const sharedFixDetail = ({ agreeing, fromAudio }: SharedFix) =>
-  [`${agreeing} agree`, ...(fromAudio ? ["1 from audio"] : [])].join(" · ");
+  [`${agreeing} agree`, ...(fromAudio ? ["from audio"] : [])].join(" · ");
 
 const timingOf = ({ result }: Attempt, fps: number | undefined) => {
   switch (result?.kind) {

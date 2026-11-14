@@ -207,10 +207,8 @@ const fixCuesOf = (cues: Cue[]) =>
     }))
     .toSorted((a, b) => a.s - b.s);
 
-const referenceKeyOf = (reference: Track | undefined) => {
-  const key = hashesOf(reference?.cues ?? [])
-    .slice(0, 8)
-    .join(",");
+const referenceKeyOf = (reference: Track) => {
+  const key = hashesOf(reference.cues).slice(0, 8).join(",");
 
   return key === "" ? undefined : key;
 };
@@ -222,8 +220,8 @@ const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
     }
 
     if (result?.kind === "retimed") {
-      const { cues, references } = result;
-      const byHash = references.every((reference) => reference.candidate.hashMatch);
+      const { cues, references, reference } = result;
+      const byHash = references.every((used) => used.candidate.hashMatch);
 
       return [
         {
@@ -232,7 +230,7 @@ const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
             video,
             subtitle: fixCuesOf(cues),
             method: byHash ? "reference" : "release-name",
-            referenceKey: referenceKeyOf(references[0]),
+            referenceKey: referenceKeyOf(reference),
           },
         },
       ];
@@ -246,24 +244,13 @@ const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
 const logWrite = (error: unknown) =>
   console.error(`Open Timings write failed: ${errorName(error)}`);
 
-const waitUntilOf = (context: Context<AppEnv>) => {
-  try {
-    const { executionCtx } = context;
-
-    return (work: Promise<void>) => executionCtx.waitUntil(work);
-  } catch {
-    return undefined;
-  }
-};
-
 const shareAfterResponse = (
-  context: Context<AppEnv>,
   { store, originOf, summaries }: OpenTimings,
   shares: Share[],
   submitter: string,
   client: string,
-) => {
-  const run = setImmediate()
+) =>
+  setImmediate()
     .then(async () => {
       const origin = await originOf(client);
 
@@ -272,9 +259,6 @@ const shareAfterResponse = (
       );
     })
     .catch(logWrite);
-
-  waitUntilOf(context)?.(run);
-};
 
 const servedOf = (attempts: Attempt[], config: Config): Served => {
   const cues = attempts
@@ -295,7 +279,16 @@ const srtResponse = (context: Context<AppEnv>, srt: string) =>
   context.body(srt, 200, { "content-type": srtType, "cache-control": "public, max-age=86400" });
 
 export const fileRoute =
-  ({ sourcesFor, refKey, singleFlight, subtitles, state, clientKey, openTimings }: RouteDeps) =>
+  ({
+    sourcesFor,
+    refKey,
+    singleFlight,
+    subtitles,
+    state,
+    clientKey,
+    openTimings,
+    defer,
+  }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const ref = (() => {
@@ -353,7 +346,7 @@ export const fileRoute =
     const served = decodeServed(flown) ?? (await produce());
 
     if (openTimings !== undefined && viewer !== undefined && shares.length > 0) {
-      shareAfterResponse(context, openTimings, shares, viewer, clientKey(context));
+      defer(shareAfterResponse(openTimings, shares, viewer, clientKey(context)));
     }
 
     if (!served.found) {

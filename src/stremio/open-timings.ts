@@ -28,7 +28,7 @@ export type Shared = { hidden: Hidden[]; confirmed: () => Promise<FixWithCues[]>
 const readBudgetMs = 300;
 const sameSubtitleShare = 0.9;
 const maximumHidden = 10;
-const hiddenSeconds = 300;
+const hiddenSeconds = 3700;
 const videoHashPattern = /^[0-9a-f]{16}$/;
 const sketchesSchema = v.array(v.array(v.string()));
 

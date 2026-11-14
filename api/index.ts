@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { handle } from "hono/vercel";
 import { createApp } from "../src/app.ts";
 import { addressKey } from "../src/client-key.ts";
@@ -17,5 +18,6 @@ export default handle(
     clientKey: (context) => addressKey(context.req.header("x-real-ip") ?? "unknown"),
     installSalt: readInstallSalt(process.env),
     timings: databaseURL ? postgresStore(databaseURL) : memoryStore(),
+    defer: waitUntil,
   }),
 );

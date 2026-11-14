@@ -2,3 +2,4 @@ allowBuilds:
   esbuild: false
 minimumReleaseAgeExclude:
   - "@stylistic/eslint-plugin@6.0.0"
+  - "@vercel/functions@3.11.3"

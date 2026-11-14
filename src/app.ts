@@ -36,6 +36,7 @@ export type AppDeps = {
   clientKey?: (context: Context) => string;
   installSalt?: string;
   timings?: TimingsStore;
+  defer?: (work: Promise<unknown>) => void;
 };
 
 export type AppEnv = { Variables: { config: Config; tokens: TokenCache } };
@@ -49,6 +50,7 @@ export type RouteDeps = {
   subtitles?: SubtitleCache;
   clientKey: (context: Context) => string;
   openTimings?: OpenTimings;
+  defer: (work: Promise<unknown>) => void;
 };
 
 const newerLinkMessage = "This install link is from a newer version";
@@ -59,6 +61,12 @@ const apiBodyLimit = 16 * 1024;
 const timingsBodyLimit = 512 * 1024;
 const writesPerHour = 60;
 const hourMs = 3_600_000;
+
+export const detached = (work: Promise<unknown>) => {
+  work.catch((error: unknown) =>
+    console.error(`Background work failed: ${error instanceof Error ? error.name : "unknown"}`),
+  );
+};
 
 const tooLarge = (context: Context) => context.json({ error: tooLargeMessage }, 413);
 
@@ -101,6 +109,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     subtitles: shared === undefined ? undefined : subtitleCache(shared),
     clientKey,
     openTimings,
+    defer: deps.defer ?? detached,
   };
 
   app.notFound((context) => context.text("Not found", 404));

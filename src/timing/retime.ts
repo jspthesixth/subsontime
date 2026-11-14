@@ -24,6 +24,7 @@ export type RetimeResult =
       cuts: number;
       byReleaseName: boolean;
       score: number;
+      reference: Track;
       references: Track[];
     }
   | { kind: "shared-fix"; cues: Cue[]; agreeing: number; fromAudio: boolean }
@@ -138,6 +139,7 @@ export const retime = async (subtitle: Track, references: Track[]): Promise<Reti
       cuts: chosen.cuts,
       byReleaseName: hashMatched.length === 0,
       score: chosen.score,
+      reference: chosen.reference,
       references: aligned.map((result) => result.reference),
     };
   }
