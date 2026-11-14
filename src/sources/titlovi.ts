@@ -107,7 +107,7 @@ const refOf = (row: Row, query: VideoQuery) =>
     ? `${row.Type}:${row.Id}:${episodeTag(row.Season, row.Episode)}`
     : `${row.Type}:${row.Id}`;
 
-const refPattern = /^(\d+):(\d+)(?::(S\d{2}E\d{2}))?$/;
+const refPattern = /^(\d+):(\d+)(?::(S\d{2,}E\d{2,}))?$/;
 
 const toCandidate = (row: Row, query: VideoQuery): Candidate[] => {
   const lang = toISO6392.get(row.Lang);
@@ -137,7 +137,9 @@ const toCandidate = (row: Row, query: VideoQuery): Candidate[] => {
 const pickEntry = (files: Record<string, Uint8Array>, tag: string | undefined) => {
   const entries = Object.entries(files).filter(([name]) => subtitleEntry.test(name));
   const tagged =
-    tag === undefined ? undefined : entries.find(([name]) => name.toUpperCase().includes(tag));
+    tag === undefined
+      ? undefined
+      : entries.find(([name]) => new RegExp(`${tag}(?!\\d)`, "i").test(name));
   const largest = entries.toSorted(([, a], [, b]) => b.length - a.length)[0];
 
   return (tagged ?? largest)?.[1];

@@ -284,6 +284,46 @@ describe("titloviSource download", () => {
     expect(headers.has("Authorization")).toBe(false);
   });
 
+  it("picks a three-digit episode entry and not the shorter one it starts with", async () => {
+    stubFetch(
+      downloadBody(zip({ "Show.S01E10.srt": "ten-long-entry", "Show.S01E100.srt": "hundred" })),
+    );
+
+    const bytes = await titloviSource(credentials, memoryTokenCache()).download(
+      "3:2001:S01E100",
+      signal(),
+    );
+
+    expect(new TextDecoder().decode(bytes)).toBe("hundred");
+  });
+
+  it("puts a three-digit episode in the ref", async () => {
+    stubFetch(
+      json(loginFixture),
+      json({
+        SubtitleResults: [
+          {
+            Id: 7,
+            Type: 3,
+            Title: "T",
+            Release: "",
+            Lang: "Hrvatski",
+            Season: 1,
+            Episode: 100,
+            Rating: 1,
+          },
+        ],
+      }),
+    );
+
+    const candidates = await titloviSource(credentials, memoryTokenCache()).search(
+      { ...episode, episode: 100 },
+      signal(),
+    );
+
+    expect(candidates.map((candidate) => candidate.ref)).toEqual(["3:7:S01E100"]);
+  });
+
   it("picks the largest subtitle entry when no episode is requested", async () => {
     stubFetch(
       downloadBody(
