@@ -59,7 +59,7 @@ describe("cueHashes", () => {
 });
 
 describe("toFixCues", () => {
-  it("keeps the first cue of a repeated line and skips cues without a hash", () => {
+  it("keeps every cue of a repeated line and skips cues without a hash", () => {
     const fix = toFixCues([
       { start: 0, end: 500, text: "Yes." },
       { start: 1000, end: 1500, text: "[DOOR SLAMS]" },
@@ -69,8 +69,10 @@ describe("toFixCues", () => {
 
     expect(fix.map((cue) => [cue.s, cue.e])).toEqual([
       [0, 500],
+      [2000, 2500],
       [3000, 3500],
     ]);
+    expect(fix[0]?.h).toBe(fix[1]?.h);
   });
 });
 

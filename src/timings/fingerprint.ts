@@ -25,12 +25,11 @@ export const cueHashes = (cues: Cue[]): (CueHash | undefined)[] =>
 
 export const toFixCues = (cues: Cue[]): FixCue[] => {
   const hashes = cueHashes(cues);
-  const firstIndex = new Map(hashes.map((hash, index) => [hash, index] as const).toReversed());
 
   return cues.flatMap((cue, index) => {
     const h = hashes[index];
 
-    return h === undefined || firstIndex.get(h) !== index ? [] : [{ h, s: cue.start, e: cue.end }];
+    return h === undefined ? [] : [{ h, s: cue.start, e: cue.end }];
   });
 };
 

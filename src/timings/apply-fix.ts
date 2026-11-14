@@ -33,6 +33,17 @@ const place = (cue: Cue, before?: Anchor, after?: Anchor): Cue => {
   return nearest === undefined ? cue : shift(cue, nearest);
 };
 
+const keepInOrder = (original: Cue[], placed: Cue[]): Cue[] =>
+  placed.map((cue, index) => {
+    const start = Math.max(cue.start, 0);
+    const end = Math.max(cue.end, 0);
+    const next = placed[index + 1];
+    const wasApart = (original[index]?.end ?? 0) <= (original[index + 1]?.start ?? Infinity);
+    const trimmed = next !== undefined && wasApart ? Math.min(end, Math.max(next.start, 0)) : end;
+
+    return { ...cue, start, end: trimmed > start ? trimmed : start + 1 };
+  });
+
 export const applyFix = (
   cues: Cue[],
   fix: FixCue[],
@@ -42,15 +53,21 @@ export const applyFix = (
   const theirs = Map.groupBy(fix, (cue) => cue.h);
   const hashed = hashes.filter((hash) => hash !== undefined).length;
 
-  const anchors = cues.flatMap((cue, index): Anchor[] => {
+  const matches = cues.flatMap((cue, index): Anchor[] => {
     const hash = hashes[index];
-    const matches = hash === undefined ? [] : (theirs.get(hash) ?? []);
-    const [match] = matches;
+    const sameLine = hash === undefined ? [] : (theirs.get(hash) ?? []);
+    const [match] = sameLine;
 
-    return match !== undefined && matches.length === 1 && ours.get(hash)?.length === 1
+    return match !== undefined && sameLine.length === 1 && ours.get(hash)?.length === 1
       ? [{ index, from: cue.start, fix: match }]
       : [];
   });
+
+  const anchors = matches.reduce<Anchor[]>(
+    (kept, anchor) =>
+      anchor.fix.s >= (kept.at(-1)?.fix.s ?? -Infinity) ? [...kept, anchor] : kept,
+    [],
+  );
 
   if (hashed === 0 || anchors.length / hashed < minimumMatchedShare) {
     return undefined;
@@ -58,20 +75,22 @@ export const applyFix = (
 
   const byIndex = new Map(anchors.map((anchor) => [anchor.index, anchor]));
 
+  const placed = cues.map((cue, index) => {
+    const anchor = byIndex.get(index);
+
+    if (anchor !== undefined) {
+      return { ...cue, start: anchor.fix.s, end: anchor.fix.e };
+    }
+
+    return place(
+      cue,
+      anchors.findLast((candidate) => candidate.index < index),
+      anchors.find((candidate) => candidate.index > index),
+    );
+  });
+
   return {
     matched: anchors.length,
-    cues: cues.map((cue, index) => {
-      const anchor = byIndex.get(index);
-
-      if (anchor !== undefined) {
-        return { ...cue, start: anchor.fix.s, end: anchor.fix.e };
-      }
-
-      return place(
-        cue,
-        anchors.findLast((candidate) => candidate.index < index),
-        anchors.find((candidate) => candidate.index > index),
-      );
-    }),
+    cues: keepInOrder(cues, placed),
   };
 };
