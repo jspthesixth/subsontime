@@ -1,0 +1,12 @@
+{
+  "name": "alass-wasm",
+  "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
+  "files": [
+    "alass_wasm_bg.wasm",
+    "alass_wasm.js",
+    "alass_wasm.d.ts"
+  ],
+  "main": "alass_wasm.js",
+  "types": "alass_wasm.d.ts"
+}

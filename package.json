@@ -12,8 +12,9 @@
     "lint": "oxlint",
     "format": "oxfmt .",
     "typecheck": "tsc --noEmit",
-    "build:wasm": "echo 'wasm build arrives in Task 10' && exit 1",
-    "build:client": "echo 'client build arrives in Task 13' && exit 1"
+    "build:wasm": "wasm-pack build crates/alass-wasm --target nodejs --release --out-dir ../../wasm && rm -f wasm/.gitignore",
+    "build:client": "echo 'client build arrives in Task 13' && exit 1",
+    "lint:rust": "cd crates/alass-wasm && cargo clippy --target wasm32-unknown-unknown -- -D warnings"
   },
   "dependencies": {
     "@hono/node-server": "2.1.8",

@@ -19,5 +19,5 @@
       { "blankLine": "always", "prev": ["if", "for", "while", "try", "switch"], "next": "*" }
     ]
   },
-  "ignorePatterns": ["docs", ".superpowers", "public/client", "crates"]
+  "ignorePatterns": ["docs", ".superpowers", "public/client", "crates", "wasm"]
 }
