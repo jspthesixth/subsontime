@@ -5,14 +5,14 @@ Subtitles that fit the file you are playing. A Stremio addon that retimes every 
 ## Run with Docker
 
 ```sh
-docker run -e SECRET=<at least 32 random characters> -p 7000:7000 ghcr.io/jspthesixth/subsontime
+docker run -e SECRET=<at least 32 random characters> -e INSTALL_SALT=<at least 32 other random characters> -p 7000:7000 ghcr.io/jspthesixth/subsontime
 ```
 
 To build the image yourself:
 
 ```sh
 docker build -t subsontime .
-docker run -e SECRET=<at least 32 random characters> -p 7000:7000 subsontime
+docker run -e SECRET=<at least 32 random characters> -e INSTALL_SALT=<at least 32 other random characters> -p 7000:7000 subsontime
 ```
 
 Open `http://localhost:7000/stremio` to configure the addon and get its install link.
@@ -22,6 +22,7 @@ Open `http://localhost:7000/stremio` to configure the addon and get its install 
 | Variable                | Required | Purpose                                                                                 |
 | ----------------------- | -------- | --------------------------------------------------------------------------------------- |
 | `SECRET`                | yes      | Key that seals the addon configuration. At least 32 characters.                         |
+| `INSTALL_SALT`          | yes      | Hashes install ids for Open Timings. At least 32 characters, other than `SECRET`.       |
 | `OPENSUBTITLES_APP_KEY` | no       | App key for the OpenSubtitles source.                                                   |
 | `PUBLIC_URL`            | no       | Public address of the server, used for the links it hands out.                          |
 | `PORT`                  | no       | Port to listen on. Defaults to 7000.                                                    |

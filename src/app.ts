@@ -10,6 +10,9 @@ import { fileRoute } from "./stremio/file-route.ts";
 import { manifest } from "./stremio/manifest.ts";
 import { refKey } from "./stremio/refs.ts";
 import { subtitlesRoute } from "./stremio/subtitles-route.ts";
+import { submitFix, submitMismatch, submitReport } from "./timings/api.ts";
+import { lookUpRoute, writeRoute } from "./timings/api-route.ts";
+import { memoryStore, type TimingsStore } from "./timings/db.ts";
 import { checkPage } from "./web/check-page.ts";
 import { checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
@@ -26,6 +29,8 @@ export type AppDeps = {
   sourcesFor?: (config: Config) => SourceSet;
   staticFiles?: MiddlewareHandler;
   clientKey?: (context: Context) => string;
+  installSalt?: string;
+  timings?: TimingsStore;
 };
 
 export type AppEnv = { Variables: { config: Config } };
@@ -41,11 +46,18 @@ const notJSONMessage = "Send the request as JSON";
 const tooLargeMessage = "This request is too large";
 const failedMessage = "Something went wrong";
 const apiBodyLimit = 16 * 1024;
+const timingsBodyLimit = 512 * 1024;
+const writesPerHour = 60;
+const hourMs = 3_600_000;
+
+const tooLarge = (context: Context) => context.json({ error: tooLargeMessage }, 413);
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const clientKey = deps.clientKey ?? (() => "anonymous");
   const titleLimit = { allow: rateLimit(60, 60_000).allow, clientKey };
+  const apiBody = bodyLimit({ maxSize: apiBodyLimit, onError: tooLarge });
+  const timingsBody = bodyLimit({ maxSize: timingsBodyLimit, onError: tooLarge });
   const routeDeps: RouteDeps = {
     sourcesFor:
       deps.sourcesFor ??
@@ -77,6 +89,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.get("/", (context) => context.html(homePage()));
   app.get("/stremio", (context) => context.html(setupPage()));
   app.get("/check", (context) => context.html(checkPage()));
+  app.use("/api/v1/*", cors());
   app.use(
     "/api/*",
     async (context, next) => {
@@ -88,10 +101,8 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
       await next();
     },
-    bodyLimit({
-      maxSize: apiBodyLimit,
-      onError: (context) => context.json({ error: tooLargeMessage }, 413),
-    }),
+    (context, next) =>
+      (context.req.path.startsWith("/api/v1/") ? timingsBody : apiBody)(context, next),
   );
   app.post("/api/config", createConfigRoute(deps));
   app.post("/api/config/open", openConfigRoute(deps));
@@ -113,6 +124,20 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   );
   app.get("/api/titles", titlesRoute(titleLimit));
   app.get("/api/titles/:id/episodes", episodesRoute(titleLimit));
+
+  if (deps.installSalt !== undefined) {
+    const timingsDeps = {
+      store: deps.timings ?? memoryStore(),
+      installSalt: deps.installSalt,
+      allow: rateLimit(writesPerHour, hourMs).allow,
+      clientKey,
+    };
+
+    app.get("/api/v1/fixes", lookUpRoute(timingsDeps.store));
+    app.post("/api/v1/fixes", writeRoute(submitFix, timingsDeps));
+    app.post("/api/v1/mismatches", writeRoute(submitMismatch, timingsDeps));
+    app.post("/api/v1/reports", writeRoute(submitReport, timingsDeps));
+  }
 
   app.use("/:config/*", cors(), async (context, next) => {
     const token = context.req.param("config") ?? "";

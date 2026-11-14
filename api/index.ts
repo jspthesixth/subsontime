@@ -3,6 +3,10 @@ import { createApp } from "../src/app.ts";
 import { addressKey } from "../src/client-key.ts";
 import { readSecret } from "../src/config/secret.ts";
 import { memoryTokenCache } from "../src/sources/token-cache.ts";
+import { memoryStore, postgresStore } from "../src/timings/db.ts";
+import { readInstallSalt } from "../src/timings/submitter.ts";
+
+const databaseURL = process.env["DATABASE_URL"];
 
 export default handle(
   createApp({
@@ -11,5 +15,7 @@ export default handle(
     openSubtitlesAppKey: process.env["OPENSUBTITLES_APP_KEY"] || undefined,
     publicURL: process.env["PUBLIC_URL"] || undefined,
     clientKey: (context) => addressKey(context.req.header("x-real-ip") ?? "unknown"),
+    installSalt: readInstallSalt(process.env),
+    timings: databaseURL ? postgresStore(databaseURL) : memoryStore(),
   }),
 );
