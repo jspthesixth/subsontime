@@ -913,6 +913,16 @@ svg {
   .sub-head {
     display: none;
   }
+  [role="table"] .sub-head {
+    display: grid;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .sub-row,
   .sub-row.fixes,
   .sub-row.no-actions {

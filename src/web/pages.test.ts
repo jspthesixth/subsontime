@@ -78,6 +78,7 @@ describe("GET /", () => {
     expect(page).toContain("Fixed once. Fixed for everyone.");
     expect(page.match(/class="flow-node[ "]/g)).toHaveLength(3);
     expect(page).toContain("What Open Timings keeps");
+    expect(page).toContain("Our server never reads your video.");
     expect(page).toMatch(/<a class="more" href="\/timings"/);
   });
 });
@@ -87,6 +88,19 @@ describe("GET /timings", () => {
     const page = await (await app.request("/timings")).text();
 
     expect(page).toMatch(/<a\s+class="nav-link"\s+href="\/timings"\s+aria-current="page"/);
+  });
+
+  it("exposes the lookup results as a table with column headers", async () => {
+    const page = await (await app.request("/timings")).text();
+    const headers = [...page.matchAll(/<span role="columnheader">([^<]+)<\/span>/g)].map(
+      ([, name]) => name,
+    );
+
+    expect(page).toMatch(/role="table"/);
+    expect(page).not.toMatch(/sub-head[^>]*aria-hidden/);
+    expect(headers).toEqual(["Subtitle", "Lines", "Timed by", "Agreement", "Status"]);
+    expect(page.match(/role="cell"/g)).toHaveLength(5);
+    expect(page).not.toContain("#2A2A26");
   });
 });
 

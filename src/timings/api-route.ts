@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
+import type { SingleFlight } from "../jobs/single-flight.ts";
 import {
   TimingsInputError,
   cachedStats,
@@ -137,18 +138,23 @@ export const writeRoute =
 type StatsDeps = {
   store: TimingsStore;
   state: SharedState;
+  singleFlight: SingleFlight;
   allow: (key: string) => Promise<boolean>;
   clientKey: (context: Context) => string;
 };
 
 export const statsRoute =
-  ({ store, state, allow, clientKey }: StatsDeps) =>
+  ({ store, state, singleFlight, allow, clientKey }: StatsDeps) =>
   async (context: Context) => {
     if (!(await allow(clientKey(context)))) {
       return context.json({ error: tooManyReadsMessage }, 429);
     }
 
-    const stats = await cachedStats(store, state);
+    const stats = await cachedStats(store, state, singleFlight).catch(() => undefined);
+
+    if (stats === undefined) {
+      return context.json({ error: unavailableMessage }, 503);
+    }
 
     context.header("cache-control", "public, max-age=600");
 

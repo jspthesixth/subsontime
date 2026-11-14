@@ -26,17 +26,32 @@ const steps = [
   },
 ];
 
-const statsBlock = (stats: StoreStats) =>
+const columns = [
+  { name: "Subtitle", className: "mono ink-2 row-subtitle" },
+  { name: "Lines", className: "h4 row-lines" },
+  { name: "Timed by", className: "body row-timed-by" },
+  { name: "Agreement", className: "body row-agreement" },
+  { name: "Status", className: "tag row-status" },
+];
+
+const statText = (stats: StoreStats | undefined, key: keyof StoreStats) =>
+  stats === undefined ? "-" : numberFormat.format(stats[key]);
+
+const statsBlock = (stats: StoreStats | undefined) =>
   html`<section class="wrap" aria-label="In numbers" style="padding-bottom: 96px;">
     <div class="grid-4">
       ${statLabels.map(
         ([key, label]) =>
           html`<div class="stat">
-            <span class="stat-n">${numberFormat.format(stats[key])}</span
-            ><span class="small">${label}</span>
+            <span class="stat-n">${statText(stats, key)}</span><span class="small">${label}</span>
           </div>`,
       )}
     </div>
+    ${
+      stats === undefined
+        ? html`<p class="small" style="padding-top: 24px;">Numbers are unavailable right now.</p>`
+        : ""
+    }
   </section>`;
 
 const lookUpBlock = html`<section class="band" aria-labelledby="look-up">
@@ -71,7 +86,7 @@ const lookUpBlock = html`<section class="band" aria-labelledby="look-up">
       <div class="panel" id="lookup-result" hidden>
         <div
           class="row-wrap between gap-12"
-          style="padding: 20px 24px; border-bottom: 1px solid #2A2A26;"
+          style="padding: 20px 24px; border-bottom: 1px solid var(--line);"
         >
           <div class="stack" style="gap: 2px;">
             <span class="h4 drop-name" id="lookup-name"></span
@@ -80,11 +95,14 @@ const lookUpBlock = html`<section class="band" aria-labelledby="look-up">
           <span class="small" id="lookup-count"></span>
         </div>
         <div style="padding: 4px 24px 8px;">
-          <div class="sub-row fixes sub-head" id="lookup-head" aria-hidden="true">
-            <span>Subtitle</span><span>Lines</span><span>Timed by</span><span>Agreement</span
-            ><span>Status</span>
+          <div role="table" aria-label="Fixes for this file" id="lookup-table">
+            <div role="rowgroup">
+              <div class="sub-row fixes sub-head" role="row">
+                ${columns.map(({ name }) => html`<span role="columnheader">${name}</span>`)}
+              </div>
+            </div>
+            <div role="rowgroup" id="lookup-rows"></div>
           </div>
-          <div id="lookup-rows"></div>
           <p class="body" id="lookup-empty" style="padding: 20px 0;" hidden>
             No fixes for this file yet.
           </p>
@@ -166,15 +184,17 @@ POST /api/v1/reports</pre>
 </section>`;
 
 const templates = html`<template id="fix-row-template"
-  ><div class="sub-row fixes">
-    <div><span class="sub-k">Subtitle</span><span class="mono ink-2 row-subtitle"></span></div>
-    <div><span class="sub-k">Lines</span><span class="h4 row-lines"></span></div>
-    <div><span class="sub-k">Timed by</span><span class="body row-timed-by"></span></div>
-    <div><span class="sub-k">Agreement</span><span class="body row-agreement"></span></div>
-    <div><span class="sub-k">Status</span><span class="tag row-status"></span></div></div
-></template>`;
+  ><div class="sub-row fixes" role="row">
+    ${columns.map(
+      ({ name, className }) =>
+        html`<div role="cell">
+          <span class="sub-k" aria-hidden="true">${name}</span><span class="${className}"></span>
+        </div>`,
+    )}
+  </div></template
+>`;
 
-const content = (stats: StoreStats) =>
+const content = (stats: StoreStats | undefined) =>
   html`<main>
       <section class="wrap" style="padding-top: 80px; padding-bottom: 64px;">
         <div class="stack gap-24">
@@ -190,7 +210,7 @@ const content = (stats: StoreStats) =>
     </main>
     ${templates}`;
 
-export const timingsPage = (stats: StoreStats) =>
+export const timingsPage = (stats: StoreStats | undefined) =>
   layout({
     title: "Open Timings",
     description:

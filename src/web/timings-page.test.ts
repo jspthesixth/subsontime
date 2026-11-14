@@ -11,6 +11,8 @@ const privacySentences = [
   "Very short common lines, like Yes, can be guessed from their fingerprint; longer lines cannot.",
 ];
 
+const unavailableNote = "Numbers are unavailable right now.";
+
 const fix = (overrides: Partial<NewFix>): NewFix => ({
   video,
   subtitleHashes: ["1111111111111111"],
@@ -73,13 +75,21 @@ describe("GET /timings", () => {
     expect(statValues(page)).toEqual(["1,234,567", "12,345", "98,765", "4,321"]);
   });
 
-  it("shows zeros when Open Timings is not set up", async () => {
+  it("shows the numbers as unavailable when Open Timings is not set up", async () => {
     const page = await (await createApp({ secret }).request("/timings")).text();
 
-    expect(statValues(page)).toEqual(["0", "0", "0", "0"]);
+    expect(statValues(page)).toEqual(["-", "-", "-", "-"]);
+    expect(page).toContain(unavailableNote);
   });
 
-  it("shows zeros when the store cannot be read", async () => {
+  it("leaves the unavailable note out when the numbers are real", async () => {
+    const page = await (await appWith(memoryStore()).request("/timings")).text();
+
+    expect(statValues(page)).toEqual(["0", "0", "0", "0"]);
+    expect(page).not.toContain(unavailableNote);
+  });
+
+  it("shows the numbers as unavailable when the store cannot be read", async () => {
     const store = {
       ...memoryStore(),
       stats: () => Promise.reject(new Error("down")),
@@ -87,7 +97,13 @@ describe("GET /timings", () => {
     const response = await appWith(store).request("/timings");
 
     expect(response.status).toBe(200);
-    expect(statValues(await response.text())).toEqual(["0", "0", "0", "0"]);
+    const page = await response.text();
+
+    expect(statValues(page)).toEqual(["-", "-", "-", "-"]);
+    expect(page).toMatch(
+      /<span class="stat-n">-<\/span\s*><span class="small">timing fixes<\/span>/,
+    );
+    expect(page).toContain(unavailableNote);
   });
 
   it("states what is kept about submitters word for word", async () => {
@@ -137,11 +153,37 @@ describe("GET /api/v1/stats", () => {
       stats: () => (failing ? Promise.reject(new Error("down")) : store.stats()),
     });
 
-    expect((await app.request("/api/v1/stats")).status).toBe(500);
+    const failed = await app.request("/api/v1/stats");
+
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toEqual({ error: "Try again in a moment" });
 
     failing = false;
 
     expect(await (await app.request("/api/v1/stats")).json()).toMatchObject({ fixes: 3 });
+  });
+
+  it("reads the store once for concurrent requests on a cache miss", async () => {
+    const store = await seeded();
+    let reads = 0;
+    const app = appWith({
+      ...store,
+      stats: async () => {
+        reads += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        return store.stats();
+      },
+    });
+
+    const bodies = await Promise.all(
+      Array.from({ length: 3 }, async () => (await app.request("/api/v1/stats")).json()),
+    );
+
+    expect(reads).toBe(1);
+    expect(bodies).toEqual(
+      Array.from({ length: 3 }, () => ({ fixes: 3, confirmed: 1, videos: 2, hidden: 1 })),
+    );
   });
 
   it("allows 60 requests a minute from one client", async () => {

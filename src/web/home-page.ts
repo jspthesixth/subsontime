@@ -62,7 +62,7 @@ const flowNodes = [
   {
     who: "You, streaming the same file",
     title: "Stremio gets it before the first line",
-    body: "No waiting, no delay buttons, nothing read from your video.",
+    body: "No waiting, no delay buttons. Our server never reads your video.",
     accent: false,
   },
 ];

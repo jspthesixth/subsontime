@@ -1,6 +1,6 @@
 import type { VideoTimings } from "../../timings/confirm.ts";
 import { clone, find } from "./lib/dom.ts";
-import { fixRows, type FixRowView } from "./lib/fix-rows.ts";
+import { fixRows, timingsOf, type FixRowView } from "./lib/fix-rows.ts";
 import { errorOf } from "./lib/post-json.ts";
 import { sizeText } from "./lib/size-text.ts";
 import { videoHash } from "./lib/video-hash.ts";
@@ -9,6 +9,7 @@ const fingerprintPattern = /^([0-9a-f]{16}):([1-9]\d{0,15})$/;
 const fingerprintMessage =
   "Paste the fingerprint as hash:size, for example 8e245d9679d31e12:4703284372.";
 const unreadableMessage = "Could not read this file.";
+const malformedMessage = "We could not read that answer. Try again.";
 
 const form = find<HTMLFormElement>(document, "#lookup-form");
 const input = find<HTMLInputElement>(document, "#fingerprint");
@@ -19,7 +20,7 @@ const result = find(document, "#lookup-result");
 const nameText = find(document, "#lookup-name");
 const keyText = find(document, "#lookup-key");
 const countText = find(document, "#lookup-count");
-const head = find(document, "#lookup-head");
+const table = find(document, "#lookup-table");
 const rows = find(document, "#lookup-rows");
 const empty = find(document, "#lookup-empty");
 
@@ -46,7 +47,7 @@ const show = (hash: string, size: number, timings: VideoTimings) => {
   keyText.textContent = `${hash} · ${sizeText(size)}`;
   countText.textContent = `${timings.fixes.length} ${timings.fixes.length === 1 ? "fix" : "fixes"} · ${timings.hidden.length} flagged`;
   rows.replaceChildren(...listed.map(rowFor));
-  head.hidden = listed.length === 0;
+  table.hidden = listed.length === 0;
   empty.hidden = listed.length > 0;
   result.hidden = false;
 };
@@ -76,7 +77,15 @@ const lookUp = async () => {
     return;
   }
 
-  show(hash, Number(size), body as VideoTimings);
+  const timings = timingsOf(body);
+
+  if (timings === undefined) {
+    error.textContent = malformedMessage;
+
+    return;
+  }
+
+  show(hash, Number(size), timings);
 };
 
 const readFile = async (file: File) => {

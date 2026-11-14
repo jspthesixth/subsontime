@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixRows } from "./fix-rows.ts";
+import { fixRows, timingsOf } from "./fix-rows.ts";
 
 describe("fixRows", () => {
   it("maps fixes and hidden entries from a lookup response to table rows", () => {
@@ -85,5 +85,38 @@ describe("fixRows", () => {
 
   it("maps an empty response to no rows", () => {
     expect(fixRows({ fixes: [], hidden: [] })).toEqual([]);
+  });
+});
+
+describe("timingsOf", () => {
+  it("accepts a lookup response", () => {
+    const response = {
+      fixes: [
+        {
+          id: "a41c5e9f0b7d2c31e8f4a6b9c0d1e2f3",
+          subtitleSketch: ["1111111111111111"],
+          status: "hint",
+          method: "reference",
+          agreeing: 1,
+          fromAudio: false,
+          cueCount: 12,
+        },
+      ],
+      hidden: [{ subtitleSketch: ["2222222222222222"], reason: "mismatch", count: 2 }],
+    };
+
+    expect(timingsOf(response)).toEqual(response);
+  });
+
+  it.each([
+    ["nothing", undefined],
+    ["an error body", { error: "Try again in a moment" }],
+    ["a fix without a line count", { fixes: [{ id: "a", status: "hint" }], hidden: [] }],
+    [
+      "an unknown hidden reason",
+      { fixes: [], hidden: [{ subtitleSketch: [], reason: "boring", count: 1 }] },
+    ],
+  ])("rejects %s", (_, body) => {
+    expect(timingsOf(body)).toBeUndefined();
   });
 });

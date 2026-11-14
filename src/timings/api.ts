@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
+import type { SingleFlight } from "../jobs/single-flight.ts";
 import { parseJSON } from "../json.ts";
 import {
   digest,
@@ -349,7 +350,7 @@ export async function lookUp(
   return withCues ? timings : publicTimings(timings);
 }
 
-const statsKey = "stats";
+const statsKey = "open-timings-stats";
 const statsSeconds = 600;
 const statsSchema = v.object({
   fixes: v.number(),
@@ -358,19 +359,36 @@ const statsSchema = v.object({
   hidden: v.number(),
 });
 
-export const emptyStats: StoreStats = { fixes: 0, confirmed: 0, videos: 0, hidden: 0 };
+const statsOf = (text: string | undefined) => {
+  const parsed = v.safeParse(statsSchema, text === undefined ? undefined : parseJSON(text));
 
-export const cachedStats = async (store: TimingsStore, state: SharedState): Promise<StoreStats> => {
-  const cached = await orMiss(() => state.get(statsKey), undefined);
-  const parsed = v.safeParse(statsSchema, cached === undefined ? undefined : parseJSON(cached));
+  return parsed.success ? parsed.output : undefined;
+};
 
-  if (parsed.success) {
-    return parsed.output;
+export const cachedStats = async (
+  store: TimingsStore,
+  state: SharedState,
+  singleFlight: SingleFlight,
+): Promise<StoreStats> => {
+  const cached = statsOf(await orMiss(() => state.get(statsKey), undefined));
+
+  if (cached !== undefined) {
+    return cached;
   }
 
-  const stats = await store.stats();
+  const loaded = statsOf(
+    await singleFlight(statsKey, async () => {
+      const text = JSON.stringify(await store.stats());
 
-  await orMiss(() => state.set(statsKey, JSON.stringify(stats), statsSeconds), undefined);
+      await orMiss(() => state.set(statsKey, text, statsSeconds), undefined);
 
-  return stats;
+      return text;
+    }),
+  );
+
+  if (loaded === undefined) {
+    throw new Error("Unreadable stats");
+  }
+
+  return loaded;
 };

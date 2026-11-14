@@ -15,7 +15,6 @@ import { refKey } from "./stremio/refs.ts";
 import { subtitlesRoute } from "./stremio/subtitles-route.ts";
 import {
   cachedStats,
-  emptyStats,
   sharedSummaries,
   submitFix,
   submitMismatch,
@@ -142,8 +141,10 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.get("/timings", async (context) => {
     const stats =
       openTimings === undefined
-        ? emptyStats
-        : await cachedStats(openTimings.store, state).catch(() => emptyStats);
+        ? undefined
+        : await cachedStats(openTimings.store, state, routeDeps.singleFlight).catch(
+            () => undefined,
+          );
 
     return context.html(timingsPage(stats));
   });
@@ -194,6 +195,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       statsRoute({
         store: openTimings.store,
         state,
+        singleFlight: routeDeps.singleFlight,
         allow: failOpen(rateLimit(state, limitKey, "stats", 60, 60_000)),
         clientKey,
       }),
