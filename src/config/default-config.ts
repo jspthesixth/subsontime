@@ -8,6 +8,8 @@ export const defaultForm = (languages: string[]): ConfigForm => ({
   timing: "auto",
   sources: [{ kind: "stremio-addon", url: openSubtitlesAddonURL }],
   extras: { hideMismatches: true },
+  useShared: true,
+  share: true,
 });
 
 export const formOf = ({
@@ -16,12 +18,16 @@ export const formOf = ({
   timing,
   sources,
   extras,
+  useShared,
+  share,
 }: ConfigForm): ConfigForm => ({
   languages,
   bestOnly,
   timing,
   sources,
   extras,
+  useShared,
+  share,
 });
 
 export function defaultConfig(languages: string[]): Config {

@@ -7,6 +7,7 @@ import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import { parseRelease, releaseSimilarity } from "../subtitles/release.ts";
 import { pickReferences } from "../timing/references.ts";
+import { hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { encodeRef, type CandidateRef } from "./refs.ts";
 
 export const bestSlotSize = 4;
@@ -49,7 +50,7 @@ const readExtras = (context: Context<AppEnv>) => {
 };
 
 export const subtitlesRoute =
-  ({ sourcesFor, refKey, publicURL }: RouteDeps) =>
+  ({ sourcesFor, refKey, publicURL, state, openTimings }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const extra = context.req.param("extra");
@@ -79,7 +80,13 @@ export const subtitlesRoute =
       filename,
       languages: config.languages,
     };
-    const found = await searchVideo(sourcesFor(config, context.get("tokens")), query);
+    const fingerprint = videoKeyOf(query.videoHash, query.videoSize);
+    const [found, hiddenKey] = await Promise.all([
+      searchVideo(sourcesFor(config, context.get("tokens")), query),
+      openTimings === undefined || fingerprint === undefined || !config.useShared
+        ? undefined
+        : hiddenKeyFor(openTimings, state, fingerprint, viewerOf(config, openTimings.installSalt)),
+    ]);
     const references = found.references.map(toCandidateRef);
     const subURL = (candidates: Candidate[]) => {
       const ref = encodeRef(
@@ -88,6 +95,8 @@ export const subtitlesRoute =
           q: { t: video.type, i: video.imdbId, s: video.season, e: video.episode },
           c: candidates.map(toCandidateRef),
           x: references,
+          w: fingerprint === undefined ? undefined : { h: fingerprint.hash, z: fingerprint.size },
+          d: hiddenKey,
         },
         refKey,
       );

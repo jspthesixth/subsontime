@@ -16,6 +16,8 @@ const form = {
   timing: "auto",
   sources: [{ kind: "stremio-addon", url: "https://opensubtitles-v3.strem.io/manifest.json" }],
   extras: { hideMismatches: true },
+  useShared: true,
+  share: true,
 };
 
 const post = (path: string, body: unknown) =>

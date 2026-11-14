@@ -43,6 +43,8 @@ export const configSchema = v.object({
   timing: v.picklist(["auto", "off"]),
   sources: v.pipe(v.array(sourceSchema), v.maxLength(20, "Add at most 20 sources")),
   extras: v.object({ hideMismatches: v.boolean() }),
+  useShared: v.optional(v.boolean(), true),
+  share: v.optional(v.boolean(), true),
 });
 
 export type Config = v.InferOutput<typeof configSchema>;

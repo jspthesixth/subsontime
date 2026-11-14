@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { setImmediate } from "node:timers/promises";
 import type { Context } from "hono";
 import * as v from "valibot";
 import type { AppEnv, RouteDeps } from "../app.ts";
@@ -13,10 +14,29 @@ import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { retime, type RetimeResult } from "../timing/retime.ts";
+import { submitFix, submitMismatch } from "../timings/api.ts";
+import type { VideoKey } from "../timings/db.ts";
+import { toFixCues } from "../timings/fingerprint.ts";
+import {
+  errorName,
+  fileShared,
+  hashesOf,
+  hiddenMatch,
+  sharedFix,
+  viewerOf,
+  type Hidden,
+  type OpenTimings,
+  type Shared,
+} from "./open-timings.ts";
 import { decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 export type Track = { candidate: Candidate; cues: Cue[] };
-export type Attempt = { candidate: CandidateRef; track?: Track; result?: RetimeResult };
+export type Attempt = {
+  candidate: CandidateRef;
+  track?: Track;
+  result?: RetimeResult;
+  hidden?: Hidden;
+};
 export type Download = (candidate: CandidateRef) => Promise<Track>;
 export type SubtitleCache = {
   get(id: string): Promise<string | undefined>;
@@ -24,6 +44,7 @@ export type SubtitleCache = {
 };
 
 type Served = { found: boolean; srt: string };
+type Share = { submit: typeof submitFix; input: unknown };
 
 const downloadTimeoutMs = 8000;
 const srtType = "application/x-subrip; charset=utf-8";
@@ -67,6 +88,7 @@ const timeTrack = async (
   references: Promise<Track[]>,
   config: Config,
   signal: AbortSignal | undefined,
+  shared: Shared | undefined,
 ): Promise<RetimeResult> => {
   if (track.candidate.hashMatch) {
     return { kind: "made-for-file", cues: track.cues };
@@ -74,6 +96,12 @@ const timeTrack = async (
 
   if (config.timing === "off") {
     return { kind: "not-retimed", cues: track.cues };
+  }
+
+  const fixed = await sharedFix(track.cues, shared);
+
+  if (fixed !== undefined) {
+    return fixed;
   }
 
   const ready = await references;
@@ -116,17 +144,20 @@ export async function* resolveAttempts(
   config: Config,
   download: Download,
   signal?: AbortSignal,
+  shared?: Shared,
 ): AsyncGenerator<Attempt> {
   const references =
     config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
 
   for (const candidate of ref.c) {
     const attempt: Attempt = await download(candidate)
-      .then(async (track) => ({
-        candidate,
-        track,
-        result: await timeTrack(track, references, config, signal),
-      }))
+      .then(async (track): Promise<Attempt> => {
+        const hidden = hiddenMatch(track.cues, shared);
+
+        return hidden === undefined
+          ? { candidate, track, result: await timeTrack(track, references, config, signal, shared) }
+          : { candidate, track, hidden, result: { kind: "mismatch" } };
+      })
       .catch(() => ({ candidate }));
 
     if (signal?.aborted === true) {
@@ -167,8 +198,85 @@ const decodeServed = (text: string): Served | undefined => {
     : undefined;
 };
 
-const serve = async (ref: SubtitleRef, config: Config, sources: SourceSet): Promise<Served> => {
-  const attempts = await recordAttempts(resolveAttempts(ref, config, downloader(sources)));
+const fixCuesOf = (cues: Cue[]) =>
+  toFixCues(cues)
+    .map((cue) => ({
+      h: cue.h,
+      s: Math.max(Math.round(cue.s), 0),
+      e: Math.max(Math.round(cue.e), 0),
+    }))
+    .toSorted((a, b) => a.s - b.s);
+
+const referenceKeyOf = (reference: Track | undefined) => {
+  const key = hashesOf(reference?.cues ?? [])
+    .slice(0, 8)
+    .join(",");
+
+  return key === "" ? undefined : key;
+};
+
+const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
+  attempts.flatMap(({ track, result, hidden }): Share[] => {
+    if (track === undefined || hidden !== undefined) {
+      return [];
+    }
+
+    if (result?.kind === "retimed") {
+      const { cues, references } = result;
+      const byHash = references.every((reference) => reference.candidate.hashMatch);
+
+      return [
+        {
+          submit: submitFix,
+          input: {
+            video,
+            subtitle: fixCuesOf(cues),
+            method: byHash ? "reference" : "release-name",
+            referenceKey: referenceKeyOf(references[0]),
+          },
+        },
+      ];
+    }
+
+    return result?.kind === "mismatch"
+      ? [{ submit: submitMismatch, input: { video, subtitleHashes: hashesOf(track.cues) } }]
+      : [];
+  });
+
+const logWrite = (error: unknown) =>
+  console.error(`Open Timings write failed: ${errorName(error)}`);
+
+const waitUntilOf = (context: Context<AppEnv>) => {
+  try {
+    const { executionCtx } = context;
+
+    return (work: Promise<void>) => executionCtx.waitUntil(work);
+  } catch {
+    return undefined;
+  }
+};
+
+const shareAfterResponse = (
+  context: Context<AppEnv>,
+  { store, originOf, summaries }: OpenTimings,
+  shares: Share[],
+  submitter: string,
+  client: string,
+) => {
+  const run = setImmediate()
+    .then(async () => {
+      const origin = await originOf(client);
+
+      await Promise.all(
+        shares.map(({ submit, input }) => submit(store, input, { submitter, origin, summaries })),
+      );
+    })
+    .catch(logWrite);
+
+  waitUntilOf(context)?.(run);
+};
+
+const servedOf = (attempts: Attempt[], config: Config): Served => {
   const cues = attempts
     .map((attempt) => servedCues(attempt, config))
     .find((each) => each !== undefined);
@@ -187,7 +295,7 @@ const srtResponse = (context: Context<AppEnv>, srt: string) =>
   context.body(srt, 200, { "content-type": srtType, "cache-control": "public, max-age=86400" });
 
 export const fileRoute =
-  ({ sourcesFor, refKey, singleFlight, subtitles }: RouteDeps) =>
+  ({ sourcesFor, refKey, singleFlight, subtitles, state, clientKey, openTimings }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const ref = (() => {
@@ -211,8 +319,29 @@ export const fileRoute =
       return srtResponse(context, cached);
     }
 
+    const video = ref.w === undefined ? undefined : { hash: ref.w.h, size: ref.w.z };
+    const viewer =
+      openTimings === undefined ? undefined : viewerOf(config, openTimings.installSalt);
+    const shares: Share[] = [];
     const produce = async () => {
-      const fresh = await serve(ref, config, sourcesFor(config, context.get("tokens")));
+      const shared =
+        openTimings === undefined || video === undefined || !config.useShared
+          ? undefined
+          : await fileShared(openTimings, state, video, viewer, ref.d);
+      const attempts = await recordAttempts(
+        resolveAttempts(
+          ref,
+          config,
+          downloader(sourcesFor(config, context.get("tokens"))),
+          undefined,
+          shared,
+        ),
+      );
+      const fresh = servedOf(attempts, config);
+
+      if (config.share && video !== undefined) {
+        shares.push(...sharesOf(attempts, video));
+      }
 
       if (fresh.srt !== "") {
         await subtitles?.set(id, fresh.srt);
@@ -220,8 +349,12 @@ export const fileRoute =
 
       return fresh;
     };
-    const shared = await singleFlight(id, async () => encodeServed(await produce()));
-    const served = decodeServed(shared) ?? (await produce());
+    const flown = await singleFlight(id, async () => encodeServed(await produce()));
+    const served = decodeServed(flown) ?? (await produce());
+
+    if (openTimings !== undefined && viewer !== undefined && shares.length > 0) {
+      shareAfterResponse(context, openTimings, shares, viewer, clientKey(context));
+    }
 
     if (!served.found) {
       return context.text("No subtitle fits this file", 404);

@@ -10,6 +10,7 @@ import { sourcesFromConfig, type SourceSet } from "./sources/from-config.ts";
 import { installKeyOf, tokenCacheFor, type TokenCache } from "./sources/token-cache.ts";
 import { fileRoute, subtitleCache, type SubtitleCache } from "./stremio/file-route.ts";
 import { manifest } from "./stremio/manifest.ts";
+import type { OpenTimings } from "./stremio/open-timings.ts";
 import { refKey } from "./stremio/refs.ts";
 import { subtitlesRoute } from "./stremio/subtitles-route.ts";
 import { sharedSummaries, submitFix, submitMismatch, submitReport } from "./timings/api.ts";
@@ -46,6 +47,8 @@ export type RouteDeps = {
   state: SharedState;
   singleFlight: SingleFlight;
   subtitles?: SubtitleCache;
+  clientKey: (context: Context) => string;
+  openTimings?: OpenTimings;
 };
 
 const newerLinkMessage = "This install link is from a newer version";
@@ -76,6 +79,16 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   };
   const apiBody = bodyLimit({ maxSize: apiBodyLimit, onError: tooLarge });
   const timingsBody = bodyLimit({ maxSize: timingsBodyLimit, onError: tooLarge });
+  const openTimings =
+    deps.installSalt === undefined
+      ? undefined
+      : {
+          store: deps.timings ?? memoryStore(),
+          installSalt: deps.installSalt,
+          groupingKey: groupingKeyOf(deps.installSalt),
+          originOf: dailyOrigins(state),
+          summaries: shared === undefined ? undefined : sharedSummaries(shared),
+        };
   const routeDeps: RouteDeps = {
     sourcesFor:
       deps.sourcesFor ??
@@ -86,6 +99,8 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     state,
     singleFlight: shared === undefined ? memorySingleFlight() : sharedSingleFlight(shared),
     subtitles: shared === undefined ? undefined : subtitleCache(shared),
+    clientKey,
+    openTimings,
   };
 
   app.notFound((context) => context.text("Not found", 404));
@@ -137,21 +152,16 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       ...routeDeps,
       secret: deps.secret,
       allow: failOpen(rateLimit(state, limitKey, "check", 10, 60_000)),
-      clientKey,
     }),
   );
   app.get("/api/titles", titlesRoute(titleLimit));
   app.get("/api/titles/:id/episodes", episodesRoute(titleLimit));
 
-  if (deps.installSalt !== undefined) {
+  if (openTimings !== undefined) {
     const timingsDeps = {
-      store: deps.timings ?? memoryStore(),
-      installSalt: deps.installSalt,
+      ...openTimings,
       allow: rateLimit(state, limitKey, "writes", writesPerHour, hourMs),
       clientKey,
-      originOf: dailyOrigins(state),
-      groupingKey: groupingKeyOf(deps.installSalt),
-      summaries: shared === undefined ? undefined : sharedSummaries(shared),
     };
 
     app.get("/api/v1/fixes", lookUpRoute(timingsDeps));

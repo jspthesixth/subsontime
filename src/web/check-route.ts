@@ -18,6 +18,13 @@ import {
   servedCues,
   type Attempt,
 } from "../stremio/file-route.ts";
+import {
+  checkShared,
+  videoKeyOf,
+  viewerOf,
+  type Hidden,
+  type Shared,
+} from "../stremio/open-timings.ts";
 import { bestSlotSize, searchVideo, toCandidateRef } from "../stremio/subtitles-route.ts";
 import type { RetimeResult } from "../timing/retime.ts";
 import { sealedConfigOf, unsealSafely } from "./config-route.ts";
@@ -42,6 +49,7 @@ type LimitDeps = {
 type CheckDeps = RouteDeps & LimitDeps & { secret: string; state: SharedState };
 
 type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
+type SharedFix = Extract<RetimeResult, { kind: "shared-fix" }>;
 type Slot =
   | { status: "taken"; key: string; holder: string }
   | { status: "busy" }
@@ -121,6 +129,9 @@ const retimedDetail = ({ offsetMs, speedRatio, cuts }: Retimed, fps: number | un
     ...(cuts > 0 ? [`${cuts} ${cuts === 1 ? "cut" : "cuts"}`] : []),
   ].join(" · ");
 
+const sharedFixDetail = ({ agreeing, fromAudio }: SharedFix) =>
+  [`${agreeing} agree`, ...(fromAudio ? ["1 from audio"] : [])].join(" · ");
+
 const timingOf = ({ result }: Attempt, fps: number | undefined) => {
   switch (result?.kind) {
     case "made-for-file":
@@ -130,6 +141,8 @@ const timingOf = ({ result }: Attempt, fps: number | undefined) => {
         label: result.byReleaseName ? "Retimed by release name" : "Retimed",
         detail: retimedDetail(result, fps),
       };
+    case "shared-fix":
+      return { label: "Shared fix, confirmed", detail: sharedFixDetail(result) };
     case "mismatch":
       return { label: "Not retimed", detail: mismatchReason };
     default:
@@ -143,8 +156,18 @@ const madeFor = (candidate: Candidate) => ({
   release: candidate.releaseName,
 });
 
-const reasonOf = ({ result }: Attempt) =>
-  result?.kind === "mismatch" ? mismatchReason : unreadableReason;
+const hiddenReason = ({ reason = "mismatch" }: Hidden) =>
+  reason === "mismatch"
+    ? "Hidden by Open Timings: made for another video."
+    : `Hidden by Open Timings: reported as ${reason.replaceAll("-", " ")}.`;
+
+const reasonOf = ({ result, hidden }: Attempt) => {
+  if (hidden !== undefined) {
+    return hiddenReason(hidden);
+  }
+
+  return result?.kind === "mismatch" ? mismatchReason : unreadableReason;
+};
 
 const referenceText = (config: Config, references: Candidate[]) => {
   const first = references[0];
@@ -178,8 +201,14 @@ const videoOf = (type: string, id: string) => {
 const aborted = (signal: AbortSignal) =>
   new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 
-const runCheck = async (config: Config, sources: SourceSet, query: VideoQuery, started: number) => {
-  const found = await searchVideo(sources, query);
+const runCheck = async (
+  config: Config,
+  sources: SourceSet,
+  query: VideoQuery,
+  started: number,
+  sharing: Promise<Shared | undefined>,
+) => {
+  const [found, shared] = await Promise.all([searchVideo(sources, query), sharing]);
   const searchedMs = Math.round(performance.now() - started);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs - searchedMs);
@@ -202,6 +231,7 @@ const runCheck = async (config: Config, sources: SourceSet, query: VideoQuery, s
         config,
         download,
         controller.signal,
+        shared,
       ),
       attempts,
     ),
@@ -277,7 +307,7 @@ const hold = (state: SharedState, slot: Slot) => {
 };
 
 export const checkRoute =
-  ({ sourcesFor, secret, allow, clientKey, state }: CheckDeps) =>
+  ({ sourcesFor, secret, allow, clientKey, state, openTimings }: CheckDeps) =>
   async (context: Context) => {
     const started = performance.now();
 
@@ -316,6 +346,11 @@ export const checkRoute =
     const release = hold(state, slot);
     const { config, sealed } = install;
     const tokens = tokenCacheFor(state, secret, installKeyOf(sealed));
+    const fingerprint = videoKeyOf(file.videoHash, file.videoSize);
+    const sharing =
+      openTimings === undefined || fingerprint === undefined || !config.useShared
+        ? Promise.resolve(undefined)
+        : checkShared(openTimings, fingerprint, viewerOf(config, openTimings.installSalt));
 
     try {
       return context.json(
@@ -324,6 +359,7 @@ export const checkRoute =
           sourcesFor(config, tokens),
           { ...video, ...file, languages: config.languages },
           started,
+          sharing,
         ),
       );
     } finally {

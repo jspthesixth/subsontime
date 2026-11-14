@@ -1,3 +1,4 @@
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { ConfigError } from "./config.ts";
@@ -40,6 +41,19 @@ describe("seal", () => {
   it("rejects garbage and truncated tokens", () => {
     expect(() => unseal("abc", secret)).toThrow("This install link is not valid");
     expect(() => unseal("", secret)).toThrow(ConfigError);
+  });
+
+  it("opens a link sealed before the Open Timings switches with both on", () => {
+    const { useShared, share, ...old } = defaultConfig(["eng"]);
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", createHash("sha256").update(secret).digest(), iv);
+    const body = Buffer.concat([cipher.update(JSON.stringify(old), "utf8"), cipher.final()]);
+    const token = Buffer.concat([Buffer.from([1]), iv, body, cipher.getAuthTag()]).toString(
+      "base64url",
+    );
+
+    expect([useShared, share]).toEqual([true, true]);
+    expect(unseal(token, secret)).toEqual({ ...old, useShared: true, share: true });
   });
 
   it("refuses to seal an invalid config", () => {

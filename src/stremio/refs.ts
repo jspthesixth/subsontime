@@ -21,6 +21,8 @@ const subtitleRefSchema = v.object({
   }),
   c: v.array(candidateRefSchema),
   x: v.array(candidateRefSchema),
+  w: v.optional(v.object({ h: v.string(), z: v.number() })),
+  d: v.optional(v.string()),
 });
 
 export type CandidateRef = v.InferOutput<typeof candidateRefSchema>;
