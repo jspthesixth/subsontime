@@ -1,5 +1,5 @@
 import { html } from "hono/html";
-import { arrowIcon, noIcon, yesIcon } from "./icons.ts";
+import { arrowIcon, moreArrow, noIcon, yesIcon } from "./icons.ts";
 import { layout } from "./layout.ts";
 
 const problems = [
@@ -35,12 +35,50 @@ const wrongCues = [
   { left: 78, width: 20 },
 ];
 
-const kept = ["Your settings, encrypted inside your own install link"];
+const kept = [
+  "Timing fixes: the new start and end of each line",
+  "Fingerprints of video files and subtitles",
+  "Which subtitles belong to another video, and which were reported",
+];
 const neverKept = [
   "Subtitle text",
   "Your accounts, keys or passwords",
   "Who you are, or what you watched",
 ];
+
+const flowNodes = [
+  {
+    who: "Someone with the file",
+    title: "The addon retimes a subtitle for it",
+    body: "Against a subtitle made for that exact file, found by its fingerprint.",
+    accent: false,
+  },
+  {
+    who: "Open Timings",
+    title: "Keeps the fix as times and fingerprints",
+    body: "The new start and end of each line. Confirmed once two connections agree.",
+    accent: true,
+  },
+  {
+    who: "You, streaming the same file",
+    title: "Stremio gets it before the first line",
+    body: "No waiting, no delay buttons, nothing read from your video.",
+    accent: false,
+  },
+];
+
+const flowArrow = html`<div class="flow-arrow" aria-hidden="true">
+  <svg width="28" height="16" viewBox="0 0 28 16">
+    <path d="M1 8h24M19 2l6 6-6 6" stroke="currentColor" stroke-width="1.6" fill="none"></path>
+  </svg>
+</div>`;
+
+const flowNode = ({ who, title, body, accent }: (typeof flowNodes)[number]) =>
+  html`<div class="${accent ? "flow-node flow-node-accent" : "flow-node"}">
+    <span class="${accent ? "mono accent" : "mono ink-3"}">${who}</span>
+    <h3 class="h4">${title}</h3>
+    <p class="small">${body}</p>
+  </div>`;
 
 const timelineBar = (className: string, spans: { left: number; width: number }[]) =>
   html`<div class="tl-bar">
@@ -56,7 +94,8 @@ const content = html`<main>
       <p class="eyebrow">00:00:01,000 --&gt; 00:00:04,200</p>
       <h1 class="h1">Subtitles that fit the file you are playing.</h1>
       <p class="lede">
-        Subs On Time finds subtitles in every source and retimes each one to your exact video.
+        Subs On Time finds subtitles in every source and retimes each one to your exact video. Every
+        fix is shared, so the next person with the same file gets it before the first line.
       </p>
       <div class="row-wrap gap-12">
         <a class="btn btn-primary btn-wide-mobile" href="/stremio">Add to Stremio ${arrowIcon}</a>
@@ -104,6 +143,25 @@ const content = html`<main>
     </div>
   </section>
 
+  <section class="band">
+    <div class="wrap section">
+      <div class="stack gap-48">
+        <div class="stack gap-16 measure">
+          <p class="eyebrow eyebrow-accent">Open Timings</p>
+          <h2 class="h2">Fixed once. Fixed for everyone.</h2>
+          <p class="body">
+            The torrent you stream is often the very file someone else downloaded. Their fix becomes
+            yours, matched by the file's fingerprint.
+          </p>
+        </div>
+        <div class="flow">
+          ${flowNodes.flatMap((node, index) => (index === 0 ? [flowNode(node)] : [flowArrow, flowNode(node)]))}
+        </div>
+        <a class="more" href="/timings">How Open Timings works${moreArrow}</a>
+      </div>
+    </div>
+  </section>
+
   <section class="wrap section">
     <div class="stack gap-48">
       <div class="stack gap-16 measure">
@@ -127,11 +185,11 @@ const content = html`<main>
       <div class="stack gap-48">
         <div class="stack gap-16 measure">
           <p class="eyebrow eyebrow-accent">Open by default</p>
-          <h2 class="h2">Open source. Nothing about you.</h2>
+          <h2 class="h2">Open source. Open data. Nothing about you.</h2>
         </div>
         <div class="compare">
           <div class="stack">
-            <h3 class="h4 compare-head">What Subs On Time keeps</h3>
+            <h3 class="h4 compare-head">What Open Timings keeps</h3>
             ${kept.map((item) => html`<div class="mark-yes">${yesIcon}<span class="body">${item}</span></div>`)}
           </div>
           <div class="stack">

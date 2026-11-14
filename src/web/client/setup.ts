@@ -19,6 +19,8 @@ const options = [...listbox.querySelectorAll<HTMLElement>("[role=option]")];
 const bestOnlyInput = find<HTMLInputElement>(document, "#best-only");
 const timingInputs = [...document.querySelectorAll<HTMLInputElement>("input[name=timing]")];
 const hideMismatchesSwitch = find(document, "#hide-mismatches");
+const useSharedSwitch = find(document, "#use-shared");
+const shareSwitch = find(document, "#share");
 const sourceList = find(document, "#source-list");
 const accountRows = [...sourceList.querySelectorAll<HTMLElement>(".source")];
 const addonForm = find<HTMLFormElement>(document, "#addon-form");
@@ -141,6 +143,8 @@ const render = () => {
     input.checked = input.value === state.timing;
   });
   hideMismatchesSwitch.setAttribute("aria-checked", String(state.extras.hideMismatches));
+  useSharedSwitch.setAttribute("aria-checked", String(state.useShared));
+  shareSwitch.setAttribute("aria-checked", String(state.share));
   accountRows.forEach(renderAccountRow);
   sourceList.querySelectorAll(".addon-row").forEach((row) => row.remove());
   sourceList.append(...addonURLs().map(addonRowFor));
@@ -198,6 +202,10 @@ timingInputs.forEach((input) =>
 hideMismatchesSwitch.addEventListener("click", () =>
   update({ extras: { hideMismatches: !state.extras.hideMismatches } }),
 );
+
+useSharedSwitch.addEventListener("click", () => update({ useShared: !state.useShared }));
+
+shareSwitch.addEventListener("click", () => update({ share: !state.share }));
 
 accountRows.forEach((row) => {
   const kind = row.dataset["kind"];

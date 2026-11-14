@@ -230,6 +230,13 @@ describe("POST /api/config/open", () => {
     expect(await response.json()).toEqual(withAccount);
   });
 
+  it("keeps both Open Timings switches turned off", async () => {
+    const off = { ...form, useShared: false, share: false };
+    const { installURL } = await create(off);
+
+    expect(await (await post("/api/config/open", { installURL })).json()).toEqual(off);
+  });
+
   it("opens a stremio:// link too", async () => {
     const { stremioURL } = await create(form);
     const response = await post("/api/config/open", { installURL: stremioURL });

@@ -303,6 +303,7 @@ describe("reading Open Timings", () => {
       putFix: failing,
       putMismatch: failing,
       putReport: failing,
+      stats: failing,
     };
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const defer = deferSpy();

@@ -1,5 +1,5 @@
 import { html } from "hono/html";
-import { arrowIcon, removeIcon, statusIcon } from "./icons.ts";
+import { arrowIcon, moreArrow, removeIcon, statusIcon } from "./icons.ts";
 import { installedView } from "./installed-view.ts";
 import { languageOptions } from "./language-options.ts";
 import { layout } from "./layout.ts";
@@ -194,7 +194,7 @@ const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
     ${timingOption(
       "auto",
       html`Automatic <span class="tag tag-accent" style="margin-left: 6px;">recommended</span>`,
-      "Each subtitle is retimed against one made for your exact file. Works with every stream and debrid service.",
+      "A shared fix from Open Timings when one exists. Otherwise each subtitle is retimed against one made for your exact file. Works with every stream and debrid service.",
       true,
     )}
     ${timingOption("off", html`Off`, "Subtitles arrive as the sources have them.", false)}
@@ -209,7 +209,8 @@ const extrasBlock = html`<section class="setup-block" aria-labelledby="s4">
         <span class="h4" id="x-hide">Hide subtitles made for another video</span
         ><span class="small"
           >When a subtitle’s dialogue does not line up with your file at all, it is for a different
-          episode or film. It is left out.</span
+          episode or film. It is left out, and when you share fixes it is flagged so it is left out
+          for everyone once another connection agrees.</span
         >
       </div>
       <button
@@ -223,6 +224,50 @@ const extrasBlock = html`<section class="setup-block" aria-labelledby="s4">
         <span></span>
       </button>
     </div>
+  </div>
+</section>`;
+
+const sharingSwitches = [
+  {
+    id: "use-shared",
+    labelId: "o-use",
+    title: "Use shared fixes",
+    body: "Apply a fix others confirmed for your exact file, and leave out subtitles they flagged for another video.",
+  },
+  {
+    id: "share",
+    labelId: "o-share",
+    title: "Share the fixes made for me",
+    body: "Send the result back: the new time of each line, with fingerprints. Never subtitle text, your accounts or your address.",
+  },
+];
+
+const sharingBlock = html`<section class="setup-block" aria-labelledby="s5">
+  <div class="setup-head">
+    <span class="eyebrow eyebrow-accent">05</span>
+    <h2 class="h3" id="s5">Open Timings</h2>
+    <p class="small">The shared record of fixes.</p>
+    <a class="more" href="/timings">What it keeps${moreArrow}</a>
+  </div>
+  <div class="list">
+    ${sharingSwitches.map(
+      ({ id, labelId, title, body }) =>
+        html`<div class="list-row" style="align-items: flex-start; flex-wrap: nowrap;">
+          <div class="list-main">
+            <span class="h4" id="${labelId}">${title}</span><span class="small">${body}</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            id="${id}"
+            aria-checked="true"
+            aria-labelledby="${labelId}"
+          >
+            <span></span>
+          </button>
+        </div>`,
+    )}
   </div>
 </section>`;
 
@@ -287,7 +332,9 @@ const content = html`<main class="wrap" id="setup" style="padding-top: 72px; pad
       <p class="lede">Only the language is required. Everything else has a default that works.</p>
     </div>
 
-    <div class="stack gap-48">${languagesBlock} ${sourcesBlock} ${timingBlock} ${extrasBlock}</div>
+    <div class="stack gap-48">
+      ${languagesBlock} ${sourcesBlock} ${timingBlock} ${extrasBlock} ${sharingBlock}
+    </div>
   </main>
   ${installBar} ${templates}`;
 

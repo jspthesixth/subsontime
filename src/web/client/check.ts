@@ -3,6 +3,7 @@ import type { CheckRow } from "../check-route.ts";
 import { combobox } from "./lib/combobox.ts";
 import { clone, find } from "./lib/dom.ts";
 import { errorOf, postJSON } from "./lib/post-json.ts";
+import { sizeText } from "./lib/size-text.ts";
 import { videoHash } from "./lib/video-hash.ts";
 
 type Title = { id: string; type: "movie" | "series"; name: string; year?: string };
@@ -27,10 +28,6 @@ const timingPaths: Record<string, string> = {
   Retimed: retimedPath,
   "Retimed by release name": retimedPath,
 };
-const sizeUnits: [string, number][] = [
-  ["GB", 1e9],
-  ["MB", 1e6],
-];
 
 const titleInput = find<HTMLInputElement>(document, "#title");
 const titleOptions = find(document, "#title-options");
@@ -69,12 +66,6 @@ const getJSON = async <T>(path: string, signal?: AbortSignal): Promise<T | undef
 const titleText = ({ name, year }: Title) => (year === undefined ? name : `${name} (${year})`);
 
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? "" : "s"}`;
-
-const sizeText = (bytes: number) => {
-  const [unit, scale] = sizeUnits.find(([, each]) => bytes >= each) ?? ["KB", 1e3];
-
-  return `${(bytes / scale).toFixed(2)} ${unit}`;
-};
 
 const optionFor = (title: Title, index: number) => {
   const option = document.createElement("li");

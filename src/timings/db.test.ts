@@ -204,6 +204,29 @@ const contract = (makeStore: () => TimingsStore) => {
     expect(await store.mismatchesFor(video)).toHaveLength(2);
   });
 
+  it("counts fixes, videos, and videos with fixes or mismatches from two origins", async () => {
+    const third = { hash: "00000000000000ff", size: 5 };
+
+    await store.putFix(fix({ origin: "1".repeat(16) }));
+    await store.putFix(fix({ submitter: submitterB, origin: "2".repeat(16) }));
+    await store.putFix(fix({ video: otherVideo, origin: "1".repeat(16) }));
+    await store.putFix(fix({ video: otherVideo, submitter: submitterB, origin: "1".repeat(16) }));
+    await store.putFix(fix({ video: otherVideo, submitter: "c".repeat(32) }));
+    await store.putMismatch(mismatch({ video: otherVideo, origin: "1".repeat(16) }));
+    await store.putMismatch(
+      mismatch({ video: otherVideo, submitter: submitterB, origin: "2".repeat(16) }),
+    );
+    await store.putMismatch(mismatch({ origin: "1".repeat(16) }));
+    await store.putMismatch(mismatch({ submitter: submitterB }));
+    await store.putReport(report({ video: third }));
+
+    expect(await store.stats()).toEqual({ fixes: 5, confirmed: 1, videos: 3, hidden: 1 });
+  });
+
+  it("counts nothing in an empty store", async () => {
+    expect(await store.stats()).toEqual({ fixes: 0, confirmed: 0, videos: 0, hidden: 0 });
+  });
+
   it("replaces a submitter's report for the same video and subtitle", async () => {
     await store.putReport(report({ reason: "timing-off" }));
     await store.putReport(report({ reason: "wrong-language" }));

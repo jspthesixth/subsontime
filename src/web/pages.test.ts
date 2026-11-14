@@ -5,7 +5,7 @@ const app = createApp({
   secret: "a-test-secret-that-is-long-enough-1234",
 });
 
-describe.each(["/", "/stremio", "/check"])("GET %s", (path) => {
+describe.each(["/", "/stremio", "/check", "/timings"])("GET %s", (path) => {
   it("returns an English HTML page with one h1 and the stylesheet", async () => {
     const response = await app.request(path);
     const page = await response.text();
@@ -20,11 +20,35 @@ describe.each(["/", "/stremio", "/check"])("GET %s", (path) => {
   it("links only to pages that exist", async () => {
     const page = await (await app.request(path)).text();
 
-    expect(page).not.toMatch(/href="\/(timings|integrations)/);
+    expect(page).not.toMatch(/href="\/integrations/);
+  });
+
+  it("links Open Timings from the header and the footer", async () => {
+    const page = await (await app.request(path)).text();
+
+    expect(page.match(/href="\/timings"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(page).toMatch(/<header[\s\S]*href="\/timings"[\s\S]*<\/header>/);
+    expect(page).toMatch(/<footer[\s\S]*href="\/timings"[\s\S]*<\/footer>/);
+  });
+
+  it("mentions no integration that does not exist yet", async () => {
+    const page = await (await app.request(path)).text();
+
+    expect(page).not.toMatch(/Bazarr|Jellyfin|command line/i);
   });
 });
 
 describe("GET /stremio", () => {
+  it("has an Open Timings section with both switches on", async () => {
+    const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
+
+    expect(page).toMatch(/<h2 class="h3" id="s5">Open Timings<\/h2>/);
+    expect(page).toMatch(/<button[^>]*role="switch"[^>]*id="use-shared"[^>]*aria-checked="true"/);
+    expect(page).toMatch(/<button[^>]*role="switch"[^>]*id="share"[^>]*aria-checked="true"/);
+    expect(page).toContain("A shared fix from Open Timings when one exists.");
+    expect(page).toContain("flagged so it is left out for everyone once another connection agrees");
+  });
+
   it("lists languages by their native names", async () => {
     const page = await (await app.request("/stremio")).text();
 
@@ -41,6 +65,28 @@ describe("GET /check", () => {
     expect(page).toMatch(/<a\s+class="nav-link"\s+href="\/check"\s+aria-current="page"/);
     expect(page).toMatch(/<label class="drop"[^>]*>[\s\S]*<input[^>]*type="file"[\s\S]*<\/label>/);
     expect(page).toContain('<script type="module" src="/client/check.js"></script>');
+  });
+});
+
+describe("GET /", () => {
+  it("brings back the Open Timings band and what Open Timings keeps", async () => {
+    const page = (await (await app.request("/")).text()).replace(/\s+/g, " ");
+
+    expect(page).toContain(
+      "Every fix is shared, so the next person with the same file gets it before the first line.",
+    );
+    expect(page).toContain("Fixed once. Fixed for everyone.");
+    expect(page.match(/class="flow-node[ "]/g)).toHaveLength(3);
+    expect(page).toContain("What Open Timings keeps");
+    expect(page).toMatch(/<a class="more" href="\/timings"/);
+  });
+});
+
+describe("GET /timings", () => {
+  it("marks Open Timings as the current page", async () => {
+    const page = await (await app.request("/timings")).text();
+
+    expect(page).toMatch(/<a\s+class="nav-link"\s+href="\/timings"\s+aria-current="page"/);
   });
 });
 

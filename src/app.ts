@@ -13,8 +13,15 @@ import { manifest } from "./stremio/manifest.ts";
 import type { OpenTimings } from "./stremio/open-timings.ts";
 import { refKey } from "./stremio/refs.ts";
 import { subtitlesRoute } from "./stremio/subtitles-route.ts";
-import { sharedSummaries, submitFix, submitMismatch, submitReport } from "./timings/api.ts";
-import { cuesRoute, lookUpRoute, writeRoute } from "./timings/api-route.ts";
+import {
+  cachedStats,
+  emptyStats,
+  sharedSummaries,
+  submitFix,
+  submitMismatch,
+  submitReport,
+} from "./timings/api.ts";
+import { cuesRoute, lookUpRoute, statsRoute, writeRoute } from "./timings/api-route.ts";
 import { memoryStore, type TimingsStore } from "./timings/db.ts";
 import { dailyOrigins } from "./timings/origin.ts";
 import { groupingKeyOf } from "./timings/submitter.ts";
@@ -23,6 +30,7 @@ import { checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
 import { homePage } from "./web/home-page.ts";
 import { setupPage } from "./web/setup-page.ts";
+import { timingsPage } from "./web/timings-page.ts";
 import { limitKeyOf, rateLimit } from "./web/rate-limit.ts";
 import { sourceCheckRoute } from "./web/source-check-route.ts";
 
@@ -131,6 +139,14 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.get("/", (context) => context.html(homePage()));
   app.get("/stremio", (context) => context.html(setupPage()));
   app.get("/check", (context) => context.html(checkPage()));
+  app.get("/timings", async (context) => {
+    const stats =
+      openTimings === undefined
+        ? emptyStats
+        : await cachedStats(openTimings.store, state).catch(() => emptyStats);
+
+    return context.html(timingsPage(stats));
+  });
   app.use("/api/v1/*", cors());
   app.use(
     "/api/*",
@@ -173,6 +189,15 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       clientKey,
     };
 
+    app.get(
+      "/api/v1/stats",
+      statsRoute({
+        store: openTimings.store,
+        state,
+        allow: failOpen(rateLimit(state, limitKey, "stats", 60, 60_000)),
+        clientKey,
+      }),
+    );
     app.get("/api/v1/fixes", lookUpRoute(timingsDeps));
     app.get("/api/v1/fixes/:video/:id/cues", cuesRoute(timingsDeps));
     app.post("/api/v1/fixes", writeRoute(submitFix, timingsDeps));

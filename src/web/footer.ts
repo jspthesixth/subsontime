@@ -12,7 +12,9 @@ export const footer = html`<footer class="site-footer">
     </div>
     <nav class="foot-links" aria-label="Footer">
       <a href="/stremio">Stremio</a>
+      <a href="/timings">Open Timings</a>
       <a href="/check">Check a file</a>
+      <a href="/timings#api">API</a>
       <a href="https://github.com/jspthesixth/subsontime">GitHub</a>
     </nav>
   </div>

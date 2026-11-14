@@ -9,7 +9,7 @@ import {
   type FixWithCues,
   type VideoTimings,
 } from "./confirm.ts";
-import type { TimingsStore, VideoKey } from "./db.ts";
+import type { StoreStats, TimingsStore, VideoKey } from "./db.ts";
 
 export class TimingsInputError extends Error {
   override name = "TimingsInputError";
@@ -348,3 +348,29 @@ export async function lookUp(
 
   return withCues ? timings : publicTimings(timings);
 }
+
+const statsKey = "stats";
+const statsSeconds = 600;
+const statsSchema = v.object({
+  fixes: v.number(),
+  confirmed: v.number(),
+  videos: v.number(),
+  hidden: v.number(),
+});
+
+export const emptyStats: StoreStats = { fixes: 0, confirmed: 0, videos: 0, hidden: 0 };
+
+export const cachedStats = async (store: TimingsStore, state: SharedState): Promise<StoreStats> => {
+  const cached = await orMiss(() => state.get(statsKey), undefined);
+  const parsed = v.safeParse(statsSchema, cached === undefined ? undefined : parseJSON(cached));
+
+  if (parsed.success) {
+    return parsed.output;
+  }
+
+  const stats = await store.stats();
+
+  await orMiss(() => state.set(statsKey, JSON.stringify(stats), statsSeconds), undefined);
+
+  return stats;
+};

@@ -1,7 +1,13 @@
 import type { Context } from "hono";
 import * as v from "valibot";
-import { orMiss } from "../jobs/shared-state.ts";
-import { TimingsInputError, lookUp, type Summaries, type WriteContext } from "./api.ts";
+import { orMiss, type SharedState } from "../jobs/shared-state.ts";
+import {
+  TimingsInputError,
+  cachedStats,
+  lookUp,
+  type Summaries,
+  type WriteContext,
+} from "./api.ts";
 import type { TimingsStore } from "./db.ts";
 import { submitterOf } from "./submitter.ts";
 
@@ -18,6 +24,7 @@ type WriteDeps = {
 
 const videoParamMessage = "Send video as a 16-character hex hash and a size in bytes";
 const tooManyWritesMessage = "Too many submissions. Try again in an hour.";
+const tooManyReadsMessage = "Too many requests. Try again in a minute.";
 const goneMessage = "This fix is no longer listed";
 const unavailableMessage = "Try again in a moment";
 const videoParam = /^([0-9a-f]{16}):([1-9]\d{0,15})$/;
@@ -125,4 +132,25 @@ export const writeRoute =
     }
 
     return context.json({ ok: true }, 202);
+  };
+
+type StatsDeps = {
+  store: TimingsStore;
+  state: SharedState;
+  allow: (key: string) => Promise<boolean>;
+  clientKey: (context: Context) => string;
+};
+
+export const statsRoute =
+  ({ store, state, allow, clientKey }: StatsDeps) =>
+  async (context: Context) => {
+    if (!(await allow(clientKey(context)))) {
+      return context.json({ error: tooManyReadsMessage }, 429);
+    }
+
+    const stats = await cachedStats(store, state);
+
+    context.header("cache-control", "public, max-age=600");
+
+    return context.json(stats);
   };

@@ -279,6 +279,14 @@ svg {
   font-size: 14px;
   cursor: pointer;
 }
+.btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.file-btn {
+  position: relative;
+  cursor: pointer;
+}
 .btn-block {
   width: 100%;
 }
@@ -1099,10 +1107,12 @@ svg {
   pointer-events: none;
 }
 .drop:focus-within,
-.drop[data-over] {
+.drop[data-over],
+form[data-over] .input {
   border-color: var(--accent);
 }
-.drop:has(.drop-input:focus-visible) {
+.drop:has(.drop-input:focus-visible),
+.file-btn:has(.drop-input:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

@@ -38,6 +38,8 @@ export type FixRow = NewFix & { createdAt: Date };
 export type MismatchRow = NewMismatch & { createdAt: Date };
 export type ReportRow = NewReport & { createdAt: Date };
 
+export type StoreStats = { fixes: number; confirmed: number; videos: number; hidden: number };
+
 export type TimingsStore = {
   fixesFor(video: VideoKey, limit?: number): Promise<FixRow[]>;
   mismatchesFor(video: VideoKey, limit?: number): Promise<MismatchRow[]>;
@@ -45,6 +47,7 @@ export type TimingsStore = {
   putFix(row: NewFix): Promise<void>;
   putMismatch(row: NewMismatch): Promise<void>;
   putReport(row: NewReport): Promise<void>;
+  stats(): Promise<StoreStats>;
 };
 
 const readLimit = 500;
@@ -67,6 +70,7 @@ const memoryTable = <Row extends Keyed>() => {
   let rows: (Row & { createdAt: Date })[] = [];
 
   return {
+    all: () => rows,
     for: (video: VideoKey, limit = readLimit) => {
       const videoRows = rows.filter((row) => sameVideo(row.video, video));
       const kept = new Set(
@@ -86,6 +90,13 @@ const memoryTable = <Row extends Keyed>() => {
   };
 };
 
+const videoId = ({ video }: Keyed) => `${video.hash}:${video.size}`;
+
+const videosFromTwoOrigins = (rows: Keyed[]) =>
+  [...Map.groupBy(rows, videoId).values()].filter(
+    (videoRows) => new Set(videoRows.flatMap((row) => row.origin ?? [])).size >= 2,
+  ).length;
+
 export const memoryStore = (): TimingsStore => {
   const fixes = memoryTable<NewFix>();
   const mismatches = memoryTable<NewMismatch>();
@@ -98,6 +109,12 @@ export const memoryStore = (): TimingsStore => {
     putFix: async (row) => fixes.put(row),
     putMismatch: async (row) => mismatches.put(row),
     putReport: async (row) => reports.put(row),
+    stats: async () => ({
+      fixes: fixes.all().length,
+      confirmed: videosFromTwoOrigins(fixes.all()),
+      videos: new Set([...fixes.all(), ...mismatches.all(), ...reports.all()].map(videoId)).size,
+      hidden: videosFromTwoOrigins(mismatches.all()),
+    }),
   };
 };
 
@@ -221,6 +238,26 @@ export const postgresStore = (url: string): TimingsStore => {
         values (${row.video.hash}, ${row.video.size}, ${row.subtitleHashes}, ${row.reason}, ${row.submitter}, ${row.origin ?? null})
         on conflict (video_hash, video_size, submitter, subtitle_key) do update
         set reason = excluded.reason, origin = excluded.origin, created_at = now()`;
+    },
+    stats: async () => {
+      const [row] = await sql<StoreStats[]>`
+        select
+          (select count(*)::int from fixes) as fixes,
+          (select count(*)::int from (
+            select 1 from fixes where origin is not null
+            group by video_hash, video_size having count(distinct origin) >= 2
+          ) confirmed) as confirmed,
+          (select count(*)::int from (
+            select video_hash, video_size from fixes
+            union select video_hash, video_size from mismatches
+            union select video_hash, video_size from reports
+          ) videos) as videos,
+          (select count(*)::int from (
+            select 1 from mismatches where origin is not null
+            group by video_hash, video_size having count(distinct origin) >= 2
+          ) hidden) as hidden`;
+
+      return row ?? { fixes: 0, confirmed: 0, videos: 0, hidden: 0 };
     },
   };
 };
