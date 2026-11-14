@@ -144,7 +144,11 @@ describe("retime", () => {
   it("stops at the first hash reference that fits well", async () => {
     const exact = transform(track, (time) => time + 2000);
 
-    const result = await retime(subtitleOf(exact), [byHash(track), byHash(outlier)]);
+    const result = await retime(subtitleOf(exact), [
+      byHash(track),
+      byHash(outlier),
+      byHash(outlier),
+    ]);
 
     expect(result).toMatchObject({ kind: "retimed", offsetMs: -2000, cuts: 0 });
   });
@@ -189,10 +193,11 @@ describe("retime", () => {
   });
 
   it("does not retime against a hash reference that only partly fits", async () => {
-    const { score } = await alignCues(track, partlyUnrelated);
+    const offset = alignOffset(track, partlyUnrelated);
+    const split = await alignCues(track, partlyUnrelated);
 
-    expect(score).toBeGreaterThanOrEqual(mismatchMaximumScore);
-    expect(score).toBeLessThan(retimedMinimumScore);
+    expect(offset.score).toBeGreaterThanOrEqual(mismatchMaximumScore);
+    expect(Math.max(offset.score, split.score)).toBeLessThan(retimedMinimumScore);
     expect(await retime(subtitleOf(partlyUnrelated, 25), [byHash(track, 25)])).toEqual({
       kind: "not-retimed",
       cues: partlyUnrelated,
