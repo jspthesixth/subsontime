@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@hono/node-server": "2.1.8",
+    "fflate": "0.8.3",
     "hono": "4.13.18",
     "iconv-lite": "0.7.3",
     "subsrt-ts": "2.1.3",

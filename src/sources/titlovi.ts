@@ -1,0 +1,241 @@
+import { createHash } from "node:crypto";
+import { unzipSync } from "fflate";
+import * as v from "valibot";
+import { fetchWithTimeout } from "../http.ts";
+import { parseRelease } from "../subtitles/release.ts";
+import type { Candidate, Source, VideoQuery } from "./source.ts";
+import type { TokenCache } from "./token-cache.ts";
+
+const sourceName = "Titlovi.com";
+const baseURL = "https://kodi.titlovi.com/api/subtitles";
+const downloadURL = "https://titlovi.com/download/";
+const searchTimeoutMs = 4000;
+const requestTimeoutMs = 8000;
+const downloadTimeoutMs = 8000;
+const expiryMarginSeconds = 10 * 60;
+const minimumTtlSeconds = 60;
+const subtitleEntry = /\.(srt|sub|ass|ssa|vtt)$/i;
+
+const languagePairs: [string, string][] = [
+  ["hrv", "Hrvatski"],
+  ["srp", "Srpski"],
+  ["bos", "Bosanski"],
+  ["slv", "Slovenski"],
+  ["mkd", "Makedonski"],
+  ["eng", "English"],
+];
+
+const toTitloviName = new Map(languagePairs);
+const toISO6392 = new Map(languagePairs.map(([code, name]) => [name, code]));
+
+const loginSchema = v.object({
+  ExpirationDate: v.string(),
+  Token: v.string(),
+  UserId: v.number(),
+});
+
+const sessionSchema = v.object({ token: v.string(), userId: v.number() });
+const searchSchema = v.object({ SubtitleResults: v.nullish(v.array(v.unknown())) });
+
+const rowSchema = v.object({
+  Id: v.number(),
+  Type: v.number(),
+  Title: v.string(),
+  Release: v.nullish(v.string()),
+  Lang: v.string(),
+  Season: v.nullish(v.number()),
+  Episode: v.nullish(v.number()),
+});
+
+type Credentials = { username: string; password: string };
+type Session = v.InferOutput<typeof sessionSchema>;
+type Row = v.InferOutput<typeof rowSchema>;
+
+const parseJSON = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
+const unzip = (bytes: Uint8Array) => {
+  try {
+    return unzipSync(bytes);
+  } catch {
+    return undefined;
+  }
+};
+
+const pad = (value: number) => String(value).padStart(2, "0");
+
+const episodeTag = (season: number, episode: number) => `S${pad(season)}E${pad(episode)}`;
+
+const ttlSeconds = (expirationDate: string) => {
+  const zoned = /(Z|[+-]\d{2}:?\d{2})$/.test(expirationDate)
+    ? expirationDate
+    : `${expirationDate}Z`;
+  const seconds = Math.floor((Date.parse(zoned) - Date.now()) / 1000) - expiryMarginSeconds;
+
+  return Math.max(Number.isNaN(seconds) ? 0 : seconds, minimumTtlSeconds);
+};
+
+const searchURL = (query: VideoQuery, names: string[], session: Session) => {
+  const params = {
+    imdbID: query.imdbId,
+    json: "true",
+    lang: names.map(encodeURIComponent).join("|"),
+    token: session.token,
+    userid: String(session.userId),
+    ...(query.type === "series"
+      ? { season: String(query.season), episode: String(query.episode) }
+      : {}),
+  };
+  const queryString = Object.entries(params)
+    .toSorted(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${key === "lang" ? value : encodeURIComponent(value)}`)
+    .join("&");
+
+  return `${baseURL}/search?${queryString}`;
+};
+
+const matchesEpisode = (query: VideoQuery, row: Row) =>
+  query.type !== "series" || (row.Season === query.season && row.Episode === query.episode);
+
+const toCandidate = (row: Row): Candidate[] => {
+  const lang = toISO6392.get(row.Lang);
+
+  if (lang === undefined) {
+    return [];
+  }
+
+  const releaseName =
+    row.Release === null || row.Release === undefined || row.Release === ""
+      ? row.Title
+      : row.Release;
+
+  return [
+    {
+      sourceName,
+      ref: `${row.Type}:${row.Id}`,
+      lang,
+      release: parseRelease(releaseName),
+      releaseName,
+      hashMatch: false,
+      fps: undefined,
+    },
+  ];
+};
+
+const pickEntry = (files: Record<string, Uint8Array>, tag: string | undefined) => {
+  const entries = Object.entries(files).filter(([name]) => subtitleEntry.test(name));
+  const tagged =
+    tag === undefined ? undefined : entries.find(([name]) => name.toUpperCase().includes(tag));
+  const largest = entries.toSorted(([, a], [, b]) => b.length - a.length)[0];
+
+  return (tagged ?? largest)?.[1];
+};
+
+const fetchSearch = (query: VideoQuery, names: string[], session: Session, signal: AbortSignal) =>
+  fetchWithTimeout(searchURL(query, names, session), { signal }, searchTimeoutMs);
+
+export const titloviSource = (credentials: Credentials, tokens: TokenCache): Source => {
+  const episodes = new Map<string, string>();
+  const key = createHash("sha256").update(`titlovi:${credentials.username}`).digest("hex");
+
+  const login = async (signal: AbortSignal): Promise<Session> => {
+    const params = new URLSearchParams({
+      username: credentials.username,
+      password: credentials.password,
+      json: "true",
+    });
+    const response = await fetchWithTimeout(
+      `${baseURL}/gettoken?${params}`,
+      { method: "POST", signal },
+      requestTimeoutMs,
+    );
+    const parsed = v.safeParse(loginSchema, await response.json().catch(() => undefined));
+
+    if (!response.ok || !parsed.success) {
+      throw new Error("Titlovi.com login failed");
+    }
+
+    const session = { token: parsed.output.Token, userId: parsed.output.UserId };
+
+    await tokens.set(key, JSON.stringify(session), ttlSeconds(parsed.output.ExpirationDate));
+
+    return session;
+  };
+
+  const cachedSession = async (signal: AbortSignal): Promise<Session> => {
+    const cached = v.safeParse(sessionSchema, parseJSON((await tokens.get(key)) ?? ""));
+
+    return cached.success ? cached.output : login(signal);
+  };
+
+  return {
+    name: sourceName,
+    async search(query, signal) {
+      const names = [
+        ...new Set(query.languages.flatMap((lang) => toTitloviName.get(lang) ?? [])),
+      ].toSorted();
+
+      if (names.length === 0) {
+        return [];
+      }
+
+      const first = await fetchSearch(query, names, await cachedSession(signal), signal);
+      const response =
+        first.status === 401 ? await fetchSearch(query, names, await login(signal), signal) : first;
+      const parsed = v.safeParse(searchSchema, await response.json().catch(() => undefined));
+
+      if (!response.ok || !parsed.success) {
+        return [];
+      }
+
+      return (parsed.output.SubtitleResults ?? [])
+        .map((row) => v.safeParse(rowSchema, row))
+        .flatMap((row) => (row.success && matchesEpisode(query, row.output) ? [row.output] : []))
+        .flatMap((row) => {
+          const candidates = toCandidate(row);
+
+          if (query.type === "series" && candidates.length > 0) {
+            episodes.set(
+              `${row.Type}:${row.Id}`,
+              episodeTag(query.season ?? 0, query.episode ?? 0),
+            );
+          }
+
+          return candidates;
+        });
+    },
+    async download(ref, signal) {
+      const [type, id] = ref.split(":");
+      const params = new URLSearchParams({ type: type ?? "", mediaid: id ?? "" });
+      const response = await fetchWithTimeout(
+        `${downloadURL}?${params}`,
+        {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; SubsOnTime)",
+            Referer: "https://titlovi.com",
+          },
+          signal,
+        },
+        downloadTimeoutMs,
+      );
+
+      if (!response.ok) {
+        throw new Error("Titlovi.com download failed");
+      }
+
+      const files = unzip(new Uint8Array(await response.arrayBuffer()));
+      const entry = files === undefined ? undefined : pickEntry(files, episodes.get(ref));
+
+      if (entry === undefined) {
+        throw new Error("Titlovi.com download failed");
+      }
+
+      return entry;
+    },
+  };
+};

@@ -1,0 +1,25 @@
+{
+  "_note": "Hand-made from the Kodi addon source, not a recorded response.",
+  "SubtitleResults": [
+    {
+      "Id": 2001,
+      "Type": 3,
+      "Title": "Breaking Bad",
+      "Release": "Breaking.Bad.S01E02.720p.WEB-DL",
+      "Lang": "Hrvatski",
+      "Season": 1,
+      "Episode": 2,
+      "Rating": 5
+    },
+    {
+      "Id": 2002,
+      "Type": 3,
+      "Title": "Breaking Bad",
+      "Release": "Breaking.Bad.S01E03.720p.WEB-DL",
+      "Lang": "Hrvatski",
+      "Season": 1,
+      "Episode": 3,
+      "Rating": 5
+    }
+  ]
+}

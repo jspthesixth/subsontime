@@ -1,0 +1,35 @@
+{
+  "_note": "Hand-made from the Kodi addon source, not a recorded response.",
+  "SubtitleResults": [
+    {
+      "Id": 1001,
+      "Type": 1,
+      "Title": "The Shawshank Redemption",
+      "Release": "The.Shawshank.Redemption.1994.1080p.BluRay.x264-GRP",
+      "Lang": "Hrvatski",
+      "Season": -1,
+      "Episode": -1,
+      "Rating": 5
+    },
+    {
+      "Id": 1002,
+      "Type": 1,
+      "Title": "Shawshank Redemption",
+      "Release": "",
+      "Lang": "Srpski",
+      "Season": -1,
+      "Episode": -1,
+      "Rating": 4
+    },
+    {
+      "Id": 1003,
+      "Type": 1,
+      "Title": "Shawshank",
+      "Release": "x",
+      "Lang": "Klingon",
+      "Season": -1,
+      "Episode": -1,
+      "Rating": 1
+    }
+  ]
+}
