@@ -64,6 +64,16 @@ const contract = (makeStore: () => TimingsStore) => {
     });
   });
 
+  it("moves a re-put fix to the end", async () => {
+    await store.putFix(fix({ submitter: submitterA }));
+    await store.putFix(fix({ submitter: submitterB }));
+    await store.putFix(fix({ submitter: submitterA }));
+
+    const rows = await store.fixesFor(video);
+
+    expect(rows.map((row) => row.submitter)).toEqual([submitterB, submitterA]);
+  });
+
   it("keeps fixes from other submitters and for other subtitles", async () => {
     await store.putFix(fix());
     await store.putFix(fix({ submitter: submitterB }));
@@ -123,6 +133,10 @@ const databaseURL = process.env.DATABASE_URL_TEST;
 describe.skipIf(databaseURL === undefined)(
   "postgresStore (needs DATABASE_URL_TEST, skipped when unset)",
   () => {
+    if (databaseURL !== undefined && !new URL(databaseURL).pathname.includes("test")) {
+      throw new Error('DATABASE_URL_TEST must name a database containing "test"');
+    }
+
     const sql = postgres(databaseURL ?? "", { max: 1, onnotice: () => {} });
 
     beforeEach(async () => {

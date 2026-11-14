@@ -1,4 +1,4 @@
-create function subtitle_key(hashes text[]) returns text
+create function subtitle_hashes_key(hashes text[]) returns text
   language sql immutable strict parallel safe
   return md5(array_to_string(hashes, ','));
 
@@ -7,7 +7,7 @@ create table fixes (
   video_hash char(16) not null,
   video_size bigint not null,
   subtitle_hashes text[] not null,
-  subtitle_key text generated always as (subtitle_key(subtitle_hashes)) stored,
+  subtitle_key text generated always as (subtitle_hashes_key(subtitle_hashes)) stored,
   cues jsonb not null,
   method text not null check (method in ('audio', 'reference', 'release-name')),
   reference_key text,
@@ -23,7 +23,7 @@ create table mismatches (
   video_hash char(16) not null,
   video_size bigint not null,
   subtitle_hashes text[] not null,
-  subtitle_key text generated always as (subtitle_key(subtitle_hashes)) stored,
+  subtitle_key text generated always as (subtitle_hashes_key(subtitle_hashes)) stored,
   submitter char(32) not null,
   created_at timestamptz not null default now()
 );
@@ -36,7 +36,7 @@ create table reports (
   video_hash char(16) not null,
   video_size bigint not null,
   subtitle_hashes text[] not null,
-  subtitle_key text generated always as (subtitle_key(subtitle_hashes)) stored,
+  subtitle_key text generated always as (subtitle_hashes_key(subtitle_hashes)) stored,
   reason text not null check (reason in ('machine-translated', 'wrong-language', 'lines-missing', 'timing-off', 'broken-characters')),
   submitter char(32) not null,
   created_at timestamptz not null default now()
