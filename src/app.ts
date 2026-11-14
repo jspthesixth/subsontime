@@ -69,7 +69,11 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   const clientKey = deps.clientKey ?? (() => "anonymous");
   const shared = deps.state;
   const state = shared ?? memorySharedState();
-  const titleLimit = { allow: failOpen(rateLimit(state, "titles", 60, 60_000)), clientKey };
+  const originOf = dailyOrigins(state);
+  const titleLimit = {
+    allow: failOpen(rateLimit(state, originOf, "titles", 60, 60_000)),
+    clientKey,
+  };
   const apiBody = bodyLimit({ maxSize: apiBodyLimit, onError: tooLarge });
   const timingsBody = bodyLimit({ maxSize: timingsBodyLimit, onError: tooLarge });
   const routeDeps: RouteDeps = {
@@ -123,7 +127,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.post(
     "/api/sources/check",
     sourceCheckRoute({
-      allow: failOpen(rateLimit(state, "sources", 10, 60_000)),
+      allow: failOpen(rateLimit(state, originOf, "sources", 10, 60_000)),
       clientKey,
     }),
   );
@@ -132,7 +136,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     checkRoute({
       ...routeDeps,
       secret: deps.secret,
-      allow: failOpen(rateLimit(state, "check", 10, 60_000)),
+      allow: failOpen(rateLimit(state, originOf, "check", 10, 60_000)),
       clientKey,
     }),
   );
@@ -143,9 +147,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     const timingsDeps = {
       store: deps.timings ?? memoryStore(),
       installSalt: deps.installSalt,
-      allow: rateLimit(state, "writes", writesPerHour, hourMs),
+      allow: rateLimit(state, originOf, "writes", writesPerHour, hourMs),
       clientKey,
-      originOf: dailyOrigins(state),
+      originOf,
       groupingKey: groupingKeyOf(deps.installSalt),
       summaries: shared === undefined ? undefined : sharedSummaries(shared),
     };

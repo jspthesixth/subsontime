@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { memorySharedState } from "../jobs/shared-state.ts";
 import { dailyOrigins } from "./origin.ts";
 
@@ -70,4 +70,21 @@ test("dailyOrigins rejects when the shared state fails", async () => {
   );
 
   await expect(originOf("1.2.3.4")).rejects.toThrow("Redis is down");
+});
+
+test("dailyOrigins reads the daily key from the state once a day", async () => {
+  let now = day;
+  const state = memorySharedState();
+  const get = vi.spyOn(state, "get");
+  const originOf = dailyOrigins(state, () => now);
+
+  await originOf("1.2.3.4");
+  await originOf("5.6.7.8");
+
+  expect(get).toHaveBeenCalledTimes(1);
+
+  now = day + dayMs;
+  await originOf("1.2.3.4");
+
+  expect(get).toHaveBeenCalledTimes(2);
 });

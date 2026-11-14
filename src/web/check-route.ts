@@ -41,12 +41,13 @@ type LimitDeps = {
 type CheckDeps = RouteDeps & LimitDeps & { secret: string; state: SharedState };
 
 type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
+type Slot = { status: "taken"; key: string } | { status: "busy" } | { status: "unknown" };
 type CatalogType = "movie" | "series";
 
 const budgetMs = 20_000;
 const maximumRunning = 2;
-const runningKey = "check-running";
 const slotSeconds = 30;
+const slotRefreshMs = 10_000;
 const cinemetaURL = "https://v3-cinemeta.strem.io";
 const cinemetaTimeoutMs = 4000;
 const maximumTitles = 10;
@@ -239,6 +240,37 @@ const runCheck = async (config: Config, sources: SourceSet, query: VideoQuery, s
   };
 };
 
+const takeSlot = async (state: SharedState, index = 0): Promise<Slot> => {
+  if (index >= maximumRunning) {
+    return { status: "busy" };
+  }
+
+  const key = `slot:check:${index}`;
+  const taken = await orMiss(() => state.setIfAbsent(key, "1", slotSeconds), undefined);
+
+  if (taken === undefined) {
+    return { status: "unknown" };
+  }
+
+  return taken ? { status: "taken", key } : takeSlot(state, index + 1);
+};
+
+const hold = (state: SharedState, slot: Slot) => {
+  if (slot.status !== "taken") {
+    return async () => {};
+  }
+
+  const refresh = setInterval(
+    () => void orMiss(() => state.set(slot.key, "1", slotSeconds), undefined),
+    slotRefreshMs,
+  ).unref();
+
+  return async () => {
+    clearInterval(refresh);
+    await orMiss(() => state.delete(slot.key), undefined);
+  };
+};
+
 export const checkRoute =
   ({ sourcesFor, secret, allow, clientKey, state }: CheckDeps) =>
   async (context: Context) => {
@@ -270,20 +302,13 @@ export const checkRoute =
       return context.json({ error: unsupportedVideoMessage }, 400);
     }
 
-    const running = await orMiss(() => state.increment(runningKey, slotSeconds), undefined);
+    const slot = await takeSlot(state);
 
-    const release = async () => {
-      if (running !== undefined) {
-        await orMiss(() => state.decrement(runningKey), 0);
-      }
-    };
-
-    if (running !== undefined && running > maximumRunning) {
-      await release();
-
+    if (slot.status === "busy") {
       return context.json({ error: busyMessage }, 429);
     }
 
+    const release = hold(state, slot);
     const { config, sealed } = install;
     const tokens = tokenCacheFor(state, installKeyOf(sealed));
 

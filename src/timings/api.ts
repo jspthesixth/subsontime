@@ -87,6 +87,7 @@ const parse = <Schema extends v.GenericSchema>(
 };
 
 const cacheMs = 300_000;
+const versionSeconds = 30 * 24 * 60 * 60;
 const maxCachedVideos = 1000;
 const maxCachedCues = 2_000_000;
 
@@ -185,7 +186,14 @@ const decodeDigest = (text: string): Digest =>
 
 export const sharedSummaries = (state: SharedState): Summaries => ({
   async read(video, load) {
-    const key = `sum:${cacheKey(video)}`;
+    const id = cacheKey(video);
+    const version = await orMiss(async () => (await state.get(`ver:${id}`)) ?? "0", undefined);
+
+    if (version === undefined) {
+      return load();
+    }
+
+    const key = `sum:${id}:${version}`;
     const cached = await orMiss(() => state.get(key), undefined);
 
     if (cached !== undefined) {
@@ -199,7 +207,7 @@ export const sharedSummaries = (state: SharedState): Summaries => ({
     return sections;
   },
   async forget(video) {
-    await orMiss(() => state.delete(`sum:${cacheKey(video)}`), undefined);
+    await orMiss(() => state.increment(`ver:${cacheKey(video)}`, versionSeconds), 0);
   },
 });
 

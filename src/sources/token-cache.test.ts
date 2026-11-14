@@ -23,7 +23,6 @@ const brokenState: SharedState = {
   setIfAbsent: failing,
   delete: failing,
   increment: failing,
-  decrement: failing,
 };
 
 describe("tokenCacheFor", () => {

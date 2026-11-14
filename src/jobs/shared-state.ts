@@ -6,7 +6,6 @@ export interface SharedState {
   setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean>;
   delete(key: string): Promise<void>;
   increment(key: string, ttlSeconds: number): Promise<number>;
-  decrement(key: string): Promise<number>;
 }
 
 type Entry = { value: string; expiresAt: number };
@@ -21,10 +20,6 @@ const pauseMs = 10_000;
 const incrementScript = `local count = redis.call("INCR", KEYS[1])
 if count == 1 then redis.call("EXPIRE", KEYS[1], ARGV[1]) end
 return count`;
-const decrementScript = `if redis.call("EXISTS", KEYS[1]) == 0 then return 0 end
-local count = redis.call("DECR", KEYS[1])
-if count <= 0 then redis.call("DEL", KEYS[1]) return 0 end
-return count`;
 
 export const orMiss = async <T>(work: () => Promise<T>, miss: T): Promise<T> => {
   try {
@@ -36,7 +31,7 @@ export const orMiss = async <T>(work: () => Promise<T>, miss: T): Promise<T> => 
   }
 };
 
-export const memorySharedState = (now = () => Date.now(), maxKeys = 10_000) => {
+export const memorySharedState = (now = () => Date.now(), maxKeys = 50_000) => {
   const entries = new Map<string, Entry>();
 
   const live = (key: string) => {
@@ -52,23 +47,17 @@ export const memorySharedState = (now = () => Date.now(), maxKeys = 10_000) => {
   };
 
   const put = (key: string, value: string, ttlSeconds: number) => {
+    entries.delete(key);
+
     if (entries.size >= maxKeys) {
       [...entries.keys()].forEach(live);
     }
 
-    entries.set(key, { value, expiresAt: now() + ttlSeconds * 1000 });
-  };
-
-  const add = (key: string, entry: Entry, change: number) => {
-    const count = Math.max(Number(entry.value) + change, 0);
-
-    entry.value = String(count);
-
-    if (count === 0) {
-      entries.delete(key);
+    if (entries.size >= maxKeys) {
+      entries.delete(entries.keys().next().value ?? "");
     }
 
-    return count;
+    entries.set(key, { value, expiresAt: now() + ttlSeconds * 1000 });
   };
 
   return {
@@ -100,12 +89,9 @@ export const memorySharedState = (now = () => Date.now(), maxKeys = 10_000) => {
         return 1;
       }
 
-      return add(key, entry, 1);
-    },
-    async decrement(key: string) {
-      const entry = live(key);
+      entry.value = String(Number(entry.value) + 1);
 
-      return entry === undefined ? 0 : add(key, entry, -1);
+      return Number(entry.value);
     },
   } satisfies SharedState & { keyCount: () => number };
 };
@@ -125,9 +111,6 @@ export const upstashSharedState = (redis: Redis): SharedState => ({
   },
   async increment(key, ttlSeconds) {
     return Number(await redis.eval(incrementScript, [keyPrefix + key], [ttlSeconds]));
-  },
-  async decrement(key) {
-    return Number(await redis.eval(decrementScript, [keyPrefix + key], []));
   },
 });
 
@@ -154,7 +137,6 @@ export const pausedAfterFailure = (state: SharedState, now = () => Date.now()): 
     setIfAbsent: (key, value, ttlSeconds) => call(() => state.setIfAbsent(key, value, ttlSeconds)),
     delete: (key) => call(() => state.delete(key)),
     increment: (key, ttlSeconds) => call(() => state.increment(key, ttlSeconds)),
-    decrement: (key) => call(() => state.decrement(key)),
   };
 };
 

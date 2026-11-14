@@ -113,19 +113,6 @@ const contract = (make: () => Subject) => {
     expect(await state.increment(key("count"), 1)).toBe(1);
   });
 
-  it("counts down to zero, removes the key there and never creates it", async () => {
-    const { state } = make();
-
-    await state.increment(key("slots"), 60);
-    await state.increment(key("slots"), 60);
-
-    expect(await state.decrement(key("slots"))).toBe(1);
-    expect(await state.decrement(key("slots"))).toBe(0);
-    expect(await state.get(key("slots"))).toBeUndefined();
-    expect(await state.decrement(key("slots"))).toBe(0);
-    expect(await state.get(key("slots"))).toBeUndefined();
-  });
-
   it("increments once per call when calls race", async () => {
     const { state } = make();
     const counts = await Promise.all(
@@ -139,16 +126,46 @@ const contract = (make: () => Subject) => {
 describe("memorySharedState", () => {
   contract(memorySubject);
 
-  it("drops expired keys once it holds too many", async () => {
+  it("drops expired keys first once it holds the cap", async () => {
     let now = 0;
     const state = memorySharedState(() => now, 2);
 
-    await Promise.all(["a", "b", "c"].map((key) => state.set(key, "value", 1)));
+    await state.set("a", "value", 1);
+    await state.set("b", "value", 60);
 
     now = 2000;
-    await state.set("d", "value", 1);
+    await state.set("c", "value", 60);
 
-    expect(state.keyCount()).toBe(1);
+    expect(state.keyCount()).toBe(2);
+    expect([await state.get("b"), await state.get("c")]).toEqual(["value", "value"]);
+  });
+
+  it("drops the oldest key once it holds the cap and none has expired", async () => {
+    const state = memorySharedState(() => 0, 2);
+
+    await state.set("a", "value", 60);
+    await state.set("b", "value", 60);
+    await state.set("a", "rewritten", 60);
+    await state.set("c", "value", 60);
+
+    expect(state.keyCount()).toBe(2);
+    expect([await state.get("b"), await state.get("a"), await state.get("c")]).toEqual([
+      undefined,
+      "rewritten",
+      "value",
+    ]);
+  });
+
+  it("holds at most 50 000 keys by default", async () => {
+    const state = memorySharedState(() => 0);
+
+    for (const index of Array.from({ length: 50_001 }, (_, each) => each)) {
+      await state.increment(`key-${index}`, 60);
+    }
+
+    expect(state.keyCount()).toBe(50_000);
+    expect(await state.get("key-0")).toBeUndefined();
+    expect(await state.get("key-50000")).toBe("1");
   });
 });
 

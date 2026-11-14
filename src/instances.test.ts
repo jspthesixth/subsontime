@@ -37,7 +37,6 @@ const brokenState: SharedState = {
   setIfAbsent: failing,
   delete: failing,
   increment: failing,
-  decrement: failing,
 };
 
 const subtitleSources = (delayMs?: number) => {
@@ -76,10 +75,32 @@ const mismatchBody = () => ({
   installId: randomUUID(),
 });
 
+const fixesOf = async (app: App) =>
+  ((await (await app.request(lookUpPath)).json()) as { fixes: unknown[] }).fixes;
+
 const counted = (store: TimingsStore) => ({
   ...store,
   fixesFor: vi.fn<TimingsStore["fixesFor"]>(store.fixesFor),
 });
+
+const hangingFirst = (count: number) => {
+  let searches = 0;
+  const search = vi.fn<Source["search"]>(async () => {
+    searches += 1;
+
+    if (searches <= count) {
+      await new Promise(() => {});
+    }
+
+    return [];
+  });
+  const sources: SourceSet = {
+    listed: [{ name: "Slow", search, download: async () => new Uint8Array() }],
+    references: [],
+  };
+
+  return { search, sources };
+};
 
 afterEach(() => {
   vi.useRealTimers();
@@ -149,23 +170,51 @@ describe("two instances on one shared state", () => {
     expect((await send(two)).status).toBe(429);
   });
 
+  it("refuse a third check while two run, refresh their slots and free them at the end", async () => {
+    vi.useFakeTimers({
+      toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+    });
+
+    const state = memorySharedState();
+    const set = vi.spyOn(state, "set");
+    const source = fakeSource("Fake", [{ ref: "a", hang: true }]);
+    const sources: SourceSet = { listed: [source], references: [] };
+    const one = instance(state, { sourcesFor: () => sources });
+    const two = instance(state, { sourcesFor: () => sources });
+    const running = [
+      post(one, "/api/check", movie, "198.51.100.1"),
+      post(two, "/api/check", movie, "198.51.100.2"),
+    ];
+
+    await vi.waitFor(() => expect(source.download).toHaveBeenCalledTimes(2));
+
+    const third = await post(two, "/api/check", movie, "198.51.100.3");
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const refreshed = set.mock.calls.filter(([key]) => key.startsWith("slot:check:"));
+
+    await vi.advanceTimersByTimeAsync(11_000);
+
+    const statuses = await Promise.all(running);
+    const after = post(one, "/api/check", movie, "198.51.100.4");
+
+    await vi.advanceTimersByTimeAsync(21_000);
+
+    expect(third.status).toBe(429);
+    expect(await third.json()).toEqual({ error: "Busy, try again in a moment" });
+    expect(refreshed.map(([key, , ttl]) => [key, ttl]).toSorted()).toEqual([
+      ["slot:check:0", 30],
+      ["slot:check:1", 30],
+    ]);
+    expect(statuses.map((response) => response.status)).toEqual([200, 200]);
+    expect((await after).status).toBe(200);
+  });
+
   it("free a check slot whose holder crashed after 30 seconds", async () => {
     let now = Date.now();
-    let searches = 0;
     const state = memorySharedState(() => now);
-    const search = vi.fn<Source["search"]>(async () => {
-      searches += 1;
-
-      if (searches <= 2) {
-        await new Promise(() => {});
-      }
-
-      return [];
-    });
-    const sources: SourceSet = {
-      listed: [{ name: "Slow", search, download: async () => new Uint8Array() }],
-      references: [],
-    };
+    const { search, sources } = hangingFirst(2);
     const crashed = instance(state, { sourcesFor: () => sources });
     const other = instance(state, { sourcesFor: () => sources });
 
@@ -184,6 +233,61 @@ describe("two instances on one shared state", () => {
     expect(busy.status).toBe(429);
     expect(stillBusy.status).toBe(429);
     expect((await post(other, "/api/check", movie, "198.51.100.5")).status).toBe(200);
+  });
+
+  it("never write a client address into a shared key", async () => {
+    const address = "198.51.100.77";
+    const state = memorySharedState();
+    const spies = [
+      vi.spyOn(state, "get"),
+      vi.spyOn(state, "set"),
+      vi.spyOn(state, "setIfAbsent"),
+      vi.spyOn(state, "increment"),
+      vi.spyOn(state, "delete"),
+    ];
+    const { sources } = subtitleSources();
+    const app = instance(state, { sourcesFor: () => sources, timings: memoryStore() });
+    const asClient = { headers: { "x-test-client": address } };
+
+    await app.request("/api/titles?q=", asClient);
+    await app.request(lookUpPath, asClient);
+    await app.request(subPath, asClient);
+    await post(app, "/api/sources/check", {}, address);
+    await post(app, "/api/check", movie, address);
+    await post(app, "/api/v1/fixes", fixBody(), address);
+
+    const keys = spies.flatMap((spy) => spy.mock.calls.map((call) => String(call[0])));
+
+    expect(keys.some((key) => key.startsWith("rl:"))).toBe(true);
+    keys.forEach((key) => expect(key).not.toContain(address));
+  });
+
+  it("never serve a summary read before a write on another instance", async () => {
+    const state = memorySharedState();
+    const store = memoryStore();
+    const gate = Promise.withResolvers<void>();
+    let reading = false;
+    const fixesFor: TimingsStore["fixesFor"] = async (key) => {
+      const rows = await store.fixesFor(key);
+
+      if (!reading) {
+        reading = true;
+        await gate.promise;
+      }
+
+      return rows;
+    };
+    const slow = instance(state, { timings: { ...store, fixesFor } });
+    const writer = instance(state, { timings: store });
+    const inFlight = fixesOf(slow);
+
+    await vi.waitFor(() => expect(reading).toBe(true));
+    expect((await post(writer, "/api/v1/fixes", fixBody())).status).toBe(202);
+    gate.resolve();
+
+    expect(await inFlight).toEqual([]);
+    expect(await fixesOf(slow)).toHaveLength(1);
+    expect(await fixesOf(writer)).toHaveLength(1);
   });
 
   it("give one client the same origin on the same day and another the next day", async () => {
