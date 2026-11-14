@@ -1,7 +1,5 @@
 import type { Context } from "hono";
-import type { AppEnv } from "../app.ts";
-import type { Config } from "../config/config.ts";
-import type { SourceSet } from "../sources/from-config.ts";
+import type { AppEnv, RouteDeps } from "../app.ts";
 import { searchAll } from "../sources/search-all.ts";
 import type { Candidate } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
@@ -28,8 +26,22 @@ const readExtras = (context: Context<AppEnv>) => {
   return new URLSearchParams(extra === undefined ? "" : text.replace(/\.json$/, ""));
 };
 
+const baseURL = (context: Context<AppEnv>, publicURL: string | undefined) => {
+  const proto = context.req.header("x-forwarded-proto");
+  const host = context.req.header("x-forwarded-host");
+
+  if (publicURL !== undefined) {
+    return publicURL.replace(/\/+$/, "");
+  }
+
+  return proto !== undefined && host !== undefined
+    ? `${proto}://${host}`
+    : new URL(context.req.url).origin;
+};
+
 export const subtitlesRoute =
-  (sourcesFor: (config: Config) => SourceSet) => async (context: Context<AppEnv>) => {
+  ({ sourcesFor, refKey, publicURL }: RouteDeps) =>
+  async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const extra = context.req.param("extra");
     const id = context.req.param("id") ?? "";
@@ -68,14 +80,17 @@ export const subtitlesRoute =
       toCandidateRef,
     );
     const subURL = (candidates: Candidate[]) => {
-      const ref = encodeRef({
-        v: 1,
-        q: { t: video.type, i: video.imdbId, s: video.season, e: video.episode },
-        c: candidates.map(toCandidateRef),
-        x: references,
-      });
+      const ref = encodeRef(
+        {
+          v: 1,
+          q: { t: video.type, i: video.imdbId, s: video.season, e: video.episode },
+          c: candidates.map(toCandidateRef),
+          x: references,
+        },
+        refKey,
+      );
 
-      return `${new URL(context.req.url).origin}/${context.req.param("config")}/sub/${ref}.srt`;
+      return `${baseURL(context, publicURL)}/${context.req.param("config")}/sub/${ref}.srt`;
     };
     const ranked = (lang: string) =>
       listed

@@ -1,6 +1,8 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import packageJSON from "../../package.json" with { type: "json" };
-import { createApp } from "../app.ts";
+import { createApp, type AppDeps } from "../app.ts";
 import { defaultConfig, type Config } from "../config/config.ts";
 import { seal } from "../config/seal.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
@@ -13,7 +15,7 @@ import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { retime } from "../timing/retime.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
-import { decodeRef, encodeRef } from "./refs.ts";
+import { decodeRef, encodeRef, refKey, type SubtitleRef } from "./refs.ts";
 
 vi.mock("../timing/retime.ts", { spy: true });
 
@@ -59,8 +61,8 @@ const fakeSource = (name: string, entries: Entry[]) => {
   return { name, search, download };
 };
 
-const appWith = (sources: SourceSet) =>
-  createApp({ secret, tokens: memoryTokenCache(), sourcesFor: () => sources });
+const appWith = (sources: SourceSet, deps: Partial<AppDeps> = {}) =>
+  createApp({ secret, tokens: memoryTokenCache(), sourcesFor: () => sources, ...deps });
 
 const list = async (app: ReturnType<typeof appWith>, token: string, path: string) => {
   const response = await app.request(`/${token}/subtitles/${path}`);
@@ -74,6 +76,7 @@ const refOf = (url: string) =>
       .split("/")
       .at(-1)
       ?.replace(/\.srt$/, "") ?? "",
+    refKey(secret),
   );
 
 beforeEach(() => {
@@ -131,6 +134,23 @@ describe("manifest", () => {
     const response = await appWith({ listed: [], references: [] }).request("/health");
 
     expect(await response.json()).toEqual({ ok: true });
+  });
+
+  it("answers 404 for a path that is not an install link", async () => {
+    const response = await appWith({ listed: [], references: [] }).request("/nope");
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(await response.text()).toBe("Not found");
+  });
+
+  it("treats a long base64url segment as an install link", async () => {
+    const response = await appWith({ listed: [], references: [] }).request(`/${"A".repeat(60)}`);
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "This install link is not valid. Set up again.",
+    });
   });
 });
 
@@ -225,6 +245,42 @@ describe("subtitle list", () => {
       ["hrv-best", "hrv"],
       ["eng-best", "eng"],
     ]);
+  });
+
+  it("lists at most ten candidates per language", async () => {
+    const source = fakeSource(
+      "Fake",
+      Array.from({ length: 12 }, (_, index) => ({ ref: `r${index}` })),
+    );
+
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed({ bestOnly: false }),
+      "movie/tt0111161.json",
+    );
+
+    expect(body.subtitles.map((entry) => entry.id)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `eng-${index + 1}`),
+    );
+  });
+
+  it.each([
+    [{ publicURL: "https://subs.example.com" }, {}, "https://subs.example.com/"],
+    [
+      {},
+      { "x-forwarded-proto": "https", "x-forwarded-host": "proxy.example.com" },
+      "https://proxy.example.com/",
+    ],
+    [{}, { "x-forwarded-proto": "https" }, "http://localhost/"],
+  ])("builds subtitle URLs from %o and headers %o", async (deps, headers, base) => {
+    const token = sealed();
+    const response = await appWith(
+      { listed: [fakeSource("Fake", [{ ref: "a" }])], references: [] },
+      deps,
+    ).request(`/${token}/subtitles/movie/tt0111161.json`, { headers });
+    const body = (await response.json()) as Listing;
+
+    expect(body.subtitles[0]?.url.startsWith(`${base}${token}/sub/`)).toBe(true);
   });
 
   it("puts hash matches first, then the closest release, and keeps four in a slot", async () => {
@@ -370,23 +426,77 @@ describe("subtitle file", () => {
     );
 
     expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(await response.text()).toBe("Invalid subtitle reference");
+  });
+
+  it("never fetches an unsigned or foreign-signed reference", async () => {
+    const hits: string[] = [];
+    const listener = createServer((request, response) => {
+      hits.push(request.url ?? "");
+      response.end(writeSRT(track));
+    });
+
+    await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
+
+    const { port } = listener.address() as AddressInfo;
+    const forged: SubtitleRef = {
+      v: 1,
+      q: { t: "movie", i: "tt0111161" },
+      c: [{ n: "OpenSubtitles", r: `http://127.0.0.1:${port}/internal`, l: "eng" }],
+      x: [],
+    };
+    const app = createApp({ secret, tokens: memoryTokenCache() });
+    const token = sealed();
+    const responses = await Promise.all(
+      [
+        Buffer.from(JSON.stringify(forged)).toString("base64url"),
+        encodeRef(forged, refKey("another-secret-that-is-long-enough-12345")),
+      ].map((ref) => app.request(`/${token}/sub/${ref}.srt`)),
+    );
+
+    listener.close();
+
+    expect(responses.map((response) => response.status)).toEqual([400, 400]);
+    expect(hits).toEqual([]);
   });
 });
 
 describe("refs", () => {
-  it("round-trips a reference", () => {
-    const ref = {
-      v: 1 as const,
-      q: { t: "series" as const, i: "tt0903747", s: 1, e: 2 },
-      c: [{ n: "Fake", r: "a", l: "eng", p: 23.976 }],
-      x: [{ n: "Reference", r: "r", l: "eng", h: 1 as const }],
-    };
+  const key = refKey(secret);
+  const ref: SubtitleRef = {
+    v: 1,
+    q: { t: "series", i: "tt0903747", s: 1, e: 2 },
+    c: [{ n: "Fake", r: "a", l: "eng", p: 23.976 }],
+    x: [{ n: "Reference", r: "r", l: "eng", h: 1 }],
+  };
 
-    expect(decodeRef(encodeRef(ref))).toEqual(ref);
+  it("round-trips a reference", () => {
+    expect(decodeRef(encodeRef(ref, key), key)).toEqual(ref);
   });
 
-  it.each([["garbage"], [Buffer.from('{"v":2}').toString("base64url")]])("rejects %s", (text) => {
-    expect(() => decodeRef(text)).toThrow("Invalid subtitle reference");
+  it("rejects a reference signed with another secret", () => {
+    expect(() => decodeRef(encodeRef(ref, refKey("another-secret")), key)).toThrow(
+      "Invalid subtitle reference",
+    );
+  });
+
+  it("rejects a reference whose payload changed", () => {
+    const [payload = "", signature = ""] = encodeRef(ref, key).split(".");
+    const flipped = Buffer.from(payload, "base64url")
+      .toString("utf8")
+      .replace("tt0903747", "tt0903748");
+    const tampered = `${Buffer.from(flipped).toString("base64url")}.${signature}`;
+
+    expect(() => decodeRef(tampered, key)).toThrow("Invalid subtitle reference");
+  });
+
+  it.each([
+    ["garbage"],
+    [Buffer.from(JSON.stringify(ref)).toString("base64url")],
+    [`${encodeRef(ref, key).split(".")[0]}.`],
+  ])("rejects %s", (text) => {
+    expect(() => decodeRef(text, key)).toThrow("Invalid subtitle reference");
   });
 });
 

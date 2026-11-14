@@ -8,6 +8,7 @@ const app = createApp({
   secret: readSecret(process.env),
   tokens: memoryTokenCache(),
   openSubtitlesAppKey: process.env["OPENSUBTITLES_APP_KEY"] || undefined,
+  publicURL: process.env["PUBLIC_URL"] || undefined,
 });
 
 serve({ fetch: app.fetch, port });

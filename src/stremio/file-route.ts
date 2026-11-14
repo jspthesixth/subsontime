@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { AppEnv } from "../app.ts";
+import type { AppEnv, RouteDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
 import { singleFlight } from "../jobs/single-flight.ts";
 import type { SourceSet } from "../sources/from-config.ts";
@@ -85,18 +85,19 @@ const resolveSubtitle = async (
 };
 
 export const fileRoute =
-  (sourcesFor: (config: Config) => SourceSet) => async (context: Context<AppEnv>) => {
+  ({ sourcesFor, refKey }: RouteDeps) =>
+  async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const ref = (() => {
       try {
-        return decodeRef((context.req.param("file") ?? "").replace(/\.srt$/, ""));
+        return decodeRef((context.req.param("file") ?? "").replace(/\.srt$/, ""), refKey);
       } catch {
         return undefined;
       }
     })();
 
     if (ref === undefined) {
-      return context.json({ error: "Invalid subtitle reference" }, 400);
+      return context.text("Invalid subtitle reference", 400);
     }
 
     const outcome = await singleFlight(new URL(context.req.url).pathname, () =>

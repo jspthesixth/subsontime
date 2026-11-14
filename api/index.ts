@@ -8,5 +8,6 @@ export default handle(
     secret: readSecret(process.env),
     tokens: memoryTokenCache(),
     openSubtitlesAppKey: process.env["OPENSUBTITLES_APP_KEY"] || undefined,
+    publicURL: process.env["PUBLIC_URL"] || undefined,
   }),
 );

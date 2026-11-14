@@ -1,4 +1,7 @@
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import * as v from "valibot";
+
+const signatureLength = 16;
 
 const candidateRefSchema = v.object({
   n: v.string(),
@@ -15,7 +18,6 @@ const subtitleRefSchema = v.object({
     i: v.string(),
     s: v.optional(v.number()),
     e: v.optional(v.number()),
-    f: v.optional(v.string()),
   }),
   c: v.array(candidateRefSchema),
   x: v.array(candidateRefSchema),
@@ -24,12 +26,37 @@ const subtitleRefSchema = v.object({
 export type CandidateRef = v.InferOutput<typeof candidateRefSchema>;
 export type SubtitleRef = v.InferOutput<typeof subtitleRefSchema>;
 
-export const encodeRef = (value: SubtitleRef): string =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
+export const refKey = (secret: string): Buffer =>
+  createHash("sha256").update(`subsontime-ref:${secret}`).digest();
 
-export const decodeRef = (text: string): SubtitleRef => {
+const sign = (payload: string, key: Buffer) =>
+  createHmac("sha256", key).update(payload).digest().subarray(0, signatureLength);
+
+export const encodeRef = (value: SubtitleRef, key: Buffer): string => {
+  const payload = Buffer.from(JSON.stringify(value)).toString("base64url");
+
+  return `${payload}.${sign(payload, key).toString("base64url")}`;
+};
+
+const isSigned = (payload: string, signature: string, key: Buffer) => {
+  const expected = sign(payload, key);
+  const actual = Buffer.from(signature, "base64url");
+
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+};
+
+export const decodeRef = (text: string, key: Buffer): SubtitleRef => {
+  const [payload = "", signature = "", ...rest] = text.split(".");
+
   try {
-    return v.parse(subtitleRefSchema, JSON.parse(Buffer.from(text, "base64url").toString("utf8")));
+    if (rest.length > 0 || !isSigned(payload, signature, key)) {
+      throw new Error("Unsigned");
+    }
+
+    return v.parse(
+      subtitleRefSchema,
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
+    );
   } catch {
     throw new Error("Invalid subtitle reference");
   }
