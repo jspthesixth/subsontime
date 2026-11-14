@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { searchAll } from "./search-all.ts";
 import type { Candidate, Source, VideoQuery } from "./source.ts";
 
@@ -18,32 +18,78 @@ const source = (name: string, search: Source["search"]): Source => ({
   download: async () => new Uint8Array(),
 });
 
+const names = (candidates: Candidate[]) => candidates.map((entry) => entry.sourceName);
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("searchAll", () => {
-  it("skips failed and slow sources", async () => {
+  it("skips a failed source and one that never settles", async () => {
     const sources = [
       source("broken", async () => {
         throw new Error("down");
       }),
+      source("stuck", () => new Promise<Candidate[]>(() => {})),
+      source("fast", async () => [candidate("fast")]),
+    ];
+    const result = searchAll(sources, query);
+
+    await vi.advanceTimersByTimeAsync(4000);
+
+    expect(names(await result)).toEqual(["fast"]);
+  });
+
+  it("does not wait past the deadline for a slow source", async () => {
+    const sources = [
       source(
         "slow",
-        (_query, signal) =>
-          new Promise((resolve, reject) => {
-            const timer = setTimeout(() => resolve([candidate("slow")]), 200);
-
-            signal.addEventListener("abort", () => {
-              clearTimeout(timer);
-              reject(signal.reason);
-            });
-          }),
+        () =>
+          new Promise<Candidate[]>((resolve) =>
+            setTimeout(() => resolve([candidate("slow")]), 5000),
+          ),
       ),
       source("fast", async () => [candidate("fast")]),
     ];
-    const started = Date.now();
+    const result = searchAll(sources, query);
 
-    const candidates = await searchAll(sources, query, 50);
+    await vi.advanceTimersByTimeAsync(4000);
 
-    expect(candidates.map((entry) => entry.sourceName)).toEqual(["fast"]);
-    expect(Date.now() - started).toBeLessThan(150);
+    expect(names(await result)).toEqual(["fast"]);
+  });
+
+  it("aborts the signal of a source at the deadline", async () => {
+    let aborted = false;
+    const sources = [
+      source("stuck", (_query, signal) => {
+        signal.addEventListener("abort", () => {
+          aborted = true;
+        });
+
+        return new Promise<Candidate[]>(() => {});
+      }),
+    ];
+    const result = searchAll(sources, query);
+
+    await vi.advanceTimersByTimeAsync(4000);
+    await result;
+
+    expect(aborted).toBe(true);
+  });
+
+  it("skips a source that throws synchronously", async () => {
+    const sources = [
+      source("sync", () => {
+        throw new Error("boom");
+      }),
+      source("fast", async () => [candidate("fast")]),
+    ];
+
+    expect(names(await searchAll(sources, query))).toEqual(["fast"]);
   });
 
   it("keeps source order", async () => {
@@ -52,8 +98,6 @@ describe("searchAll", () => {
       source("b", async () => [candidate("b")]),
     ];
 
-    const candidates = await searchAll(sources, query);
-
-    expect(candidates.map((entry) => entry.sourceName)).toEqual(["a", "b"]);
+    expect(names(await searchAll(sources, query))).toEqual(["a", "b"]);
   });
 });

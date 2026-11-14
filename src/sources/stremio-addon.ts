@@ -41,9 +41,20 @@ export const parseStremioId = (
   throw new Error("Unsupported video id");
 };
 
+const videoId = (query: VideoQuery) => {
+  if (query.type === "movie") {
+    return query.imdbId;
+  }
+
+  if (query.season === undefined || query.episode === undefined) {
+    throw new Error("Unsupported video id");
+  }
+
+  return `${query.imdbId}:${query.season}:${query.episode}`;
+};
+
 const requestURL = (manifestURL: string, query: VideoQuery) => {
-  const id =
-    query.type === "series" ? `${query.imdbId}:${query.season}:${query.episode}` : query.imdbId;
+  const id = videoId(query);
   const extras = [
     query.videoHash === undefined ? [] : [`videoHash=${query.videoHash}`],
     query.videoSize === undefined ? [] : [`videoSize=${query.videoSize}`],

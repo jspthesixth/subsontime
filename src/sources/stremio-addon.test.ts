@@ -108,6 +108,20 @@ describe("stremioAddonSource", () => {
     await expect(openSubtitlesV3.search(movie, AbortSignal.timeout(1000))).resolves.toEqual([]);
   });
 
+  it("returns no candidates for a 200 response with an HTML body", async () => {
+    stubFetch("<html>Welcome</html>");
+
+    await expect(openSubtitlesV3.search(movie, AbortSignal.timeout(1000))).resolves.toEqual([]);
+  });
+
+  it("rejects a series query without season and episode", async () => {
+    stubFetch(JSON.stringify({ subtitles: [] }));
+
+    await expect(
+      openSubtitlesV3.search({ ...movie, type: "series" }, AbortSignal.timeout(1000)),
+    ).rejects.toThrow("Unsupported video id");
+  });
+
   it("downloads the body bytes", async () => {
     stubFetch(new Uint8Array([1, 2, 3]));
 
