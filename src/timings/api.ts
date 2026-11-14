@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
+import { parseJSON } from "../json.ts";
 import {
   digest,
   present,
@@ -177,12 +178,30 @@ const encodeDigest = (sections: Digest) =>
     })),
   );
 
-const decodeDigest = (text: string): Digest =>
-  (JSON.parse(text) as StoredSection[]).map(({ mismatchers, hiddenMismatch, ...section }) => ({
-    ...section,
-    mismatch: section.hidden[hiddenMismatch] ?? section.mismatch,
-    mismatchers: new Set(mismatchers),
-  }));
+const rankedSchema = v.looseObject({ view: v.looseObject({}), newest: v.number() });
+const storedSchema = v.array(
+  v.looseObject({
+    fixView: v.optional(
+      v.looseObject({ view: v.looseObject({ cues: v.array(v.unknown()) }), newest: v.number() }),
+    ),
+    mismatch: v.optional(rankedSchema),
+    hidden: v.array(rankedSchema),
+    mismatchers: v.array(v.string()),
+    hiddenMismatch: v.number(),
+  }),
+);
+
+const decodeDigest = (text: string): Digest | undefined => {
+  const parsed = v.safeParse(storedSchema, parseJSON(text));
+
+  return parsed.success
+    ? (parsed.output as StoredSection[]).map(({ mismatchers, hiddenMismatch, ...section }) => ({
+        ...section,
+        mismatch: section.hidden[hiddenMismatch] ?? section.mismatch,
+        mismatchers: new Set(mismatchers),
+      }))
+    : undefined;
+};
 
 export const sharedSummaries = (state: SharedState): Summaries => ({
   async read(video, load) {
@@ -195,9 +214,10 @@ export const sharedSummaries = (state: SharedState): Summaries => ({
 
     const key = `sum:${id}:${version}`;
     const cached = await orMiss(() => state.get(key), undefined);
+    const decoded = cached === undefined ? undefined : decodeDigest(cached);
 
-    if (cached !== undefined) {
-      return decodeDigest(cached);
+    if (decoded !== undefined) {
+      return decoded;
     }
 
     const sections = await load();

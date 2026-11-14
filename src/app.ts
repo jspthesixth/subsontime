@@ -22,7 +22,7 @@ import { checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
 import { homePage } from "./web/home-page.ts";
 import { setupPage } from "./web/setup-page.ts";
-import { rateLimit } from "./web/rate-limit.ts";
+import { limitKeyOf, rateLimit } from "./web/rate-limit.ts";
 import { sourceCheckRoute } from "./web/source-check-route.ts";
 
 export type AppDeps = {
@@ -69,9 +69,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   const clientKey = deps.clientKey ?? (() => "anonymous");
   const shared = deps.state;
   const state = shared ?? memorySharedState();
-  const originOf = dailyOrigins(state);
+  const limitKey = limitKeyOf(deps.secret);
   const titleLimit = {
-    allow: failOpen(rateLimit(state, originOf, "titles", 60, 60_000)),
+    allow: failOpen(rateLimit(state, limitKey, "titles", 60, 60_000)),
     clientKey,
   };
   const apiBody = bodyLimit({ maxSize: apiBodyLimit, onError: tooLarge });
@@ -127,7 +127,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.post(
     "/api/sources/check",
     sourceCheckRoute({
-      allow: failOpen(rateLimit(state, originOf, "sources", 10, 60_000)),
+      allow: failOpen(rateLimit(state, limitKey, "sources", 10, 60_000)),
       clientKey,
     }),
   );
@@ -136,7 +136,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     checkRoute({
       ...routeDeps,
       secret: deps.secret,
-      allow: failOpen(rateLimit(state, originOf, "check", 10, 60_000)),
+      allow: failOpen(rateLimit(state, limitKey, "check", 10, 60_000)),
       clientKey,
     }),
   );
@@ -147,9 +147,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     const timingsDeps = {
       store: deps.timings ?? memoryStore(),
       installSalt: deps.installSalt,
-      allow: rateLimit(state, originOf, "writes", writesPerHour, hourMs),
+      allow: rateLimit(state, limitKey, "writes", writesPerHour, hourMs),
       clientKey,
-      originOf,
+      originOf: dailyOrigins(state),
       groupingKey: groupingKeyOf(deps.installSalt),
       summaries: shared === undefined ? undefined : sharedSummaries(shared),
     };
@@ -170,7 +170,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
     try {
       context.set("config", unseal(token, deps.secret));
-      context.set("tokens", tokenCacheFor(state, installKeyOf(token)));
+      context.set("tokens", tokenCacheFor(state, deps.secret, installKeyOf(token)));
     } catch (error) {
       const newer = error instanceof ConfigError && error.message === newerLinkMessage;
 

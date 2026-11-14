@@ -1,7 +1,13 @@
 import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import type { Candidate, Source, VideoQuery } from "./source.ts";
+import {
+  maximumDownloadBytes,
+  maximumSearchBytes,
+  type Candidate,
+  type Source,
+  type VideoQuery,
+} from "./source.ts";
 
 const searchTimeoutMs = 4000;
 const downloadTimeoutMs = 8000;
@@ -86,7 +92,7 @@ export const stremioAddonSource = (manifestURL: string, name: string): Source =>
   async search(query, signal) {
     const response = await fetchWithTimeout(
       requestURL(manifestURL, query),
-      { signal },
+      { signal, maxBytes: maximumSearchBytes },
       searchTimeoutMs,
     );
     const body = await response.json().catch(() => undefined);
@@ -102,7 +108,11 @@ export const stremioAddonSource = (manifestURL: string, name: string): Source =>
       .filter((candidate) => query.languages.includes(candidate.lang));
   },
   async download(ref, signal) {
-    const response = await fetchWithTimeout(ref, { signal }, downloadTimeoutMs);
+    const response = await fetchWithTimeout(
+      ref,
+      { signal, maxBytes: maximumDownloadBytes },
+      downloadTimeoutMs,
+    );
 
     if (!response.ok) {
       throw new Error(`Download failed with status ${response.status}`);

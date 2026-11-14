@@ -26,3 +26,6 @@ export interface Source {
   search(query: VideoQuery, signal: AbortSignal): Promise<Candidate[]>;
   download(ref: string, signal: AbortSignal): Promise<Uint8Array>;
 }
+
+export const maximumSearchBytes = 2 * 1024 * 1024;
+export const maximumDownloadBytes = 5 * 1024 * 1024;

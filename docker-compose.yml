@@ -20,7 +20,7 @@ services:
     profiles: [redis]
 
   redis-http:
-    image: hiett/serverless-redis-http:latest
+    image: hiett/serverless-redis-http:0.0.10
     profiles: [redis]
     environment:
       SRH_MODE: env

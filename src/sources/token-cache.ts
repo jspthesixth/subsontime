@@ -41,8 +41,13 @@ const decrypt = (stored: string, key: Buffer, label: string) => {
 export const installKeyOf = (sealed: string): Uint8Array =>
   createHash("sha256").update(Buffer.from(sealed, "base64url")).digest();
 
-export const tokenCacheFor = (state: SharedState, installKey: Uint8Array): TokenCache => {
-  const key = Buffer.from(hkdfSync("sha256", installKey, new Uint8Array(), "tokens", 32));
+export const tokenCacheFor = (
+  state: SharedState,
+  secret: string,
+  installKey: Uint8Array,
+): TokenCache => {
+  const salt = createHash("sha256").update(`tokens:${secret}`).digest();
+  const key = Buffer.from(hkdfSync("sha256", installKey, salt, "tokens", 32));
   const install = Buffer.from(installKey).toString("hex");
 
   const storageKey = (name: string) =>
@@ -50,15 +55,15 @@ export const tokenCacheFor = (state: SharedState, installKey: Uint8Array): Token
 
   return {
     async get(name) {
-      const label = storageKey(name);
-      const stored = await orMiss(() => state.get(label), undefined);
+      const stored = await orMiss(() => state.get(storageKey(name)), undefined);
 
-      return stored === undefined ? undefined : decrypt(stored, key, label);
+      return stored === undefined ? undefined : decrypt(stored, key, name);
     },
     async set(name, token, ttlSeconds) {
-      const label = storageKey(name);
-
-      await orMiss(() => state.set(label, encrypt(token, key, label), ttlSeconds), undefined);
+      await orMiss(
+        () => state.set(storageKey(name), encrypt(token, key, name), ttlSeconds),
+        undefined,
+      );
     },
   };
 };

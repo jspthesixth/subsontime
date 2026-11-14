@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Context } from "hono";
 import * as v from "valibot";
 import type { RouteDeps } from "../app.ts";
@@ -7,7 +8,7 @@ import { invalidLinkMessage } from "../config/seal.ts";
 import { fetchWithTimeout } from "../http.ts";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
-import type { Candidate, VideoQuery } from "../sources/source.ts";
+import { maximumSearchBytes, type Candidate, type VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import { installKeyOf, tokenCacheFor } from "../sources/token-cache.ts";
 import {
@@ -41,7 +42,10 @@ type LimitDeps = {
 type CheckDeps = RouteDeps & LimitDeps & { secret: string; state: SharedState };
 
 type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
-type Slot = { status: "taken"; key: string } | { status: "busy" } | { status: "unknown" };
+type Slot =
+  | { status: "taken"; key: string; holder: string }
+  | { status: "busy" }
+  | { status: "unknown" };
 type CatalogType = "movie" | "series";
 
 const budgetMs = 20_000;
@@ -240,19 +244,19 @@ const runCheck = async (config: Config, sources: SourceSet, query: VideoQuery, s
   };
 };
 
-const takeSlot = async (state: SharedState, index = 0): Promise<Slot> => {
+const takeSlot = async (state: SharedState, holder: string, index = 0): Promise<Slot> => {
   if (index >= maximumRunning) {
     return { status: "busy" };
   }
 
   const key = `slot:check:${index}`;
-  const taken = await orMiss(() => state.setIfAbsent(key, "1", slotSeconds), undefined);
+  const taken = await orMiss(() => state.setIfAbsent(key, holder, slotSeconds), undefined);
 
   if (taken === undefined) {
     return { status: "unknown" };
   }
 
-  return taken ? { status: "taken", key } : takeSlot(state, index + 1);
+  return taken ? { status: "taken", key, holder } : takeSlot(state, holder, index + 1);
 };
 
 const hold = (state: SharedState, slot: Slot) => {
@@ -260,14 +264,15 @@ const hold = (state: SharedState, slot: Slot) => {
     return async () => {};
   }
 
+  const { key, holder } = slot;
   const refresh = setInterval(
-    () => void orMiss(() => state.set(slot.key, "1", slotSeconds), undefined),
+    () => void orMiss(() => state.expireIfEquals(key, holder, slotSeconds), false),
     slotRefreshMs,
   ).unref();
 
   return async () => {
     clearInterval(refresh);
-    await orMiss(() => state.delete(slot.key), undefined);
+    await orMiss(() => state.deleteIfEquals(key, holder), false);
   };
 };
 
@@ -302,7 +307,7 @@ export const checkRoute =
       return context.json({ error: unsupportedVideoMessage }, 400);
     }
 
-    const slot = await takeSlot(state);
+    const slot = await takeSlot(state, randomUUID());
 
     if (slot.status === "busy") {
       return context.json({ error: busyMessage }, 429);
@@ -310,7 +315,7 @@ export const checkRoute =
 
     const release = hold(state, slot);
     const { config, sealed } = install;
-    const tokens = tokenCacheFor(state, installKeyOf(sealed));
+    const tokens = tokenCacheFor(state, secret, installKeyOf(sealed));
 
     try {
       return context.json(
@@ -329,7 +334,7 @@ export const checkRoute =
 const searchCatalog = async (type: CatalogType, query: string) => {
   const response = await fetchWithTimeout(
     `${cinemetaURL}/catalog/${type}/top/search=${encodeURIComponent(query)}.json`,
-    {},
+    { maxBytes: maximumSearchBytes },
     cinemetaTimeoutMs,
   );
 
@@ -403,7 +408,7 @@ const listEpisodes = async (context: Context) => {
 
   const meta = await fetchWithTimeout(
     `${cinemetaURL}/meta/series/${id}.json`,
-    {},
+    { maxBytes: maximumSearchBytes },
     cinemetaTimeoutMs,
   )
     .then(async (response) => v.parse(seriesSchema, await response.json()).meta)

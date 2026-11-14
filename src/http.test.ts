@@ -210,3 +210,32 @@ describe("fetchWithTimeout redirects", () => {
     expect(target.requests[0]?.headers).not.toHaveProperty("cookie");
   });
 });
+
+describe("fetchWithTimeout maxBytes", () => {
+  const body = "x".repeat(3000);
+
+  it("returns a body within the limit unchanged", async () => {
+    const { origin } = await listen((_, response) => response.end(body));
+    const response = await fetchWithTimeout(`${origin}/`, { maxBytes: 3000 }, 1000, local);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+  });
+
+  it.each([
+    ["with a length header", (response: ServerResponse) => response.end(body)],
+    [
+      "streamed without a length",
+      (response: ServerResponse) => {
+        response.write(body.slice(0, 1000));
+        setTimeout(() => response.end(body.slice(1000)), 20);
+      },
+    ],
+  ])("throws past the limit %s", async (_, send) => {
+    const { origin } = await listen((__, response) => send(response));
+
+    await expect(fetchWithTimeout(`${origin}/`, { maxBytes: 2999 }, 1000, local)).rejects.toThrow(
+      "Response too large",
+    );
+  });
+});

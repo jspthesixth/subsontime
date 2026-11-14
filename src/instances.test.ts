@@ -27,8 +27,8 @@ const video = { hash: "0123456789abcdef", size: 7_345_678_901 };
 const lookUpPath = `/api/v1/fixes?video=${video.hash}:${video.size}`;
 const movie = { type: "movie", id: "tt0111161" };
 
-const failing = async (): Promise<never> => {
-  throw new Error("Redis is down");
+const failing = async (...args: unknown[]): Promise<never> => {
+  throw new Error(`Redis is down, command was: ${JSON.stringify(args)}`);
 };
 
 const brokenState: SharedState = {
@@ -37,6 +37,8 @@ const brokenState: SharedState = {
   setIfAbsent: failing,
   delete: failing,
   increment: failing,
+  deleteIfEquals: failing,
+  expireIfEquals: failing,
 };
 
 const subtitleSources = (delayMs?: number) => {
@@ -176,7 +178,8 @@ describe("two instances on one shared state", () => {
     });
 
     const state = memorySharedState();
-    const set = vi.spyOn(state, "set");
+    const setIfAbsent = vi.spyOn(state, "setIfAbsent");
+    const expireIfEquals = vi.spyOn(state, "expireIfEquals");
     const source = fakeSource("Fake", [{ ref: "a", hang: true }]);
     const sources: SourceSet = { listed: [source], references: [] };
     const one = instance(state, { sourcesFor: () => sources });
@@ -192,7 +195,10 @@ describe("two instances on one shared state", () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
 
-    const refreshed = set.mock.calls.filter(([key]) => key.startsWith("slot:check:"));
+    const tried = setIfAbsent.mock.calls
+      .filter(([key]) => key.startsWith("slot:check:"))
+      .map(([key, value, ttl]) => [key, value, ttl]);
+    const refreshed = expireIfEquals.mock.calls.map(([key, value, ttl]) => [key, value, ttl]);
 
     await vi.advanceTimersByTimeAsync(11_000);
 
@@ -203,12 +209,15 @@ describe("two instances on one shared state", () => {
 
     expect(third.status).toBe(429);
     expect(await third.json()).toEqual({ error: "Busy, try again in a moment" });
-    expect(refreshed.map(([key, , ttl]) => [key, ttl]).toSorted()).toEqual([
-      ["slot:check:0", 30],
-      ["slot:check:1", 30],
-    ]);
+    expect(refreshed.map(([key]) => key).toSorted()).toEqual(["slot:check:0", "slot:check:1"]);
+    expect(new Set(refreshed.map(([, holder]) => holder)).size).toBe(2);
+    refreshed.forEach((call) => expect(tried).toContainEqual(call));
     expect(statuses.map((response) => response.status)).toEqual([200, 200]);
     expect((await after).status).toBe(200);
+    expect([await state.get("slot:check:0"), await state.get("slot:check:1")]).toEqual([
+      undefined,
+      undefined,
+    ]);
   });
 
   it("free a check slot whose holder crashed after 30 seconds", async () => {
@@ -260,6 +269,69 @@ describe("two instances on one shared state", () => {
 
     expect(keys.some((key) => key.startsWith("rl:"))).toBe(true);
     keys.forEach((key) => expect(key).not.toContain(address));
+  });
+
+  it("key rate limits apart from the Open Timings origin of the same client", async () => {
+    const state = memorySharedState();
+    const store = memoryStore();
+    const increment = vi.spyOn(state, "increment");
+    const app = instance(state, { timings: store });
+
+    expect((await post(app, "/api/v1/fixes", fixBody(), "198.51.100.7")).status).toBe(202);
+
+    const [fix] = await store.fixesFor(video);
+    const limitKeys = increment.mock.calls
+      .map(([key]) => key)
+      .filter((key) => key.startsWith("rl:"));
+
+    expect(limitKeys).toHaveLength(1);
+    expect(limitKeys[0]).toMatch(/^rl:writes:[0-9a-f]{16}:\d+$/);
+    expect(limitKeys[0]).not.toContain(fix?.origin ?? "missing");
+  });
+
+  it("serve a cached subtitle for another spelling of the same path", async () => {
+    const state = memorySharedState();
+    const first = subtitleSources();
+    const second = subtitleSources();
+
+    await instance(state, { sourcesFor: () => first.sources }).request(subPath);
+
+    const response = await instance(state, { sourcesFor: () => second.sources }).request(
+      subPath.replace(/\.srt$/, "%2Esrt"),
+    );
+
+    expect(await response.text()).toBe(writeSRT(track));
+    expect(second.source.download).not.toHaveBeenCalled();
+  });
+
+  it("treat a malformed shared result or summary as a miss", async () => {
+    const state = memorySharedState();
+    const store = memoryStore();
+    const { source, sources } = subtitleSources();
+    const app = instance(state, { sourcesFor: () => sources, timings: store });
+    const set = vi.spyOn(state, "set");
+
+    await post(app, "/api/v1/fixes", fixBody());
+    await app.request(lookUpPath);
+    await app.request(subPath);
+
+    const written = set.mock.calls.map(([key]) => key);
+
+    await Promise.all(
+      written.map((key) =>
+        key.startsWith("srt:") ? state.delete(key) : state.set(key, "{malformed", 60),
+      ),
+    );
+
+    const fresh = instance(state, { sourcesFor: () => sources, timings: store });
+    const file = await fresh.request(subPath);
+    const fixes = await fixesOf(fresh);
+
+    expect(written.some((key) => key.startsWith("sum:"))).toBe(true);
+    expect(written.some((key) => key.startsWith("flight-result:"))).toBe(true);
+    expect(await file.text()).toBe(writeSRT(track));
+    expect(fixes).toHaveLength(1);
+    expect(source.download).toHaveBeenCalledTimes(2);
   });
 
   it("never serve a summary read before a write on another instance", async () => {
@@ -351,7 +423,7 @@ describe("a shared state that fails on every call", () => {
     const { source, sources } = subtitleSources();
     const app = instance(brokenState, { sourcesFor: () => sources, timings: memoryStore() });
     const listing = await app.request(`/${token}/subtitles/movie/tt0111161.json`);
-    const files = await Promise.all([app.request(subPath), app.request(subPath)]);
+    const files = [await app.request(subPath), await app.request(subPath)];
 
     expect(source.download).toHaveBeenCalledTimes(2);
     expect((await app.request("/health")).status).toBe(200);
@@ -364,7 +436,10 @@ describe("a shared state that fails on every call", () => {
     expect(files.map((file) => file.status)).toEqual([200, 200]);
     expect(await files[0]?.text()).toBe(writeSRT(track));
     expect((await app.request(lookUpPath)).status).toBe(200);
-    expect(log.mock.calls.flat().join(" ")).not.toContain(token);
+    expect(log.mock.calls.length).toBeGreaterThan(0);
+    log.mock.calls.forEach((call) =>
+      expect(call).toEqual([expect.stringMatching(/^Shared state failed: \w+$/)]),
+    );
   });
 
   it.each([

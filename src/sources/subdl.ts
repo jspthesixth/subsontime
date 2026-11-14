@@ -3,7 +3,13 @@ import { fetchWithTimeout } from "../http.ts";
 import { verdictOf } from "./check.ts";
 import { toISO6391, toISO6392 } from "../languages.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import type { Candidate, Source, VideoQuery } from "./source.ts";
+import {
+  maximumDownloadBytes,
+  maximumSearchBytes,
+  type Candidate,
+  type Source,
+  type VideoQuery,
+} from "./source.ts";
 import { pickSubtitleEntry } from "./zip.ts";
 
 const sourceName = "SubDL";
@@ -105,7 +111,11 @@ export const subdlSource = (apiKey: string): Source => ({
         : {}),
       subs_per_page: "30",
     });
-    const response = await fetchWithTimeout(`${searchURL}?${params}`, { signal }, searchTimeoutMs);
+    const response = await fetchWithTimeout(
+      `${searchURL}?${params}`,
+      { signal, maxBytes: maximumSearchBytes },
+      searchTimeoutMs,
+    );
     const parsed = v.safeParse(searchSchema, await response.json().catch(() => undefined));
 
     if (!response.ok || !parsed.success) {
@@ -128,7 +138,11 @@ export const subdlSource = (apiKey: string): Source => ({
     }
 
     const [, path = "", tag] = match;
-    const response = await fetchWithTimeout(`${downloadURL}${path}`, { signal }, downloadTimeoutMs);
+    const response = await fetchWithTimeout(
+      `${downloadURL}${path}`,
+      { signal, maxBytes: maximumDownloadBytes },
+      downloadTimeoutMs,
+    );
 
     if (!response.ok) {
       throw new Error("SubDL download failed");
@@ -151,5 +165,8 @@ export const checkSubDL = async (apiKey: string, timeoutMs: number) => {
     subs_per_page: "1",
   });
 
-  return verdictOf(await fetchWithTimeout(`${searchURL}?${params}`, {}, timeoutMs), searchSchema);
+  return verdictOf(
+    await fetchWithTimeout(`${searchURL}?${params}`, { maxBytes: maximumSearchBytes }, timeoutMs),
+    searchSchema,
+  );
 };

@@ -72,19 +72,25 @@ test("dailyOrigins rejects when the shared state fails", async () => {
   await expect(originOf("1.2.3.4")).rejects.toThrow("Redis is down");
 });
 
-test("dailyOrigins reads the daily key from the state once a day", async () => {
+test("dailyOrigins reads the daily key again every ten minutes and on a new day", async () => {
   let now = day;
   const state = memorySharedState();
   const get = vi.spyOn(state, "get");
   const originOf = dailyOrigins(state, () => now);
 
   await originOf("1.2.3.4");
+  now = day + 599_999;
   await originOf("5.6.7.8");
 
   expect(get).toHaveBeenCalledTimes(1);
 
-  now = day + dayMs;
+  now = day + 600_000;
   await originOf("1.2.3.4");
 
   expect(get).toHaveBeenCalledTimes(2);
+
+  now = day + dayMs;
+  await originOf("1.2.3.4");
+
+  expect(get).toHaveBeenCalledTimes(3);
 });

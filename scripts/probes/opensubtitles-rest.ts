@@ -23,7 +23,7 @@ const signal = () => AbortSignal.timeout(10000);
 const source = openSubtitlesSource(
   { username, password },
   appKey,
-  tokenCacheFor(memorySharedState(), installKeyOf("")),
+  tokenCacheFor(memorySharedState(), "probe", installKeyOf("")),
 );
 const byImdb = await source.search({ type: "movie", imdbId, languages }, signal());
 const byHash = await source.search({ type: "movie", imdbId, videoHash: hash, languages }, signal());

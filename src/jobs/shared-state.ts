@@ -6,6 +6,8 @@ export interface SharedState {
   setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean>;
   delete(key: string): Promise<void>;
   increment(key: string, ttlSeconds: number): Promise<number>;
+  deleteIfEquals(key: string, value: string): Promise<boolean>;
+  expireIfEquals(key: string, value: string, ttlSeconds: number): Promise<boolean>;
 }
 
 type Entry = { value: string; expiresAt: number };
@@ -17,15 +19,33 @@ class SharedStatePaused extends Error {
 const keyPrefix = "sot:v1:";
 const requestTimeoutMs = 2000;
 const pauseMs = 10_000;
+const maximumValueBytes = 512 * 1024;
+const transportErrorNames = new Set(["AbortError", "TimeoutError", "TypeError"]);
 const incrementScript = `local count = redis.call("INCR", KEYS[1])
 if count == 1 then redis.call("EXPIRE", KEYS[1], ARGV[1]) end
 return count`;
+const deleteIfEqualsScript = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) end
+return 0`;
+const expireIfEqualsScript = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("EXPIRE", KEYS[1], ARGV[2]) end
+return 0`;
+
+const fits = (value: string) => Buffer.byteLength(value) <= maximumValueBytes;
+
+const codeOf = (value: unknown) =>
+  typeof value === "object" && value !== null && "code" in value ? String(value.code) : "";
+
+const isTransportFailure = (error: unknown) =>
+  error instanceof Error &&
+  (transportErrorNames.has(error.name) ||
+    [codeOf(error), codeOf(error.cause)].some((code) => code.startsWith("ECONN")));
 
 export const orMiss = async <T>(work: () => Promise<T>, miss: T): Promise<T> => {
   try {
     return await work();
   } catch (error) {
-    console.error(`Shared state failed: ${error instanceof Error ? error.name : "unknown"}`);
+    if (!(error instanceof SharedStatePaused)) {
+      console.error(`Shared state failed: ${error instanceof Error ? error.name : "unknown"}`);
+    }
 
     return miss;
   }
@@ -66,10 +86,12 @@ export const memorySharedState = (now = () => Date.now(), maxKeys = 50_000) => {
       return live(key)?.value;
     },
     async set(key: string, value: string, ttlSeconds: number) {
-      put(key, value, ttlSeconds);
+      if (fits(value)) {
+        put(key, value, ttlSeconds);
+      }
     },
     async setIfAbsent(key: string, value: string, ttlSeconds: number) {
-      if (live(key) !== undefined) {
+      if (!fits(value) || live(key) !== undefined) {
         return false;
       }
 
@@ -93,26 +115,65 @@ export const memorySharedState = (now = () => Date.now(), maxKeys = 50_000) => {
 
       return Number(entry.value);
     },
+    async deleteIfEquals(key: string, value: string) {
+      if (live(key)?.value !== value) {
+        return false;
+      }
+
+      entries.delete(key);
+
+      return true;
+    },
+    async expireIfEquals(key: string, value: string, ttlSeconds: number) {
+      const entry = live(key);
+
+      if (entry?.value !== value) {
+        return false;
+      }
+
+      entry.expiresAt = now() + ttlSeconds * 1000;
+
+      return true;
+    },
   } satisfies SharedState & { keyCount: () => number };
 };
 
-export const upstashSharedState = (redis: Redis): SharedState => ({
-  async get(key) {
-    return (await redis.get<string>(keyPrefix + key)) ?? undefined;
-  },
-  async set(key, value, ttlSeconds) {
-    await redis.set(keyPrefix + key, value, { ex: ttlSeconds });
-  },
-  async setIfAbsent(key, value, ttlSeconds) {
-    return (await redis.set(keyPrefix + key, value, { nx: true, ex: ttlSeconds })) === "OK";
-  },
-  async delete(key) {
-    await redis.del(keyPrefix + key);
-  },
-  async increment(key, ttlSeconds) {
-    return Number(await redis.eval(incrementScript, [keyPrefix + key], [ttlSeconds]));
-  },
-});
+export const upstashSharedState = (redis: Redis): SharedState => {
+  const increment = redis.createScript(incrementScript);
+  const deleteIfEquals = redis.createScript(deleteIfEqualsScript);
+  const expireIfEquals = redis.createScript(expireIfEqualsScript);
+
+  return {
+    async get(key) {
+      return (await redis.get<string>(keyPrefix + key)) ?? undefined;
+    },
+    async set(key, value, ttlSeconds) {
+      if (fits(value)) {
+        await redis.set(keyPrefix + key, value, { ex: ttlSeconds });
+      }
+    },
+    async setIfAbsent(key, value, ttlSeconds) {
+      return (
+        fits(value) &&
+        (await redis.set(keyPrefix + key, value, { nx: true, ex: ttlSeconds })) === "OK"
+      );
+    },
+    async delete(key) {
+      await redis.del(keyPrefix + key);
+    },
+    async increment(key, ttlSeconds) {
+      return Number(await increment.exec([keyPrefix + key], [String(ttlSeconds)]));
+    },
+    async deleteIfEquals(key, value) {
+      return Number(await deleteIfEquals.exec([keyPrefix + key], [value])) === 1;
+    },
+    async expireIfEquals(key, value, ttlSeconds) {
+      return (
+        Number(await expireIfEquals.exec([keyPrefix + key], [value, String(ttlSeconds)])) === 1
+      );
+    },
+  };
+};
 
 export const pausedAfterFailure = (state: SharedState, now = () => Date.now()): SharedState => {
   let pausedUntil = 0;
@@ -125,7 +186,9 @@ export const pausedAfterFailure = (state: SharedState, now = () => Date.now()): 
     try {
       return await work();
     } catch (error) {
-      pausedUntil = now() + pauseMs;
+      if (isTransportFailure(error)) {
+        pausedUntil = now() + pauseMs;
+      }
 
       throw error;
     }
@@ -137,6 +200,9 @@ export const pausedAfterFailure = (state: SharedState, now = () => Date.now()): 
     setIfAbsent: (key, value, ttlSeconds) => call(() => state.setIfAbsent(key, value, ttlSeconds)),
     delete: (key) => call(() => state.delete(key)),
     increment: (key, ttlSeconds) => call(() => state.increment(key, ttlSeconds)),
+    deleteIfEquals: (key, value) => call(() => state.deleteIfEquals(key, value)),
+    expireIfEquals: (key, value, ttlSeconds) =>
+      call(() => state.expireIfEquals(key, value, ttlSeconds)),
   };
 };
 

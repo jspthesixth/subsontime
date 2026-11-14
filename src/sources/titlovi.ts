@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
+import { parseJSON } from "../json.ts";
 import { verdictOf } from "./check.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import type { Candidate, Source, VideoQuery } from "./source.ts";
+import {
+  maximumDownloadBytes,
+  maximumSearchBytes,
+  type Candidate,
+  type Source,
+  type VideoQuery,
+} from "./source.ts";
 import type { TokenCache } from "./token-cache.ts";
 import { pickSubtitleEntry } from "./zip.ts";
 
@@ -50,14 +57,6 @@ const rowSchema = v.object({
 type Credentials = { username: string; password: string };
 type Session = v.InferOutput<typeof sessionSchema>;
 type Row = v.InferOutput<typeof rowSchema>;
-
-const parseJSON = (text: string): unknown => {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-};
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
@@ -127,7 +126,11 @@ const toCandidate = (row: Row, query: VideoQuery): Candidate[] => {
 };
 
 const fetchSearch = (query: VideoQuery, names: string[], session: Session, signal: AbortSignal) =>
-  fetchWithTimeout(searchURL(query, names, session), { signal }, searchTimeoutMs);
+  fetchWithTimeout(
+    searchURL(query, names, session),
+    { signal, maxBytes: maximumSearchBytes },
+    searchTimeoutMs,
+  );
 
 const requestTokenResponse = (
   credentials: Credentials,
@@ -140,7 +143,11 @@ const requestTokenResponse = (
     json: "true",
   });
 
-  return fetchWithTimeout(`${baseURL}/gettoken?${params}`, { method: "POST", signal }, timeoutMs);
+  return fetchWithTimeout(
+    `${baseURL}/gettoken?${params}`,
+    { method: "POST", signal, maxBytes: maximumSearchBytes },
+    timeoutMs,
+  );
 };
 
 const requestToken = async (credentials: Credentials, timeoutMs: number, signal?: AbortSignal) => {
@@ -218,6 +225,7 @@ export const titloviSource = (credentials: Credentials, tokens: TokenCache): Sou
             Referer: "https://titlovi.com",
           },
           signal,
+          maxBytes: maximumDownloadBytes,
         },
         downloadTimeoutMs,
       );

@@ -18,7 +18,7 @@ const signal = () => AbortSignal.timeout(10000);
 
 const source = titloviSource(
   { username, password },
-  tokenCacheFor(memorySharedState(), installKeyOf("")),
+  tokenCacheFor(memorySharedState(), "probe", installKeyOf("")),
 );
 const candidates = await source.search(
   { type: "movie", imdbId: "tt0111161", languages: ["hrv"] },

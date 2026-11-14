@@ -50,4 +50,5 @@ export const fakeSource = (name: string, entries: Entry[]) => {
   return { name, search, download };
 };
 
-export const memoryTokenCache = () => tokenCacheFor(memorySharedState(), installKeyOf("test"));
+export const memoryTokenCache = () =>
+  tokenCacheFor(memorySharedState(), "test-secret", installKeyOf("test"));

@@ -2,7 +2,13 @@ import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
 import { verdictOf } from "./check.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import type { Candidate, Source, VideoQuery } from "./source.ts";
+import {
+  maximumDownloadBytes,
+  maximumSearchBytes,
+  type Candidate,
+  type Source,
+  type VideoQuery,
+} from "./source.ts";
 import { pickSubtitleEntry } from "./zip.ts";
 
 const sourceName = "SubSource";
@@ -115,7 +121,7 @@ const getData = async (
 ) => {
   const response = await fetchWithTimeout(
     `${baseURL}${path}?${params}`,
-    { headers: { "X-API-Key": apiKey }, signal },
+    { headers: { "X-API-Key": apiKey }, signal, maxBytes: maximumSearchBytes },
     searchTimeoutMs,
   );
   const parsed = v.safeParse(envelopeSchema, await response.json().catch(() => undefined));
@@ -200,13 +206,13 @@ export const subSourceSource = (apiKey: string): Source => ({
 
     const [, id = "", tag] = match;
 
-    try {
-      const response = await fetchWithTimeout(
-        `${baseURL}/subtitles/${id}/download`,
-        { headers: { "X-API-Key": apiKey }, signal },
-        downloadTimeoutMs,
-      );
+    const response = await fetchWithTimeout(
+      `${baseURL}/subtitles/${id}/download`,
+      { headers: { "X-API-Key": apiKey }, signal, maxBytes: maximumDownloadBytes },
+      downloadTimeoutMs,
+    );
 
+    try {
       if (!response.ok) {
         throw new Error("bad status");
       }
@@ -222,7 +228,7 @@ export const checkSubSource = async (apiKey: string, timeoutMs: number) => {
   const params = new URLSearchParams({ searchType: "imdb", imdb: "tt0111161", type: "movie" });
   const response = await fetchWithTimeout(
     `${baseURL}/movies/search?${params}`,
-    { headers: { "X-API-Key": apiKey } },
+    { headers: { "X-API-Key": apiKey }, maxBytes: maximumSearchBytes },
     timeoutMs,
   );
 

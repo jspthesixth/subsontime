@@ -166,13 +166,34 @@ const fetchHop = async (
   return fetchHop(next, nextInit(init, response.status, url, next), guard, redirects + 1);
 };
 
-export const fetchWithTimeout = (
+const readLimited = async (response: Response, maxBytes: number) => {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  for await (const chunk of response.body ?? []) {
+    total += chunk.byteLength;
+
+    if (total > maxBytes) {
+      throw new Error("Response too large");
+    }
+
+    chunks.push(chunk);
+  }
+
+  return new Response(total === 0 ? null : Buffer.concat(chunks), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};
+
+export const fetchWithTimeout = async (
   url: string,
-  init: RequestInit,
+  { maxBytes, ...init }: RequestInit & { maxBytes?: number },
   timeoutMs: number,
   guard: Guard = defaultGuard,
-) =>
-  fetchHop(
+) => {
+  const response = await fetchHop(
     new URL(url),
     {
       ...init,
@@ -184,3 +205,16 @@ export const fetchWithTimeout = (
     guard,
     0,
   );
+
+  if (maxBytes === undefined) {
+    return response;
+  }
+
+  if (Number(response.headers.get("content-length") ?? 0) > maxBytes) {
+    await response.body?.cancel();
+
+    throw new Error("Response too large");
+  }
+
+  return readLimited(response, maxBytes);
+};

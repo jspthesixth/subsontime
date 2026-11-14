@@ -4,7 +4,13 @@ import packageJSON from "../../package.json" with { type: "json" };
 import { fetchWithTimeout } from "../http.ts";
 import { toISO6391, toISO6392 } from "../languages.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import type { Candidate, Source, VideoQuery } from "./source.ts";
+import {
+  maximumDownloadBytes,
+  maximumSearchBytes,
+  type Candidate,
+  type Source,
+  type VideoQuery,
+} from "./source.ts";
 import type { TokenCache } from "./token-cache.ts";
 
 const sourceName = "OpenSubtitles";
@@ -107,6 +113,7 @@ export const openSubtitlesSource = (
         headers: { ...baseHeaders(appKey), "Content-Type": "application/json" },
         body: JSON.stringify({ username: user.username, password: user.password }),
         signal,
+        maxBytes: maximumSearchBytes,
       },
       requestTimeoutMs,
     );
@@ -141,7 +148,7 @@ export const openSubtitlesSource = (
       const queryString = params.map(([key, value]) => `${key}=${value}`).join("&");
       const response = await fetchWithTimeout(
         `${defaultBaseURL}/subtitles?${queryString}`,
-        { headers: baseHeaders(appKey), signal },
+        { headers: baseHeaders(appKey), signal, maxBytes: maximumSearchBytes },
         searchTimeoutMs,
       );
       const parsed = v.safeParse(searchSchema, await response.json().catch(() => undefined));
@@ -167,6 +174,7 @@ export const openSubtitlesSource = (
           },
           body: JSON.stringify({ file_id: Number(ref) }),
           signal,
+          maxBytes: maximumSearchBytes,
         },
         requestTimeoutMs,
       );
@@ -176,7 +184,11 @@ export const openSubtitlesSource = (
         throw new Error(`Download failed with status ${response.status}`);
       }
 
-      const file = await fetchWithTimeout(parsed.output.link, { signal }, requestTimeoutMs);
+      const file = await fetchWithTimeout(
+        parsed.output.link,
+        { signal, maxBytes: maximumDownloadBytes },
+        requestTimeoutMs,
+      );
 
       if (!file.ok) {
         throw new Error(`Download failed with status ${file.status}`);

@@ -113,6 +113,49 @@ const contract = (make: () => Subject) => {
     expect(await state.increment(key("count"), 1)).toBe(1);
   });
 
+  it("skips a value over 512 KB", async () => {
+    const { state } = make();
+    const largest = "x".repeat(512 * 1024);
+    const tooLarge = `${largest}x`;
+
+    await state.set(key("largest"), largest, 60);
+    await state.set(key("too-large"), tooLarge, 60);
+
+    expect(await state.setIfAbsent(key("too-large-lock"), tooLarge, 60)).toBe(false);
+    expect((await state.get(key("largest")))?.length).toBe(largest.length);
+    expect(await state.get(key("too-large"))).toBeUndefined();
+    expect(await state.get(key("too-large-lock"))).toBeUndefined();
+  });
+
+  it("deletes a key only while it holds the given value", async () => {
+    const { state } = make();
+
+    await state.set(key("owned"), "mine", 60);
+
+    expect(await state.deleteIfEquals(key("owned"), "theirs")).toBe(false);
+    expect(await state.get(key("owned"))).toBe("mine");
+    expect(await state.deleteIfEquals(key("owned"), "mine")).toBe(true);
+    expect(await state.get(key("owned"))).toBeUndefined();
+    expect(await state.deleteIfEquals(key("owned"), "mine")).toBe(false);
+  });
+
+  it("extends a key only while it holds the given value", async () => {
+    const { state, pass } = make();
+
+    await state.set(key("held"), "mine", 1);
+    await state.set(key("other"), "theirs", 1);
+
+    expect(await state.expireIfEquals(key("held"), "mine", 60)).toBe(true);
+    expect(await state.expireIfEquals(key("other"), "mine", 60)).toBe(false);
+    expect(await state.expireIfEquals(key("missing"), "mine", 60)).toBe(false);
+
+    await pass(1.5);
+
+    expect(await state.get(key("held"))).toBe("mine");
+    expect(await state.get(key("other"))).toBeUndefined();
+    expect(await state.get(key("missing"))).toBeUndefined();
+  });
+
   it("increments once per call when calls race", async () => {
     const { state } = make();
     const counts = await Promise.all(
@@ -196,11 +239,11 @@ describe("pausedAfterFailure", () => {
     const state = memorySharedState();
     const get = vi
       .spyOn(state, "get")
-      .mockRejectedValueOnce(new Error("Redis is down"))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
       .mockResolvedValue("value");
     const paused = pausedAfterFailure(state, () => now);
 
-    await expect(paused.get("key")).rejects.toThrow("Redis is down");
+    await expect(paused.get("key")).rejects.toThrow("fetch failed");
 
     now = 9999;
 
@@ -214,6 +257,32 @@ describe("pausedAfterFailure", () => {
   });
 });
 
+const named = (name: string) => Object.assign(new Error("failed"), { name });
+
+describe("pausedAfterFailure on each kind of failure", () => {
+  it.each([
+    ["a timeout", named("TimeoutError"), true],
+    ["an abort", named("AbortError"), true],
+    ["a failed fetch", new TypeError("fetch failed"), true],
+    ["a refused connection", new Error("failed", { cause: { code: "ECONNREFUSED" } }), true],
+    ["a reset connection", Object.assign(new Error("failed"), { code: "ECONNRESET" }), true],
+    ["a command error", named("UpstashError"), false],
+    ["any other error", new Error("Value too large"), false],
+  ])("after %s pauses: %s", async (_, error, pauses) => {
+    const state = memorySharedState();
+
+    vi.spyOn(state, "get").mockRejectedValueOnce(error).mockResolvedValue("value");
+
+    const paused = pausedAfterFailure(state, () => 0);
+
+    await expect(paused.get("key")).rejects.toBe(error);
+
+    const next = await paused.get("key").catch((failure: unknown) => failure);
+
+    expect(next instanceof Error && next.name === "SharedStatePaused").toBe(pauses);
+  });
+});
+
 describe("sharedStateFrom", () => {
   it("is undefined without both Upstash variables", () => {
     expect(sharedStateFrom({})).toBeUndefined();
@@ -223,6 +292,24 @@ describe("sharedStateFrom", () => {
 });
 
 describe("orMiss", () => {
+  it("logs nothing while the shared state is paused", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const state = memorySharedState();
+
+    vi.spyOn(state, "get").mockRejectedValue(new TypeError("fetch failed"));
+
+    const paused = pausedAfterFailure(state, () => 0);
+
+    try {
+      await orMiss(() => paused.get("key"), undefined);
+      await orMiss(() => paused.get("key"), undefined);
+
+      expect(log.mock.calls).toEqual([["Shared state failed: TypeError"]]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("answers the miss value and logs only the error name", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
 

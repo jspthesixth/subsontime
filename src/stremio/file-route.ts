@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import type { Context } from "hono";
+import * as v from "valibot";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
+import { parseJSON } from "../json.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
@@ -155,10 +157,14 @@ export const subtitleCache = (state: SharedState): SubtitleCache => ({
 const encodeServed = ({ found, srt }: Served) =>
   JSON.stringify({ found, srt: Buffer.from(srt).toString("base64") });
 
-const decodeServed = (text: string): Served => {
-  const { found, srt } = JSON.parse(text) as Served;
+const servedSchema = v.object({ found: v.boolean(), srt: v.string() });
 
-  return { found, srt: Buffer.from(srt, "base64").toString("utf8") };
+const decodeServed = (text: string): Served | undefined => {
+  const parsed = v.safeParse(servedSchema, parseJSON(text));
+
+  return parsed.success
+    ? { found: parsed.output.found, srt: Buffer.from(parsed.output.srt, "base64").toString("utf8") }
+    : undefined;
 };
 
 const serve = async (ref: SubtitleRef, config: Config, sources: SourceSet): Promise<Served> => {
@@ -196,24 +202,26 @@ export const fileRoute =
       return context.text("Invalid subtitle reference", 400);
     }
 
-    const id = createHash("sha256").update(new URL(context.req.url).pathname).digest("hex");
+    const id = createHash("sha256")
+      .update(`${context.req.param("config") ?? ""}/${context.req.param("file") ?? ""}`)
+      .digest("hex");
     const cached = await subtitles?.get(id);
 
     if (cached !== undefined) {
       return srtResponse(context, cached);
     }
 
-    const served = decodeServed(
-      await singleFlight(id, async () => {
-        const fresh = await serve(ref, config, sourcesFor(config, context.get("tokens")));
+    const produce = async () => {
+      const fresh = await serve(ref, config, sourcesFor(config, context.get("tokens")));
 
-        if (fresh.srt !== "") {
-          await subtitles?.set(id, fresh.srt);
-        }
+      if (fresh.srt !== "") {
+        await subtitles?.set(id, fresh.srt);
+      }
 
-        return encodeServed(fresh);
-      }),
-    );
+      return fresh;
+    };
+    const shared = await singleFlight(id, async () => encodeServed(await produce()));
+    const served = decodeServed(shared) ?? (await produce());
 
     if (!served.found) {
       return context.text("No subtitle fits this file", 404);

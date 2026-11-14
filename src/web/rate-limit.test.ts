@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { memorySharedState } from "../jobs/shared-state.ts";
-import { rateLimit } from "./rate-limit.ts";
+import { limitKeyOf, rateLimit } from "./rate-limit.ts";
 
 const hits = async (allow: (key: string) => Promise<boolean>, key: string, count: number) => {
   const answers: boolean[] = [];
@@ -12,7 +12,7 @@ const hits = async (allow: (key: string) => Promise<boolean>, key: string, count
   return answers;
 };
 
-const plain = async (clientKey: string) => clientKey;
+const plain = (clientKey: string) => clientKey;
 
 describe("rateLimit", () => {
   it("allows the limit in a window and again in the next window", async () => {
@@ -80,10 +80,32 @@ describe("rateLimit", () => {
   it("counts under the key it derives from the client key", async () => {
     const state = memorySharedState();
     const increment = vi.spyOn(state, "increment");
-    const allow = rateLimit(state, async () => "0123456789abcdef", "hashed", 1, 60_000);
+    const allow = rateLimit(state, () => "0123456789abcdef", "hashed", 1, 60_000);
 
     await allow("198.51.100.7");
 
     expect(increment.mock.calls[0]?.[0]).toMatch(/^rl:hashed:0123456789abcdef:\d+$/);
+  });
+});
+
+describe("limitKeyOf", () => {
+  const secret = "a-test-secret-that-is-long-enough-1234";
+  const day = Date.UTC(2026, 10, 14, 12);
+
+  it("is 16 hex characters without the client key, stable within a UTC day", () => {
+    const key = limitKeyOf(secret, () => day)("198.51.100.7");
+
+    expect(key).toMatch(/^[0-9a-f]{16}$/);
+    expect(limitKeyOf(secret, () => day + 11 * 3_600_000)("198.51.100.7")).toBe(key);
+  });
+
+  it("changes with the client, the server secret and the day", () => {
+    const key = limitKeyOf(secret, () => day)("198.51.100.7");
+
+    expect(limitKeyOf(secret, () => day)("198.51.100.8")).not.toBe(key);
+    expect(
+      limitKeyOf("another-secret-that-is-long-enough-12345", () => day)("198.51.100.7"),
+    ).not.toBe(key);
+    expect(limitKeyOf(secret, () => day + 86_400_000)("198.51.100.7")).not.toBe(key);
   });
 });
