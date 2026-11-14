@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
+import { verdictOf } from "./check.ts";
 import { toISO6391, toISO6392 } from "../languages.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import type { Candidate, Source, VideoQuery } from "./source.ts";
@@ -149,9 +150,6 @@ export const checkSubDL = async (apiKey: string, timeoutMs: number) => {
     type: "movie",
     subs_per_page: "1",
   });
-  const response = await fetchWithTimeout(`${searchURL}?${params}`, {}, timeoutMs);
 
-  return (
-    response.ok && v.safeParse(searchSchema, await response.json().catch(() => undefined)).success
-  );
+  return verdictOf(await fetchWithTimeout(`${searchURL}?${params}`, {}, timeoutMs), searchSchema);
 };

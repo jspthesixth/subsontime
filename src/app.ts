@@ -1,4 +1,6 @@
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
 import { ConfigError, type Config } from "./config/config.ts";
 import { invalidLinkMessage, sealedConfigPattern, unseal } from "./config/seal.ts";
@@ -21,6 +23,7 @@ export type AppDeps = {
   publicURL?: string;
   sourcesFor?: (config: Config) => SourceSet;
   staticFiles?: MiddlewareHandler;
+  clientKey?: (context: Context) => string;
 };
 
 export type AppEnv = { Variables: { config: Config } };
@@ -32,6 +35,10 @@ export type RouteDeps = {
 };
 
 const newerLinkMessage = "This install link is from a newer version";
+const notJSONMessage = "Send the request as JSON";
+const tooLargeMessage = "This request is too large";
+const failedMessage = "Something went wrong";
+const apiBodyLimit = 16 * 1024;
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -49,6 +56,14 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   app.notFound((context) => context.text("Not found", 404));
 
+  app.onError((error, context) => {
+    console.error(`${error.name} on ${context.req.routePath}`);
+
+    return error instanceof HTTPException
+      ? error.getResponse()
+      : context.json({ error: failedMessage }, 500);
+  });
+
   app.get("/health", (context) => context.json({ ok: true }));
 
   if (deps.staticFiles !== undefined) {
@@ -57,9 +72,31 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   app.get("/", (context) => context.html(homePage()));
   app.get("/stremio", (context) => context.html(setupPage()));
+  app.use(
+    "/api/*",
+    async (context, next) => {
+      const json = context.req.header("content-type")?.toLowerCase().startsWith("application/json");
+
+      if (context.req.method === "POST" && json !== true) {
+        return context.json({ error: notJSONMessage }, 415);
+      }
+
+      await next();
+    },
+    bodyLimit({
+      maxSize: apiBodyLimit,
+      onError: (context) => context.json({ error: tooLargeMessage }, 413),
+    }),
+  );
   app.post("/api/config", createConfigRoute(deps));
   app.post("/api/config/open", openConfigRoute(deps));
-  app.post("/api/sources/check", sourceCheckRoute(rateLimit(10, 60_000)));
+  app.post(
+    "/api/sources/check",
+    sourceCheckRoute({
+      allow: rateLimit(10, 60_000).allow,
+      clientKey: deps.clientKey ?? (() => "anonymous"),
+    }),
+  );
 
   app.use("/:config/*", cors(), async (context, next) => {
     const token = context.req.param("config") ?? "";

@@ -4,12 +4,16 @@ import { memoryTokenCache } from "../sources/token-cache.ts";
 import { rateLimit } from "./rate-limit.ts";
 
 const newApp = () =>
-  createApp({ secret: "a-test-secret-that-is-long-enough-1234", tokens: memoryTokenCache() });
+  createApp({
+    secret: "a-test-secret-that-is-long-enough-1234",
+    tokens: memoryTokenCache(),
+    clientKey: (context) => context.req.header("x-test-client") ?? "none",
+  });
 
 const check = (app: ReturnType<typeof newApp>, body: unknown, ip = "203.0.113.7") =>
   app.request("/api/sources/check", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-real-ip": ip },
+    headers: { "content-type": "application/json", "x-test-client": ip },
     body: JSON.stringify(body),
   });
 
@@ -96,7 +100,37 @@ describe("POST /api/sources/check", () => {
 
     expect(await response.json()).toEqual({
       ok: false,
-      error: "Could not reach SubDL. Try again.",
+      error: "Could not reach SubDL right now. Try again.",
+    });
+  });
+
+  it.each([
+    ["SubDL", 503, "subdl"],
+    ["SubDL", 429, "subdl"],
+    ["SubSource", 500, "subsource"],
+  ])("treats a %s answer of %i as an outage", async (name, status, kind) => {
+    stubFetch(json({}, status));
+
+    const response = await check(newApp(), { kind, apiKey: "some-key" });
+
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: `Could not reach ${name} right now. Try again.`,
+    });
+  });
+
+  it.each([
+    ["a 401", () => json({ success: false }, 401)],
+    ["a 403", () => json({ success: false }, 403)],
+    ["a body that is not a search result", () => json({ success: false })],
+  ])("rejects a SubSource key on %s", async (_, response) => {
+    stubFetch(response());
+
+    const answer = await check(newApp(), { kind: "subsource", apiKey: "some-key" });
+
+    expect(await answer.json()).toEqual({
+      ok: false,
+      error: "SubSource did not accept this API key.",
     });
   });
 
@@ -138,12 +172,29 @@ describe("POST /api/sources/check", () => {
 describe("rateLimit", () => {
   it("allows again once the window has passed", () => {
     let time = 0;
-    const allow = rateLimit(2, 60_000, () => time);
+    const { allow } = rateLimit(2, 60_000, () => time);
 
     expect([allow("a"), allow("a"), allow("a")]).toEqual([true, true, false]);
 
     time = 60_001;
 
     expect(allow("a")).toBe(true);
+  });
+
+  it("keeps a separate count for each key", () => {
+    const { allow } = rateLimit(1, 60_000, () => 0);
+
+    expect([allow("a"), allow("b"), allow("a"), allow("b")]).toEqual([true, true, false, false]);
+  });
+
+  it("forgets keys whose hits have expired once it holds too many", () => {
+    let time = 0;
+    const limiter = rateLimit(5, 60_000, () => time, 2);
+
+    ["a", "b", "c"].forEach((key) => limiter.allow(key));
+    time = 60_001;
+    limiter.allow("d");
+
+    expect(limiter.keyCount()).toBe(1);
   });
 });

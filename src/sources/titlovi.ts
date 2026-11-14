@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
+import { verdictOf } from "./check.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import type { Candidate, Source, VideoQuery } from "./source.ts";
 import type { TokenCache } from "./token-cache.ts";
@@ -128,24 +129,29 @@ const toCandidate = (row: Row, query: VideoQuery): Candidate[] => {
 const fetchSearch = (query: VideoQuery, names: string[], session: Session, signal: AbortSignal) =>
   fetchWithTimeout(searchURL(query, names, session), { signal }, searchTimeoutMs);
 
-const requestToken = async (credentials: Credentials, timeoutMs: number, signal?: AbortSignal) => {
+const requestTokenResponse = (
+  credentials: Credentials,
+  timeoutMs: number,
+  signal?: AbortSignal,
+) => {
   const params = new URLSearchParams({
     username: credentials.username,
     password: credentials.password,
     json: "true",
   });
-  const response = await fetchWithTimeout(
-    `${baseURL}/gettoken?${params}`,
-    { method: "POST", signal },
-    timeoutMs,
-  );
+
+  return fetchWithTimeout(`${baseURL}/gettoken?${params}`, { method: "POST", signal }, timeoutMs);
+};
+
+const requestToken = async (credentials: Credentials, timeoutMs: number, signal?: AbortSignal) => {
+  const response = await requestTokenResponse(credentials, timeoutMs, signal);
   const parsed = v.safeParse(loginSchema, await response.json().catch(() => undefined));
 
   return response.ok && parsed.success ? parsed.output : undefined;
 };
 
 export const checkTitlovi = async (credentials: Credentials, timeoutMs: number) =>
-  (await requestToken(credentials, timeoutMs)) !== undefined;
+  verdictOf(await requestTokenResponse(credentials, timeoutMs), loginSchema);
 
 export const titloviSource = (credentials: Credentials, tokens: TokenCache): Source => {
   const key = createHash("sha256").update(`titlovi:${credentials.username}`).digest("hex");

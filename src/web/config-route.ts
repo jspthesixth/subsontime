@@ -2,11 +2,13 @@ import type { Context } from "hono";
 import * as v from "valibot";
 import { baseURL } from "../base-url.ts";
 import { configSchema, type Config } from "../config/config.ts";
+import { formOf } from "../config/default-config.ts";
 import { invalidLinkMessage, seal, sealedConfigPattern, unseal } from "../config/seal.ts";
 
 type ConfigRouteDeps = { secret: string; publicURL?: string };
 
 const invalidSettingsMessage = "These settings are not valid";
+const unbuildableMessage = "Could not build the install link";
 const formSchema = v.omit(configSchema, ["version", "installId"]);
 const openSchema = v.object({ installURL: v.string() });
 
@@ -71,6 +73,10 @@ export const createConfigRoute =
 
     const installURL = `${baseURL(context, publicURL)}/${sealed}/manifest.json`;
 
+    if (!URL.canParse(installURL)) {
+      return context.json({ error: unbuildableMessage }, 500);
+    }
+
     return context.json({
       installURL,
       stremioURL: toStremioURL(installURL),
@@ -91,5 +97,5 @@ export const openConfigRoute =
       return context.json({ error: invalidLinkMessage }, 400);
     }
 
-    return context.json(config);
+    return context.json(formOf(config));
   };

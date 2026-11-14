@@ -9,5 +9,6 @@ export default handle(
     tokens: memoryTokenCache(),
     openSubtitlesAppKey: process.env["OPENSUBTITLES_APP_KEY"] || undefined,
     publicURL: process.env["PUBLIC_URL"] || undefined,
+    clientKey: (context) => context.req.header("x-real-ip") ?? "unknown",
   }),
 );

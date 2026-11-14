@@ -33,12 +33,18 @@ export const configSchema = v.object({
   languages: v.pipe(
     v.array(v.pipe(v.string(), v.regex(/^[a-z]{3}$/))),
     v.minLength(1, "Choose at least one language"),
+    v.maxLength(10, "Choose at most 10 languages"),
+    v.check(
+      (languages) => new Set(languages).size === languages.length,
+      "Choose each language once",
+    ),
   ),
   bestOnly: v.boolean(),
   timing: v.picklist(["auto", "off"]),
-  sources: v.array(sourceSchema),
+  sources: v.pipe(v.array(sourceSchema), v.maxLength(20, "Add at most 20 sources")),
   extras: v.object({ hideMismatches: v.boolean() }),
 });
 
 export type Config = v.InferOutput<typeof configSchema>;
 export type SourceSettings = v.InferOutput<typeof sourceSchema>;
+export type ConfigForm = Omit<Config, "version" | "installId">;

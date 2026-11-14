@@ -1,11 +1,17 @@
 import type { Context } from "hono";
 import * as v from "valibot";
 import { sourceSchema, type SourceSettings } from "../config/config.ts";
+import type { Verdict } from "../sources/check.ts";
 import { checkSubDL } from "../sources/subdl.ts";
 import { checkSubSource } from "../sources/subsource.ts";
 import { checkTitlovi } from "../sources/titlovi.ts";
 
 type Checkable = Extract<SourceSettings, { kind: "titlovi" | "subdl" | "subsource" }>;
+
+type SourceCheckDeps = {
+  allow: (key: string) => boolean;
+  clientKey: (context: Context) => string;
+};
 
 const checkTimeoutMs = 8000;
 const uncheckableMessage = "This source cannot be checked";
@@ -19,7 +25,7 @@ const labels: Record<Checkable["kind"], { name: string; secret: string }> = {
 
 const isCheckable = (source: SourceSettings): source is Checkable => source.kind in labels;
 
-const runCheck = (source: Checkable) => {
+const runCheck = (source: Checkable): Promise<Verdict> => {
   switch (source.kind) {
     case "titlovi":
       return checkTitlovi(source, checkTimeoutMs);
@@ -30,34 +36,33 @@ const runCheck = (source: Checkable) => {
   }
 };
 
-const clientKey = (context: Context) =>
-  context.req.header("x-real-ip") ??
-  context.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-  "unknown";
+export const sourceCheckRoute =
+  ({ allow, clientKey }: SourceCheckDeps) =>
+  async (context: Context) => {
+    context.header("Cache-Control", "no-store");
 
-export const sourceCheckRoute = (allow: (key: string) => boolean) => async (context: Context) => {
-  context.header("Cache-Control", "no-store");
+    if (!allow(clientKey(context))) {
+      return context.json({ error: tooManyMessage }, 429);
+    }
 
-  if (!allow(clientKey(context))) {
-    return context.json({ error: tooManyMessage }, 429);
-  }
+    const body = v.safeParse(sourceSchema, await context.req.json().catch(() => undefined), {
+      message: uncheckableMessage,
+    });
 
-  const body = v.safeParse(sourceSchema, await context.req.json().catch(() => undefined), {
-    message: uncheckableMessage,
-  });
+    if (!body.success || !isCheckable(body.output)) {
+      return context.json(
+        { error: body.success ? uncheckableMessage : body.issues[0].message },
+        400,
+      );
+    }
 
-  if (!body.success || !isCheckable(body.output)) {
-    return context.json({ error: body.success ? uncheckableMessage : body.issues[0].message }, 400);
-  }
+    const { name, secret } = labels[body.output.kind];
+    const verdict = await runCheck(body.output).catch((): Verdict => "unreachable");
+    const answers: Record<Verdict, { ok: boolean; error?: string }> = {
+      accepted: { ok: true },
+      rejected: { ok: false, error: `${name} did not accept this ${secret}.` },
+      unreachable: { ok: false, error: `Could not reach ${name} right now. Try again.` },
+    };
 
-  const { name, secret } = labels[body.output.kind];
-  const accepted = await runCheck(body.output).catch(() => undefined);
-
-  if (accepted === undefined) {
-    return context.json({ ok: false, error: `Could not reach ${name}. Try again.` });
-  }
-
-  return context.json(
-    accepted ? { ok: true } : { ok: false, error: `${name} did not accept this ${secret}.` },
-  );
-};
+    return context.json(answers[verdict]);
+  };

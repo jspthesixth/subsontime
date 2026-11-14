@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
+import { unseal } from "../config/seal.ts";
 import { memoryTokenCache } from "../sources/token-cache.ts";
 import { toStremioURL, toWebURL } from "./config-route.ts";
 
-const app = createApp({
-  secret: "a-test-secret-that-is-long-enough-1234",
-  tokens: memoryTokenCache(),
+const secret = "a-test-secret-that-is-long-enough-1234";
+const app = createApp({ secret, tokens: memoryTokenCache() });
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 const form = {
@@ -123,17 +126,80 @@ describe("POST /api/config", () => {
   });
 
   it("rejects a body that is not JSON", async () => {
-    const response = await app.request("/api/config", { method: "POST", body: "{" });
+    const response = await app.request("/api/config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "These settings are not valid" });
   });
 
   it("ignores an install id sent by the client", async () => {
-    const first = await create({ ...form, installId: "chosen" });
-    const opened = await post("/api/config/open", { installURL: first.installURL });
+    const { installURL } = await create({ ...form, installId: "chosen" });
+    const sealed = new URL(installURL).pathname.split("/")[1] ?? "";
 
-    expect(((await opened.json()) as { installId: string }).installId).not.toBe("chosen");
+    expect(unseal(sealed, secret).installId).not.toBe("chosen");
+  });
+
+  it("takes only JSON", async () => {
+    const response = await app.request("/api/config", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify(form),
+    });
+
+    expect(response.status).toBe(415);
+    expect(await response.json()).toEqual({ error: "Send the request as JSON" });
+  });
+
+  it("refuses a body over 16 KB", async () => {
+    const response = await post("/api/config", { ...form, padding: "x".repeat(17 * 1024) });
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: "This request is too large" });
+  });
+
+  it.each([
+    [
+      "more than 10 languages",
+      { languages: ["hrv", "srp", "bos", "slv", "mkd", "eng", "deu", "fra", "spa", "ita", "por"] },
+      "Choose at most 10 languages",
+    ],
+    ["a language twice", { languages: ["hrv", "eng", "hrv"] }, "Choose each language once"],
+    [
+      "more than 20 sources",
+      {
+        sources: Array.from({ length: 21 }, (_, index) => ({
+          kind: "subdl",
+          apiKey: `key-${index}`,
+        })),
+      },
+      "Add at most 20 sources",
+    ],
+  ])("refuses %s", async (_, change, error) => {
+    const response = await post("/api/config", { ...form, ...change });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error });
+  });
+
+  it("does not build or log a link from a malformed forwarded host", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await app.request("/api/config", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "bad host",
+      },
+      body: JSON.stringify(form),
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Could not build the install link" });
+    expect(log).not.toHaveBeenCalled();
   });
 });
 
@@ -161,7 +227,7 @@ describe("POST /api/config/open", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json()).toMatchObject({ version: 1, ...withAccount });
+    expect(await response.json()).toEqual(withAccount);
   });
 
   it("opens a stremio:// link too", async () => {

@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
+import { verdictOf } from "./check.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import type { Candidate, Source, VideoQuery } from "./source.ts";
 import { pickSubtitleEntry } from "./zip.ts";
@@ -225,7 +226,5 @@ export const checkSubSource = async (apiKey: string, timeoutMs: number) => {
     timeoutMs,
   );
 
-  return (
-    response.ok && v.safeParse(envelopeSchema, await response.json().catch(() => undefined)).success
-  );
+  return verdictOf(response, envelopeSchema);
 };

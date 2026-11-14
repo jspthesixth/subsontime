@@ -1,13 +1,31 @@
-export const rateLimit = (limit: number, windowMs: number, now = Date.now) => {
+export const rateLimit = (limit: number, windowMs: number, now = Date.now, maxKeys = 10_000) => {
   const hits = new Map<string, number[]>();
 
-  return (key: string) => {
+  const recentHits = (key: string, time: number) =>
+    (hits.get(key) ?? []).filter((hit) => hit > time - windowMs);
+
+  const keep = (key: string, recent: number[]) => {
+    if (recent.length === 0) {
+      hits.delete(key);
+    } else {
+      hits.set(key, recent);
+    }
+  };
+
+  const allow = (key: string) => {
     const time = now();
-    const recent = (hits.get(key) ?? []).filter((hit) => hit > time - windowMs);
+
+    if (hits.size > maxKeys) {
+      [...hits.keys()].forEach((each) => keep(each, recentHits(each, time)));
+    }
+
+    const recent = recentHits(key, time);
     const allowed = recent.length < limit;
 
-    hits.set(key, allowed ? [...recent, time] : recent);
+    keep(key, allowed ? [...recent, time] : recent);
 
     return allowed;
   };
+
+  return { allow, keyCount: () => hits.size };
 };

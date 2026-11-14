@@ -1,10 +1,9 @@
 import { renderSVG } from "uqr";
-import type { Config, SourceSettings } from "../../config/config.ts";
-import { defaultConfig, openSubtitlesAddonURL } from "../../config/default-config.ts";
+import type { ConfigForm, SourceSettings } from "../../config/config.ts";
+import { defaultForm, formOf, openSubtitlesAddonURL } from "../../config/default-config.ts";
 import { fromLocales } from "../../languages.ts";
 import { searchKey } from "../search-key.ts";
 
-type Form = Omit<Config, "version" | "installId">;
 type Account = Exclude<SourceSettings, { kind: "stremio-addon" }>;
 type Installed = { installURL: string; stremioURL: string; webURL: string };
 type Outcome = { result: unknown } | { error: string };
@@ -46,18 +45,15 @@ const editLink = find<HTMLInputElement>(document, "#edit-link");
 const isOpenSubtitles = (source: SourceSettings) =>
   source.kind === "stremio-addon" && source.url === openSubtitlesAddonURL;
 
-const formOf = ({ languages, bestOnly, timing, sources, extras }: Form): Form => ({
-  languages,
-  bestOnly,
-  timing,
+const withOpenSubtitles = (form: ConfigForm): ConfigForm => ({
+  ...formOf(form),
   sources: [
     { kind: "stremio-addon", url: openSubtitlesAddonURL },
-    ...sources.filter((source) => !isOpenSubtitles(source)),
+    ...form.sources.filter((source) => !isOpenSubtitles(source)),
   ],
-  extras,
 });
 
-let state = formOf(defaultConfig(fromLocales(navigator.languages)));
+let state = defaultForm(fromLocales(navigator.languages));
 let activeOption: HTMLElement | undefined;
 
 const nameOf = (code: string) =>
@@ -68,7 +64,7 @@ const addonURLs = () =>
     source.kind === "stremio-addon" && !isOpenSubtitles(source) ? [source.url] : [],
   );
 
-const summaryOf = ({ languages, sources, timing }: Form) =>
+const summaryOf = ({ languages, sources, timing }: ConfigForm) =>
   [
     languages.map(nameOf).join(", "),
     `${sources.length} ${sources.length === 1 ? "source" : "sources"}`,
@@ -101,7 +97,7 @@ const postJSON = async (path: string, body: unknown): Promise<Outcome> => {
   return response?.ok === true ? { result } : { error: errorOf(result) };
 };
 
-const update = (changes: Partial<Form>) => {
+const update = (changes: Partial<ConfigForm>) => {
   state = { ...state, ...changes };
   render();
 };
@@ -111,7 +107,13 @@ const visibleOptions = () => options.filter((option) => !option.hidden);
 const setActiveOption = (option: HTMLElement | undefined) => {
   activeOption = option;
   options.forEach((each) => each.setAttribute("aria-selected", String(each === option)));
-  search.setAttribute("aria-activedescendant", option?.id ?? "");
+
+  if (option === undefined) {
+    search.removeAttribute("aria-activedescendant");
+  } else {
+    search.setAttribute("aria-activedescendant", option.id);
+  }
+
   option?.scrollIntoView({ block: "nearest" });
 };
 
@@ -217,7 +219,7 @@ const showInstalled = ({ installURL, stremioURL, webURL }: Installed) => {
   find<HTMLAnchorElement>(view, "#open-stremio").href = stremioURL;
   find<HTMLAnchorElement>(view, "#stremio-web").href = webURL;
   link.value = installURL;
-  find(view, "#install-qr").innerHTML = renderSVG(installURL, {
+  find(view, "#install-qr").innerHTML = renderSVG(stremioURL, {
     whiteColor: "#F4F3EE",
     blackColor: "#0D0D0C",
   });
@@ -301,8 +303,10 @@ accountRows.forEach((row) => {
   const submit = find<HTMLButtonElement>(form, "[type=submit]");
   const error = find(form, ".source-error");
   const others = () => state.sources.filter((source) => source.kind !== kind);
+  let attempt = 0;
 
   const setEditing = (editing: boolean) => {
+    attempt += 1;
     row.dataset["state"] = editing ? "editing" : "idle";
     error.textContent = "";
     add.setAttribute("aria-expanded", String(editing));
@@ -322,6 +326,8 @@ accountRows.forEach((row) => {
   form.addEventListener("submit", async (event) => {
     const account = { kind, ...Object.fromEntries(new FormData(form)) } as Account;
 
+    const current = attempt;
+
     event.preventDefault();
     error.textContent = "";
     submit.disabled = true;
@@ -330,6 +336,10 @@ accountRows.forEach((row) => {
     const problem = "error" in outcome ? outcome.error : checkErrorOf(outcome.result);
 
     submit.disabled = false;
+
+    if (current !== attempt) {
+      return;
+    }
 
     if (problem !== undefined) {
       error.textContent = problem;
@@ -400,7 +410,7 @@ editForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  state = formOf(outcome.result as Form);
+  state = withOpenSubtitles(outcome.result as ConfigForm);
   render();
   editForm.reset();
   editForm.hidden = true;
