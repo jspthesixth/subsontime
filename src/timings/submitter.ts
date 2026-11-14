@@ -14,6 +14,10 @@ export const readInstallSalt = (env: NodeJS.ProcessEnv): string => {
     throw new Error(saltMessage);
   }
 
+  if (salt === env["SECRET"]) {
+    throw new Error("INSTALL_SALT must differ from SECRET");
+  }
+
   return salt;
 };
 

@@ -19,6 +19,12 @@ test("readInstallSalt returns INSTALL_SALT when it is 32 characters", () => {
   expect(readInstallSalt({ INSTALL_SALT: salt })).toBe(salt);
 });
 
+test("readInstallSalt throws when INSTALL_SALT equals SECRET", () => {
+  expect(() => readInstallSalt({ INSTALL_SALT: salt, SECRET: salt })).toThrow(
+    "INSTALL_SALT must differ from SECRET",
+  );
+});
+
 test("submitterOf is 32 hex characters and stable", () => {
   const submitter = submitterOf(installId, salt);
 

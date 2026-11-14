@@ -19,7 +19,7 @@ type WriteDeps = {
 
 const videoParamMessage = "Send video as a 16-character hex hash and a size in bytes";
 const tooManyWritesMessage = "Too many submissions. Try again in an hour.";
-const videoParam = /^([0-9a-f]{16}):(\d{1,16})$/;
+const videoParam = /^([0-9a-f]{16}):([1-9]\d{0,15})$/;
 const installIdSchema = v.object({ installId: v.string() });
 
 const inputErrorResponse = (context: Context, error: unknown) => {

@@ -372,17 +372,21 @@ describe("GET /api/v1/fixes", () => {
     expect(await response.json()).toEqual({ fixes: [], hidden: [] });
   });
 
-  it.each(["", "0123456789abcdef", "0123456789abcdef:0", "movie.mkv:12", "0123456789abcdef:1e9"])(
-    "rejects the video parameter %j",
-    async (param) => {
-      const response = await appWith(memoryStore()).request(`/api/v1/fixes?video=${param}`);
+  it.each([
+    "",
+    "0123456789abcdef",
+    "0123456789abcdef:0",
+    "movie.mkv:12",
+    "0123456789abcdef:1e9",
+    "0123456789abcdef:0100",
+  ])("rejects the video parameter %j", async (param) => {
+    const response = await appWith(memoryStore()).request(`/api/v1/fixes?video=${param}`);
 
-      expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({
-        error: "Send video as a 16-character hex hash and a size in bytes",
-      });
-    },
-  );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Send video as a 16-character hex hash and a size in bytes",
+    });
+  });
 
   it("answers a cross-origin preflight for writes", async () => {
     const response = await appWith(memoryStore()).request("/api/v1/fixes", {
