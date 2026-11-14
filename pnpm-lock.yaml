@@ -11,9 +11,6 @@ importers:
       '@hono/node-server':
         specifier: 2.1.8
         version: 2.1.8(hono@4.13.18)
-      chardet:
-        specifier: 2.2.0
-        version: 2.2.0
       hono:
         specifier: 4.13.18
         version: 4.13.18
@@ -702,9 +699,6 @@ packages:
   chai@6.3.0:
     resolution: {integrity: sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg==}
     engines: {node: '>=18'}
-
-  chardet@2.2.0:
-    resolution: {integrity: sha512-rddelWYNPRrXq6PtNEN2S3f6t9ILzvqaN5pVgi4kqt9jHQaXIial9PznB5iSPVlQSLNaaH22ItWz3EJtQ10+OA==}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -1630,8 +1624,6 @@ snapshots:
       qified: 0.10.1
 
   chai@6.3.0: {}
-
-  chardet@2.2.0: {}
 
   cross-spawn@7.0.6:
     dependencies:

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import iconv from "iconv-lite";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeSubtitle } from "./decode.ts";
 import { SubtitleError } from "./cue.ts";
 import { parseSubtitle } from "./parse.ts";
@@ -8,7 +9,20 @@ import { writeSRT } from "./write.ts";
 const fixture = (name: string) =>
   new Uint8Array(readFileSync(new URL(`../../test/fixtures/subtitles/${name}`, import.meta.url)));
 
+const encode = (text: string, encoding: string) => new Uint8Array(iconv.encode(text, encoding));
+
+const croatian =
+  "Dobro jutro, čokolada je ćudna. Žurimo se, šuma je daleko. Đurđevak čeka u šetnji.";
+const slovenian = "Dober dan, čaj je že pripravljen. Šola se začne ob osmih, žoga je v vrtu.";
+const serbianLatin = "Dobar dan, kako ste? Šetamo kroz park, a đaci čekaju ispred škole.";
+const serbianCyrillic = "Добар дан, како сте? Шетамо кроз парк, а ђаци чекају испред школе.";
+const macedonian = "Здраво, како си? Јас сум добро, ти благодарам. Ќе се видиме утре.";
+
 describe("decodeSubtitle", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("decodes Windows-1250 text", () => {
     expect(decodeSubtitle(fixture("cp1250.srt"))).toContain("čćžšđ ČĆŽŠĐ");
   });
@@ -25,6 +39,48 @@ describe("decodeSubtitle", () => {
     const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("1\nčž", "utf16le")]);
 
     expect(decodeSubtitle(bytes)).toBe("1\nčž");
+  });
+
+  it.each([undefined, "hrv"])("decodes short Croatian Windows-1250 with hint %s", (lang) => {
+    expect(decodeSubtitle(encode(croatian, "windows-1250"), lang)).toBe(croatian);
+  });
+
+  it("decodes short Slovenian Windows-1250 with a hint", () => {
+    expect(decodeSubtitle(encode(slovenian, "windows-1250"), "slv")).toBe(slovenian);
+  });
+
+  it.each([undefined, "srp"])("decodes short Serbian Cyrillic with hint %s", (lang) => {
+    expect(decodeSubtitle(encode(serbianCyrillic, "windows-1251"), lang)).toBe(serbianCyrillic);
+  });
+
+  it.each([undefined, "mkd"])("decodes short Macedonian with hint %s", (lang) => {
+    expect(decodeSubtitle(encode(macedonian, "windows-1251"), lang)).toBe(macedonian);
+  });
+
+  it("keeps Serbian Latin Windows-1250 Latin", () => {
+    expect(decodeSubtitle(encode(serbianLatin, "windows-1250"), "srp")).toBe(serbianLatin);
+  });
+
+  it("decodes Russian with a hint", () => {
+    expect(decodeSubtitle(encode("Привет, как дела?", "windows-1251"), "rus")).toBe(
+      "Привет, как дела?",
+    );
+  });
+
+  it("decodes UTF-16BE with a byte order mark", () => {
+    const bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), iconv.encode("1\nčž", "utf16-be")]);
+
+    expect(decodeSubtitle(bytes)).toBe("1\nčž");
+  });
+
+  it("throws SubtitleError when iconv-lite cannot decode", () => {
+    vi.spyOn(iconv, "decode").mockImplementation(() => {
+      throw new Error("Encoding not recognized");
+    });
+
+    expect(() => decodeSubtitle(encode(croatian, "windows-1250"))).toThrow(
+      new SubtitleError("Could not decode subtitle"),
+    );
   });
 
   it("throws on empty input", () => {

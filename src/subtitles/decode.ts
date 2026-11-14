@@ -1,4 +1,3 @@
-import { detect } from "chardet";
 import iconv from "iconv-lite";
 import { SubtitleError } from "./cue.ts";
 
@@ -8,11 +7,19 @@ const magicNumbers = [
   [0x52, 0x61, 0x72, 0x21],
   [0x1f, 0x8b],
 ];
-const encodingAliases: Record<string, string> = {
-  "ISO-8859-2": "windows-1250",
-  "ISO-8859-5": "windows-1251",
-  "KOI8-R": "windows-1251",
-};
+const balkanLanguages = new Set(["hrv", "bos", "slv", "srp", "mkd", "cnr"]);
+const codePageByLanguage: Record<string, string> = Object.fromEntries(
+  [
+    ["windows-1251", ["rus", "ukr", "bel", "bul"]],
+    ["windows-1253", ["ell", "gre"]],
+    ["windows-1254", ["tur"]],
+    ["windows-1255", ["heb"]],
+    ["windows-1256", ["ara", "per", "fas"]],
+    ["windows-1250", ["pol", "ces", "cze", "slk", "slo", "hun", "ron", "rum"]],
+  ].flatMap(([codePage, languages]) =>
+    (languages as string[]).map((language) => [language, codePage as string]),
+  ),
+);
 
 const startsWith = (bytes: Uint8Array, prefix: number[]) =>
   prefix.every((byte, index) => bytes[index] === byte);
@@ -47,9 +54,37 @@ const bomEncoding = (bytes: Uint8Array) => {
   return undefined;
 };
 
-const stripBOM = (text: string) => (text.startsWith("﻿") ? text.slice(1) : text);
+const decodeWith = (bytes: Uint8Array, pickEncoding: () => string) => {
+  try {
+    return stripBOM(iconv.decode(Buffer.from(bytes), pickEncoding()));
+  } catch {
+    throw new SubtitleError("Could not decode subtitle");
+  }
+};
 
-export const decodeSubtitle = (bytes: Uint8Array): string => {
+const stripBOM = (text: string) => (text.startsWith("\uFEFF") ? text.slice(1) : text);
+
+const cyrillicShare = (text: string) => {
+  const letters = text.match(/\p{L}/gu) ?? [];
+  const cyrillic = letters.filter((letter) => /[\u0400-\u04FF]/.test(letter));
+
+  return cyrillic.length / Math.max(letters.length, 1);
+};
+
+const balkanCodePage = (bytes: Uint8Array) =>
+  cyrillicShare(iconv.decode(Buffer.from(bytes), "windows-1251")) > 0.5
+    ? "windows-1251"
+    : "windows-1250";
+
+const legacyCodePage = (bytes: Uint8Array, lang?: string) => {
+  if (lang === undefined || balkanLanguages.has(lang)) {
+    return balkanCodePage(bytes);
+  }
+
+  return codePageByLanguage[lang] ?? "windows-1252";
+};
+
+export const decodeSubtitle = (bytes: Uint8Array, lang?: string): string => {
   if (bytes.length === 0) {
     throw new SubtitleError("Subtitle file is empty");
   }
@@ -57,7 +92,7 @@ export const decodeSubtitle = (bytes: Uint8Array): string => {
   const bom = bomEncoding(bytes);
 
   if (bom !== undefined) {
-    return stripBOM(iconv.decode(Buffer.from(bytes), bom));
+    return decodeWith(bytes, () => bom);
   }
 
   if (isBinary(bytes)) {
@@ -68,7 +103,5 @@ export const decodeSubtitle = (bytes: Uint8Array): string => {
     return new TextDecoder("utf-8").decode(bytes);
   }
 
-  const detected = detect(bytes) ?? "windows-1252";
-
-  return iconv.decode(Buffer.from(bytes), encodingAliases[detected] ?? detected);
+  return decodeWith(bytes, () => legacyCodePage(bytes, lang));
 };
