@@ -5,7 +5,8 @@ import { configSchema, type Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { invalidLinkMessage } from "../config/seal.ts";
 import { fetchWithTimeout } from "../http.ts";
-import type { Candidate } from "../sources/source.ts";
+import type { SourceSet } from "../sources/from-config.ts";
+import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import {
   downloader,
@@ -27,18 +28,21 @@ export type CheckRow = {
   label: string;
   detail?: string;
   reason?: string;
+  playsFirst?: boolean;
 };
 
-type CheckDeps = RouteDeps & {
-  secret: string;
+type LimitDeps = {
   allow: (key: string) => boolean;
   clientKey: (context: Context) => string;
 };
+
+type CheckDeps = RouteDeps & LimitDeps & { secret: string };
 
 type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
 type CatalogType = "movie" | "series";
 
 const budgetMs = 20_000;
+const maximumRunning = 2;
 const cinemetaURL = "https://v3-cinemeta.strem.io";
 const cinemetaTimeoutMs = 4000;
 const maximumTitles = 10;
@@ -48,6 +52,8 @@ const imdbIdPattern = /^tt\d+$/;
 const invalidCheckMessage = "Pick a film or episode to check";
 const unsupportedVideoMessage = "Unsupported video id";
 const unreachableCatalogMessage = "Could not reach Stremio's catalog. Try again.";
+const busyMessage = "Busy, try again in a moment";
+const tooManySearchesMessage = "Too many searches. Try again in a minute.";
 const mismatchReason =
   "Made for another video. Its dialogue does not line up with this file anywhere.";
 const unreadableReason = "Could not be read.";
@@ -115,6 +121,8 @@ const timingOf = ({ result }: Attempt, fps: number | undefined) => {
         label: result.byReleaseName ? "Retimed by release name" : "Retimed",
         detail: retimedDetail(result, fps),
       };
+    case "mismatch":
+      return { label: "Not retimed", detail: mismatchReason };
     default:
       return { label: "Not retimed" };
   }
@@ -160,9 +168,76 @@ const videoOf = (type: string, id: string) => {
 const aborted = (signal: AbortSignal) =>
   new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 
-export const checkRoute =
-  ({ sourcesFor, secret, allow, clientKey }: CheckDeps) =>
-  async (context: Context) => {
+const runCheck = async (config: Config, sources: SourceSet, query: VideoQuery, started: number) => {
+  const found = await searchVideo(sources, query);
+  const searchedMs = Math.round(performance.now() - started);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), budgetMs - searchedMs);
+  const download = downloader(sources, controller.signal);
+  const references = found.references.map(toCandidateRef);
+  const entries = config.languages.flatMap((lang) =>
+    found
+      .ranked(lang)
+      .slice(0, bestSlotSize)
+      .map((candidate) => {
+        const attempts: Attempt[] = [];
+
+        return { candidate, attempts };
+      }),
+  );
+  const runs = entries.map(({ candidate, attempts }) =>
+    recordAttempts(
+      resolveAttempts(
+        { c: [toCandidateRef(candidate)], x: references },
+        config,
+        download,
+        controller.signal,
+      ),
+      attempts,
+    ),
+  );
+
+  await Promise.race([Promise.all(runs), aborted(controller.signal)]);
+  clearTimeout(timer);
+  controller.abort();
+
+  const tried = entries.flatMap(({ candidate, attempts }) =>
+    attempts.map((attempt) => ({ candidate, attempt })),
+  );
+  const served = tried.filter(({ attempt }) => servedCues(attempt, config) !== undefined);
+  const playsFirst = new Set(
+    config.bestOnly
+      ? config.languages.flatMap((lang) =>
+          served.filter(({ candidate }) => candidate.lang === lang).slice(0, 1),
+        )
+      : [],
+  );
+  const shown: CheckRow[] = served.map((entry) => ({
+    ...madeFor(entry.candidate),
+    ...timingOf(entry.attempt, entry.candidate.fps),
+    ...(playsFirst.has(entry) ? { playsFirst: true } : {}),
+  }));
+  const leftOut: CheckRow[] = tried
+    .filter((entry) => !served.includes(entry))
+    .map(({ candidate, attempt }) => ({
+      ...madeFor(candidate),
+      label: "Not retimed",
+      reason: reasonOf(attempt),
+    }));
+
+  return {
+    shown,
+    leftOut,
+    reference: referenceText(config, found.references),
+    searchedMs,
+    sources: sources.listed.length + sources.references.length,
+  };
+};
+
+export const checkRoute = ({ sourcesFor, secret, allow, clientKey }: CheckDeps) => {
+  let running = 0;
+
+  return async (context: Context) => {
     const started = performance.now();
 
     context.header("Cache-Control", "no-store");
@@ -179,15 +254,7 @@ export const checkRoute =
       return context.json({ error: body.issues[0].message }, 400);
     }
 
-    const {
-      installURL,
-      languages = ["eng"],
-      type,
-      id,
-      videoHash,
-      videoSize,
-      filename,
-    } = body.output;
+    const { installURL, languages = ["eng"], type, id, ...file } = body.output;
     const config = configOf(installURL, languages, secret);
     const video = videoOf(type, id);
 
@@ -199,67 +266,26 @@ export const checkRoute =
       return context.json({ error: unsupportedVideoMessage }, 400);
     }
 
-    const sources = sourcesFor(config);
-    const found = await searchVideo(sources, {
-      ...video,
-      videoHash,
-      videoSize,
-      filename,
-      languages: config.languages,
-    });
-    const searchedMs = Math.round(performance.now() - started);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), budgetMs - searchedMs);
-    const download = downloader(sources, controller.signal);
-    const references = found.references.map(toCandidateRef);
-    const entries = config.languages.flatMap((lang) =>
-      found
-        .ranked(lang)
-        .slice(0, bestSlotSize)
-        .map((candidate) => {
-          const attempts: Attempt[] = [];
+    if (running >= maximumRunning) {
+      return context.json({ error: busyMessage }, 429);
+    }
 
-          return { candidate, attempts };
-        }),
-    );
-    const runs = entries.map(({ candidate, attempts }) =>
-      recordAttempts(
-        resolveAttempts(
-          { c: [toCandidateRef(candidate)], x: references },
+    running += 1;
+
+    try {
+      return context.json(
+        await runCheck(
           config,
-          download,
-          controller.signal,
+          sourcesFor(config),
+          { ...video, ...file, languages: config.languages },
+          started,
         ),
-        attempts,
-      ),
-    );
-
-    await Promise.race([Promise.all(runs), aborted(controller.signal)]);
-    clearTimeout(timer);
-    controller.abort();
-
-    const tried = entries.flatMap(({ candidate, attempts }) =>
-      attempts.map((attempt) => ({ candidate, attempt })),
-    );
-    const shown: CheckRow[] = tried.flatMap(({ candidate, attempt }) =>
-      servedCues(attempt, config) === undefined
-        ? []
-        : [{ ...madeFor(candidate), ...timingOf(attempt, candidate.fps) }],
-    );
-    const leftOut: CheckRow[] = tried.flatMap(({ candidate, attempt }) =>
-      servedCues(attempt, config) === undefined
-        ? [{ ...madeFor(candidate), label: "Not retimed", reason: reasonOf(attempt) }]
-        : [],
-    );
-
-    return context.json({
-      shown,
-      leftOut,
-      reference: referenceText(config, found.references),
-      searchedMs,
-      sources: sources.listed.length + sources.references.length,
-    });
+      );
+    } finally {
+      running -= 1;
+    }
   };
+};
 
 const searchCatalog = async (type: CatalogType, query: string) => {
   const response = await fetchWithTimeout(
@@ -284,7 +310,24 @@ const searchCatalog = async (type: CatalogType, query: string) => {
     }));
 };
 
-export const titlesRoute = async (context: Context) => {
+const matchRank = (name: string, query: string) => {
+  const folded = name.toLocaleLowerCase();
+
+  if (folded === query) {
+    return 0;
+  }
+
+  return folded.startsWith(query) ? 1 : 2;
+};
+
+const limited =
+  ({ allow, clientKey }: LimitDeps, route: (context: Context) => Promise<Response>) =>
+  async (context: Context) =>
+    allow(clientKey(context))
+      ? route(context)
+      : context.json({ error: tooManySearchesMessage }, 429);
+
+const searchTitles = async (context: Context) => {
   const query = (context.req.query("q") ?? "").trim().slice(0, maximumQueryLength);
   const type = context.req.query("type");
   const types = catalogTypes.filter((each) => type === undefined || each === type);
@@ -304,10 +347,15 @@ export const titlesRoute = async (context: Context) => {
     lists.flatMap((list) => list.slice(index, index + 1)),
   ).flat();
 
-  return context.json(interleaved.slice(0, maximumTitles), 200, catalogCache);
+  const folded = query.toLocaleLowerCase();
+  const ranked = interleaved.toSorted(
+    (a, b) => matchRank(a.name, folded) - matchRank(b.name, folded),
+  );
+
+  return context.json(ranked.slice(0, maximumTitles), 200, catalogCache);
 };
 
-export const episodesRoute = async (context: Context) => {
+const listEpisodes = async (context: Context) => {
   const id = context.req.param("id") ?? "";
 
   if (!imdbIdPattern.test(id)) {
@@ -338,3 +386,7 @@ export const episodesRoute = async (context: Context) => {
 
   return context.json(episodes, 200, catalogCache);
 };
+
+export const titlesRoute = (deps: LimitDeps) => limited(deps, searchTitles);
+
+export const episodesRoute = (deps: LimitDeps) => limited(deps, listEpisodes);

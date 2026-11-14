@@ -56,6 +56,7 @@ const timeTrack = async (
   track: Track,
   references: Promise<Track[]>,
   config: Config,
+  signal: AbortSignal | undefined,
 ): Promise<RetimeResult> => {
   if (track.candidate.hashMatch) {
     return { kind: "made-for-file", cues: track.cues };
@@ -65,7 +66,11 @@ const timeTrack = async (
     return { kind: "not-retimed", cues: track.cues };
   }
 
-  return retime(track, await references);
+  const ready = await references;
+
+  signal?.throwIfAborted();
+
+  return retime(track, ready);
 };
 
 export const downloader = (sources: SourceSet, signal?: AbortSignal): Download => {
@@ -110,7 +115,7 @@ export async function* resolveAttempts(
       .then(async (track) => ({
         candidate,
         track,
-        result: await timeTrack(track, references, config),
+        result: await timeTrack(track, references, config, signal),
       }))
       .catch(() => ({ candidate }));
 

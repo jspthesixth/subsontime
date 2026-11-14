@@ -2,8 +2,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { hashFile } from "../../../scripts/probes/opensubtitles-v3-hash.ts";
-import { seededRandom } from "../../timing/test-tracks.ts";
+import { hashFile } from "../../../../scripts/probes/opensubtitles-v3-hash.ts";
+import { seededRandom } from "../../../timing/test-tracks.ts";
 import { videoHash } from "./video-hash.ts";
 
 const random = seededRandom(14);

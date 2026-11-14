@@ -1,9 +1,9 @@
 import { fromLocales } from "../../languages.ts";
 import type { CheckRow } from "../check-route.ts";
-import { combobox } from "./combobox.ts";
-import { clone, find } from "./dom.ts";
-import { postJSON } from "./post-json.ts";
-import { videoHash } from "./video-hash.ts";
+import { combobox } from "./lib/combobox.ts";
+import { clone, find } from "./lib/dom.ts";
+import { errorOf, postJSON } from "./lib/post-json.ts";
+import { videoHash } from "./lib/video-hash.ts";
 
 type Title = { id: string; type: "movie" | "series"; name: string; year?: string };
 type Episode = { season: number; episode: number; name: string };
@@ -158,15 +158,25 @@ const searchTitles = async () => {
 
   searchRequest = new AbortController();
 
-  const found = await getJSON<Title[]>(
-    `/api/titles?q=${encodeURIComponent(query)}`,
-    searchRequest.signal,
+  const { signal } = searchRequest;
+  const response = await fetch(`/api/titles?q=${encodeURIComponent(query)}`, { signal }).catch(
+    () => undefined,
   );
+  const body: unknown = await response?.json().catch(() => undefined);
 
-  if (found === undefined) {
+  if (signal.aborted) {
     return;
   }
 
+  if (response?.ok !== true || !Array.isArray(body)) {
+    checkError.textContent = errorOf(body);
+
+    return;
+  }
+
+  const found: Title[] = body;
+
+  checkError.textContent = "";
   titles = found;
   titleOptions.replaceChildren(...found.map(optionFor));
   titleCombo.setOpen(document.activeElement === titleInput);
@@ -212,7 +222,7 @@ const videoId = (title: Title) => {
     : `${title.id}:${seasonSelect.value}:${episodeSelect.value}`;
 };
 
-const shownRow = ({ lang, source, release, label, detail }: CheckRow) => {
+const shownRow = ({ lang, source, release, label, detail, playsFirst }: CheckRow) => {
   const row = clone("#shown-template");
 
   find(row, ".row-lang").textContent = lang;
@@ -221,6 +231,7 @@ const shownRow = ({ lang, source, release, label, detail }: CheckRow) => {
   find(row, ".row-icon").setAttribute("d", timingPaths[label] ?? notRetimedPath);
   find(row, ".row-label").textContent = label;
   find(row, ".row-detail").textContent = detail ?? "";
+  find(row, ".row-first").hidden = playsFirst !== true;
 
   return row;
 };
@@ -257,10 +268,12 @@ const showResults = ({ shown, leftOut, reference, searchedMs, sources }: CheckRe
   leftOutSection.hidden = leftOut.length === 0;
   leftOutRows.replaceChildren(...leftOut.map(leftOutRow));
   results.hidden = false;
-  checkStatus.textContent = `${count(shown.length, "subtitle")} in your menu, ${leftOut.length} left out.`;
+  checkStatus.textContent = `${count(shown.length, "subtitle")} found, ${leftOut.length} left out.`;
 };
 
 titleInput.addEventListener("input", () => {
+  titleOptions.replaceChildren();
+  titleCombo.setOpen(false);
   chosen = undefined;
   episodePick.hidden = true;
   clearTimeout(searchTimer);

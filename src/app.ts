@@ -45,6 +45,7 @@ const apiBodyLimit = 16 * 1024;
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const clientKey = deps.clientKey ?? (() => "anonymous");
+  const titleLimit = { allow: rateLimit(60, 60_000).allow, clientKey };
   const routeDeps: RouteDeps = {
     sourcesFor:
       deps.sourcesFor ??
@@ -110,8 +111,8 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       clientKey,
     }),
   );
-  app.get("/api/titles", titlesRoute);
-  app.get("/api/titles/:id/episodes", episodesRoute);
+  app.get("/api/titles", titlesRoute(titleLimit));
+  app.get("/api/titles/:id/episodes", episodesRoute(titleLimit));
 
   app.use("/:config/*", cors(), async (context, next) => {
     const token = context.req.param("config") ?? "";

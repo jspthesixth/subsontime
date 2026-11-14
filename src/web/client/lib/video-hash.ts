@@ -1,4 +1,4 @@
-import { openSubtitlesHash } from "../../video-hash.ts";
+import { openSubtitlesHash } from "../../../video-hash.ts";
 
 export const videoHash = async (file: Blob): Promise<{ hash: string; size: number }> => ({
   hash: await openSubtitlesHash(

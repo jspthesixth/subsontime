@@ -3,6 +3,7 @@ import { getConnInfo } from "@hono/node-server/conninfo";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
 import { createApp } from "./app.ts";
+import { addressKey } from "./client-key.ts";
 import { readSecret } from "./config/secret.ts";
 import { memoryTokenCache } from "./sources/token-cache.ts";
 
@@ -19,7 +20,7 @@ const app = createApp({
   publicURL: process.env["PUBLIC_URL"] || undefined,
   staticFiles: serveStatic({ root: "./public" }),
   clientKey: (context) =>
-    proxiedClient(context) || getConnInfo(context).remote.address || "unknown",
+    addressKey(proxiedClient(context) || getConnInfo(context).remote.address || "unknown"),
 });
 
 serve({ fetch: app.fetch, port });

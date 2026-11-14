@@ -12,6 +12,7 @@ export type Entry = {
   fps?: number;
   cues?: Cue[];
   hang?: boolean;
+  delayMs?: number;
 };
 
 export const fakeSource = (name: string, entries: Entry[]) => {
@@ -31,6 +32,10 @@ export const fakeSource = (name: string, entries: Entry[]) => {
 
     if (entry?.hang === true) {
       return new Promise<Uint8Array>(() => {});
+    }
+
+    if (entry?.delayMs !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, entry.delayMs));
     }
 
     if (cues === undefined) {

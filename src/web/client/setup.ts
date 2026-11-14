@@ -3,9 +3,9 @@ import type { ConfigForm, SourceSettings } from "../../config/config.ts";
 import { defaultForm, formOf, openSubtitlesAddonURL } from "../../config/default-config.ts";
 import { fromLocales } from "../../languages.ts";
 import { searchKey } from "../search-key.ts";
-import { combobox } from "./combobox.ts";
-import { clone, find } from "./dom.ts";
-import { errorOf, postJSON } from "./post-json.ts";
+import { combobox } from "./lib/combobox.ts";
+import { clone, find } from "./lib/dom.ts";
+import { errorOf, postJSON } from "./lib/post-json.ts";
 
 type Account = Exclude<SourceSettings, { kind: "stremio-addon" }>;
 type Installed = { installURL: string; stremioURL: string; webURL: string };

@@ -1,11 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource } from "../sources/test-sources.ts";
 import { memoryTokenCache } from "../sources/token-cache.ts";
+import type { Source } from "../sources/source.ts";
+import { retime } from "../timing/retime.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
+
+vi.mock("../timing/retime.ts", { spy: true });
 
 type CheckRow = {
   lang: string;
@@ -14,6 +18,7 @@ type CheckRow = {
   label: string;
   detail?: string;
   reason?: string;
+  playsFirst?: boolean;
 };
 
 type CheckResult = {
@@ -55,6 +60,10 @@ const checked = async (sources: SourceSet, body: unknown = movie) => {
 
 const hashReference = () => fakeSource("Reference", [{ ref: "r", hashMatch: true, cues: track }]);
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -83,7 +92,7 @@ describe("POST /api/check", () => {
       },
     ]);
     expect(result.shown).toEqual([
-      { lang: "English", source: "Fake", label: "Retimed", detail: "-2.00 s" },
+      { lang: "English", source: "Fake", label: "Retimed", detail: "-2.00 s", playsFirst: true },
     ]);
     expect(result.reference).toBe("English, made for this exact file");
     expect(result.sources).toBe(2);
@@ -109,6 +118,7 @@ describe("POST /api/check", () => {
         release: "Movie.2024.1080p.WEB-DL",
         label: "Made for this file",
         detail: "fingerprint match",
+        playsFirst: true,
       },
       { lang: "English", source: "Fake", label: "Retimed", detail: "-2.00 s" },
     ]);
@@ -130,6 +140,32 @@ describe("POST /api/check", () => {
     ]);
   });
 
+  it("shows a served mismatch with its reason and marks nothing to play first", async () => {
+    const installURL = `https://subs.example.com/${seal(
+      { ...defaultConfig(["eng"]), bestOnly: false, extras: { hideMismatches: false } },
+      secret,
+    )}/manifest.json`;
+
+    const { result } = await checked(
+      {
+        listed: [
+          fakeSource("Fake", [
+            { ref: "wrong", cues: unrelated },
+            { ref: "right", cues: shifted },
+          ]),
+        ],
+        references: [hashReference()],
+      },
+      { ...movie, installURL },
+    );
+
+    expect(result.shown).toEqual([
+      { lang: "English", source: "Fake", label: "Not retimed", detail: mismatchReason },
+      { lang: "English", source: "Fake", label: "Retimed", detail: "-2.00 s" },
+    ]);
+    expect(result.leftOut).toEqual([]);
+  });
+
   it("shows a hash-matched subtitle as made for this file", async () => {
     const { result } = await checked({
       listed: [
@@ -147,6 +183,7 @@ describe("POST /api/check", () => {
         release: "Movie.2024.1080p.WEB-DL",
         label: "Made for this file",
         detail: "fingerprint match",
+        playsFirst: true,
       },
     ]);
     expect(result.leftOut).toEqual([]);
@@ -329,6 +366,53 @@ describe("POST /api/check", () => {
     }
   });
 
+  it("never retimes a subtitle whose download finishes after the time budget", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+    try {
+      const pending = checked({
+        listed: [fakeSource("Fake", [{ ref: "late", cues: shifted, delayMs: 25_000 }])],
+        references: [hashReference()],
+      });
+
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      const { result } = await pending;
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(result.shown).toEqual([]);
+      expect(vi.mocked(retime)).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers 429 to a third check while two are running", async () => {
+    const gate = Promise.withResolvers<void>();
+    const search = vi.fn<Source["search"]>(async () => {
+      await gate.promise;
+
+      return [];
+    });
+    const app = appWith({
+      listed: [{ name: "Slow", search, download: async () => new Uint8Array() }],
+      references: [],
+    });
+    const running = [check(app, movie, "198.51.100.1"), check(app, movie, "198.51.100.2")];
+
+    await vi.waitFor(() => expect(search).toHaveBeenCalledTimes(2));
+
+    const third = await check(app, movie, "198.51.100.3");
+
+    gate.resolve();
+
+    expect(third.status).toBe(429);
+    expect(await third.json()).toEqual({ error: "Busy, try again in a moment" });
+    expect((await Promise.all(running)).map((response) => response.status)).toEqual([200, 200]);
+    expect((await check(app, movie, "198.51.100.3")).status).toBe(200);
+  });
+
   it("answers 429 to the eleventh check in a minute", async () => {
     const app = appWith({ listed: [], references: [] });
     const statuses: number[] = [];
@@ -380,12 +464,62 @@ describe("GET /api/titles", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await appWith({ listed: [], references: [] }).request("/api/titles?q=b");
+    const response = await appWith({ listed: [], references: [] }).request("/api/titles?q=bad");
 
     expect(await response.json()).toEqual([
       { id: "tt0111161", type: "movie", name: "The Shawshank Redemption" },
       { id: "tt0903747", type: "series", name: "Breaking Bad", year: "2008" },
     ]);
+  });
+});
+
+describe("GET /api/titles ordering and limits", () => {
+  it("puts a name equal to the query first, then names that start with it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (url) =>
+        json({
+          metas: String(url).includes("/series/")
+            ? [
+                { id: "tt2387761", name: "Breaking Bad: Original Minisodes" },
+                { id: "tt0903747", name: "Breaking Bad" },
+              ]
+            : [{ id: "tt9243946", name: "El Camino: A Breaking Bad Movie" }],
+        }),
+      ),
+    );
+
+    const response = await appWith({ listed: [], references: [] }).request(
+      "/api/titles?q=Breaking%20bad",
+    );
+    const titles = (await response.json()) as { name: string }[];
+
+    expect(titles.map((title) => title.name)).toEqual([
+      "Breaking Bad",
+      "Breaking Bad: Original Minisodes",
+      "El Camino: A Breaking Bad Movie",
+    ]);
+  });
+
+  it("answers 429 to the 61st title or episode lookup in a minute", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => json({ metas: [], meta: { videos: [] } })),
+    );
+
+    const app = appWith({ listed: [], references: [] });
+    const lookup = (path: string) => app.request(path, { headers: { "x-test-client": "a" } });
+    const statuses: number[] = [];
+
+    for (let index = 0; index < 30; index += 1) {
+      statuses.push((await lookup("/api/titles?q=bad")).status);
+      statuses.push((await lookup("/api/titles/tt0903747/episodes")).status);
+    }
+
+    statuses.push((await lookup("/api/titles?q=bad")).status);
+
+    expect(statuses.filter((status) => status === 200)).toHaveLength(60);
+    expect(statuses.at(-1)).toBe(429);
   });
 });
 

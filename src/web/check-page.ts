@@ -93,7 +93,7 @@ const results = html`<div id="results" hidden>
 
   <section aria-labelledby="shown" style="padding-top: 56px;">
     <div class="row-wrap between gap-12" style="padding-bottom: 16px;">
-      <h2 class="h3" id="shown">In your subtitle menu</h2>
+      <h2 class="h3" id="shown">What we found</h2>
       <span class="small" id="shown-count"></span>
     </div>
     <div class="sub-row sub-head no-actions" id="shown-head" aria-hidden="true">
@@ -126,8 +126,10 @@ const templates = html`<template id="shown-template"
           ><span class="row-label"></span
         ></span>
         <span class="mono ink-3 row-detail" style="display: block; padding-top: 2px;"></span>
-      </div></div
-  ></template>
+        <span class="tag tag-accent row-first" style="margin-top: 8px;" hidden>Plays first</span>
+      </div>
+    </div></template
+  >
   <template id="left-out-template"
     ><div class="list-row">
       <div class="list-main">
