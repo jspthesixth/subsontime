@@ -346,7 +346,11 @@ export const fileRoute =
     const served = decodeServed(flown) ?? (await produce());
 
     if (openTimings !== undefined && viewer !== undefined && shares.length > 0) {
-      defer(shareAfterResponse(openTimings, shares, viewer, clientKey(context)));
+      try {
+        defer(shareAfterResponse(openTimings, shares, viewer, clientKey(context)));
+      } catch (error) {
+        logWrite(error);
+      }
     }
 
     if (!served.found) {

@@ -31,6 +31,9 @@ const track = syntheticTrack(1, 200);
 const shifted = transform(track, (time) => time + 2000);
 const unrelated = syntheticTrack(2, 200).map((cue) => ({ ...cue, text: `Wrong ${cue.text}` }));
 const other = syntheticTrack(3, 200).map((cue) => ({ ...cue, text: `Other ${cue.text}` }));
+const partlyChanged = track.map((cue, index) =>
+  index % 10 < 3 ? { ...cue, text: `Changed ${cue.text}` } : cue,
+);
 const third = syntheticTrack(4, 200).map((cue) => ({ ...cue, text: `Third ${cue.text}` }));
 const budgetMs = 300;
 
@@ -148,7 +151,7 @@ const deferredStore = () => {
   };
 };
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+const deferSpy = () => vi.fn<(work: Promise<unknown>) => void>();
 
 const retimedSources = () => ({
   listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])],
@@ -166,6 +169,7 @@ afterEach(() => {
 describe("reading Open Timings", () => {
   it("serves a confirmed shared fix without retiming", async () => {
     const store = memoryStore();
+    const defer = deferSpy();
     const { token } = installed();
 
     await confirmFix(store, track);
@@ -174,22 +178,21 @@ describe("reading Open Timings", () => {
       appWith(
         { listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])], references: [] },
         store,
+        { defer },
       ),
       token,
     );
 
-    await settle();
-
     expect(text).toBe(writeSRT(track));
     expect(vi.mocked(retime)).not.toHaveBeenCalled();
-    expect(await store.fixesFor(video)).toHaveLength(2);
+    expect(defer).not.toHaveBeenCalled();
   });
 
-  it("ignores a confirmed fix made for another subtitle", async () => {
+  it("ignores a confirmed fix for a subtitle that shares only part of its lines", async () => {
     const store = memoryStore();
     const { token } = installed({ share: false });
 
-    await confirmFix(store, other);
+    await confirmFix(store, partlyChanged);
 
     const { text } = await play(appWith(retimedSources(), store), token);
     const cues = parseSubtitle(text);
@@ -302,18 +305,20 @@ describe("reading Open Timings", () => {
       putReport: failing,
     };
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const defer = deferSpy();
     const { token, submitter, config } = installed();
 
-    const { response, text } = await play(appWith(retimedSources(), store), token);
+    const { response, text } = await play(appWith(retimedSources(), store, { defer }), token);
     const cues = parseSubtitle(text);
 
-    await settle();
+    await defer.mock.calls[0]?.[0];
 
     const logged = errors.mock.calls.map((call) => call.join(" "));
 
     expect(response.status).toBe(200);
     expect(Math.abs((cues[0]?.start ?? 0) - (track[0]?.start ?? 0))).toBeLessThan(200);
-    expect(logged.length).toBeGreaterThan(0);
+    expect(defer).toHaveBeenCalledTimes(1);
+    expect(logged.some((line) => line.startsWith("Open Timings write failed"))).toBe(true);
     expect(logged.every((line) => line.includes("TypeError"))).toBe(true);
     expect(
       logged.some((line) =>
@@ -504,6 +509,25 @@ describe("sharing to Open Timings", () => {
     expect(await store.fixesFor(video)).toHaveLength(1);
   });
 
+  it("still answers when the host's defer throws", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const defer = vi.fn<(work: Promise<unknown>) => void>(() => {
+      throw new RangeError("host refused");
+    });
+    const { token } = installed();
+
+    const { response, text } = await play(
+      appWith(retimedSources(), memoryStore(), { defer }),
+      token,
+    );
+
+    expect(response.status).toBe(200);
+    expect(parseSubtitle(text)).toHaveLength(200);
+    expect(errors.mock.calls.map((call) => call.join(" "))).toContain(
+      "Open Timings write failed: RangeError",
+    );
+  });
+
   it("keys the fix on the reference that produced the result", async () => {
     const store = memoryStore();
     const { token } = installed();
@@ -571,28 +595,26 @@ describe("sharing to Open Timings", () => {
       { listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])], references: [] },
     ],
   ])("shares nothing when %s", async (_, overrides, sources) => {
-    const store = memoryStore();
+    const defer = deferSpy();
     const { token } = installed(overrides);
 
-    await play(appWith(sources, store), token);
-    await settle();
+    const { response } = await play(appWith(sources, memoryStore(), { defer }), token);
 
-    expect(await store.fixesFor(video)).toEqual([]);
-    expect(await store.mismatchesFor(video)).toEqual([]);
+    expect(response.status).toBe(200);
+    expect(defer).not.toHaveBeenCalled();
   });
 
   it("shares nothing without a video fingerprint", async () => {
-    const store = memoryStore();
+    const defer = deferSpy();
     const { token } = installed();
-    const app = appWith(retimedSources(), store);
+    const app = appWith(retimedSources(), memoryStore(), { defer });
     const listing = await app.request(`/${token}/subtitles/movie/tt0111161.json`);
     const { subtitles } = (await listing.json()) as Listing;
 
     await app.request(subtitles[0]?.url ?? "");
-    await settle();
 
     expect(vi.mocked(lookUp)).not.toHaveBeenCalled();
-    expect(await store.fixesFor(video)).toEqual([]);
+    expect(defer).not.toHaveBeenCalled();
   });
 });
 

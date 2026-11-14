@@ -647,6 +647,28 @@ describe("in-process lookups", () => {
     expect(counted.fixesFor).toHaveBeenCalledTimes(2);
     expect(recovered.fixes).toHaveLength(1);
   });
+
+  it("cache a read that overlapped a write for another video", async () => {
+    const store = memoryStore();
+    const gate = Promise.withResolvers<void>();
+    const counted = {
+      ...store,
+      fixesFor: vi.fn<TimingsStore["fixesFor"]>(async (...args) => {
+        await gate.promise;
+
+        return store.fixesFor(...args);
+      }),
+    };
+
+    const reading = lookUp(counted, video, { groupingKey });
+
+    await submitFix(counted, fixBody({ video: { ...video, size: video.size + 1 } }), writer);
+    gate.resolve();
+    await reading;
+    await lookUp(counted, video, { groupingKey });
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("sharedSummaries", () => {
@@ -671,6 +693,19 @@ describe("sharedSummaries", () => {
 
     expect(fresh.hidden).toHaveLength(1);
     expect(cached).toEqual(fresh);
+  });
+
+  it("merges simultaneous lookups for one video into one read", async () => {
+    const store = memoryStore();
+    const counted = { ...store, fixesFor: vi.fn<TimingsStore["fixesFor"]>(store.fixesFor) };
+    const summaries = sharedSummaries(memorySharedState());
+
+    await Promise.all([
+      lookUp(counted, video, { groupingKey, summaries }),
+      lookUp(counted, video, { groupingKey, summaries }),
+    ]);
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(1);
   });
 
   it("reads the store once until a write for that video", async () => {

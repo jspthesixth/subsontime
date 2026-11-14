@@ -83,17 +83,14 @@ const timingsOf = (
 const confirmedOf = (timings: VideoTimings<FixWithCues> | undefined) =>
   (timings?.fixes ?? []).filter((view) => view.status === "confirmed");
 
-export const hiddenKeyFor = async (
-  openTimings: OpenTimings,
+const storeHidden = async (
+  { store, groupingKey, summaries }: OpenTimings,
   state: SharedState,
   video: VideoKey,
   viewer: string | undefined,
 ) => {
-  const { store, groupingKey, summaries } = openTimings;
-  const timings = await withinBudget(lookUp(store, video, { groupingKey, viewer, summaries }));
-  const sketches = (timings?.hidden ?? [])
-    .slice(0, maximumHidden)
-    .map((entry) => entry.subtitleSketch);
+  const { hidden } = await lookUp(store, video, { groupingKey, viewer, summaries });
+  const sketches = hidden.slice(0, maximumHidden).map((entry) => entry.subtitleSketch);
 
   if (sketches.length === 0) {
     return undefined;
@@ -107,6 +104,13 @@ export const hiddenKeyFor = async (
   return key;
 };
 
+export const hiddenKeyFor = (
+  openTimings: OpenTimings,
+  state: SharedState,
+  video: VideoKey,
+  viewer: string | undefined,
+) => withinBudget(storeHidden(openTimings, state, video, viewer));
+
 export const fileShared = async (
   openTimings: OpenTimings,
   state: SharedState,
@@ -115,7 +119,9 @@ export const fileShared = async (
   hiddenKey: string | undefined,
 ): Promise<Shared> => {
   const stored =
-    hiddenKey === undefined ? undefined : await orMiss(() => state.get(hiddenKey), undefined);
+    hiddenKey === undefined
+      ? undefined
+      : await withinBudget(orMiss(() => state.get(hiddenKey), undefined));
   const sketches = v.safeParse(sketchesSchema, parseJSON(stored ?? "[]"));
   let confirmed: Promise<FixWithCues[]> | undefined;
 

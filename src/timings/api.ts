@@ -119,16 +119,48 @@ const keepWithinBudget = (cache: Map<string, CacheEntry>) => {
   });
 };
 
+const mergedReads = (summaries: Summaries): Summaries => {
+  const reading = new Map<string, Promise<Digest>>();
+
+  return {
+    read(video, load) {
+      const key = cacheKey(video);
+      const pending = reading.get(key);
+
+      if (pending !== undefined) {
+        return pending;
+      }
+
+      const read = summaries.read(video, load);
+      const drop = () => {
+        if (reading.get(key) === read) {
+          reading.delete(key);
+        }
+      };
+      const timer = setTimeout(drop, sharedReadMs).unref();
+
+      reading.set(key, read);
+      read.then(drop, drop).finally(() => clearTimeout(timer));
+
+      return read;
+    },
+    forget(video) {
+      reading.delete(cacheKey(video));
+
+      return summaries.forget(video);
+    },
+  };
+};
+
 const memorySummaries = (): Summaries => {
   const cache = new Map<string, CacheEntry>();
-  const reading = new Map<string, Promise<Digest>>();
-  let forgets = 0;
+  const loads = new Map<string, symbol>();
 
   return {
     async read(video, load) {
       const key = cacheKey(video);
       const now = Date.now();
-      const started = forgets;
+      const token = Symbol(key);
 
       dropExpired(cache, now);
 
@@ -138,38 +170,28 @@ const memorySummaries = (): Summaries => {
         return cached.digest;
       }
 
-      const pending = reading.get(key);
+      loads.set(key, token);
 
-      if (pending !== undefined) {
-        return pending;
-      }
+      try {
+        const sections = await load();
 
-      const read = load().then((sections) => {
-        if (forgets === started) {
+        if (loads.get(key) === token) {
           cache.set(key, { at: now, digest: sections, cues: cuesIn(sections) });
           keepWithinBudget(cache);
         }
 
         return sections;
-      });
-      const settle = () => {
-        if (reading.get(key) === read) {
-          reading.delete(key);
+      } finally {
+        if (loads.get(key) === token) {
+          loads.delete(key);
         }
-      };
-
-      reading.set(key, read);
-      read.then(settle, settle);
-      setTimeout(settle, sharedReadMs).unref();
-
-      return read;
+      }
     },
     async forget(video) {
       const key = cacheKey(video);
 
-      forgets += 1;
       cache.delete(key);
-      reading.delete(key);
+      loads.delete(key);
     },
   };
 };
@@ -177,7 +199,7 @@ const memorySummaries = (): Summaries => {
 const summariesByStore = new WeakMap<TimingsStore, Summaries>();
 
 const summariesOf = (store: TimingsStore) => {
-  const summaries = summariesByStore.get(store) ?? memorySummaries();
+  const summaries = summariesByStore.get(store) ?? mergedReads(memorySummaries());
 
   summariesByStore.set(store, summaries);
 
@@ -219,33 +241,34 @@ const decodeDigest = (text: string): Digest | undefined => {
     : undefined;
 };
 
-export const sharedSummaries = (state: SharedState): Summaries => ({
-  async read(video, load) {
-    const id = cacheKey(video);
-    const version = await orMiss(async () => (await state.get(`ver:${id}`)) ?? "0", undefined);
+export const sharedSummaries = (state: SharedState): Summaries =>
+  mergedReads({
+    async read(video, load) {
+      const id = cacheKey(video);
+      const version = await orMiss(async () => (await state.get(`ver:${id}`)) ?? "0", undefined);
 
-    if (version === undefined) {
-      return load();
-    }
+      if (version === undefined) {
+        return load();
+      }
 
-    const key = `sum:${id}:${version}`;
-    const cached = await orMiss(() => state.get(key), undefined);
-    const decoded = cached === undefined ? undefined : decodeDigest(cached);
+      const key = `sum:${id}:${version}`;
+      const cached = await orMiss(() => state.get(key), undefined);
+      const decoded = cached === undefined ? undefined : decodeDigest(cached);
 
-    if (decoded !== undefined) {
-      return decoded;
-    }
+      if (decoded !== undefined) {
+        return decoded;
+      }
 
-    const sections = await load();
+      const sections = await load();
 
-    await orMiss(() => state.set(key, encodeDigest(sections), cacheMs / 1000), undefined);
+      await orMiss(() => state.set(key, encodeDigest(sections), cacheMs / 1000), undefined);
 
-    return sections;
-  },
-  async forget(video) {
-    await orMiss(() => state.increment(`ver:${cacheKey(video)}`, versionSeconds), 0);
-  },
-});
+      return sections;
+    },
+    async forget(video) {
+      await orMiss(() => state.increment(`ver:${cacheKey(video)}`, versionSeconds), 0);
+    },
+  });
 
 const read = async (store: TimingsStore, video: VideoKey, groupingKey: Buffer) => {
   const [fixes, mismatches, reports] = await Promise.all([
