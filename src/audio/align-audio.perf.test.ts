@@ -46,7 +46,7 @@ describe.skipIf(!hasFFmpeg)("alignToAudio", () => {
 
       await writer;
 
-      expect(result.cues).toHaveLength(2500);
+      expect(result.kind === "aligned" && result.cues.length).toBe(2500);
       expect(peak - before).toBeLessThan(maximumGrowth);
     } finally {
       clearInterval(sampler);

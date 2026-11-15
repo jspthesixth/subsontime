@@ -3,12 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Cue } from "../subtitles/cue.ts";
-import { speedRatioFromFPS } from "../timing/alass.ts";
+import { scoreOf, speedRatioFromFPS } from "../timing/alass.ts";
 import { cutsOf, deltasOf, median, splitWorthScore } from "../timing/retime.ts";
 import { resegment, syntheticTrack, transform } from "../timing/test-tracks.ts";
-import { alignToAudio } from "./align-audio.ts";
+import { alignToAudio, audioAcceptContrast, contrastOf } from "./align-audio.ts";
 import { exitError, pcmFrom, samplesFrom } from "./ffmpeg.ts";
-import { ffmpeg, hasFFmpeg, writeBursts, writeSilentPicture } from "./test-video.ts";
+import {
+  ffmpeg,
+  hasFFmpeg,
+  writeBursts,
+  writeSilentAudio,
+  writeSilentPicture,
+} from "./test-video.ts";
 
 const track = syntheticTrack(1, 30);
 const trackEnd = track.at(-1)?.end ?? 0;
@@ -19,6 +25,7 @@ const directory = await mkdtemp(join(tmpdir(), "subsontime-audio-"));
 const bursts = join(directory, "bursts.mkv");
 const intro = join(directory, "intro.mkv");
 const pictureOnly = join(directory, "picture-only.mkv");
+const silent = join(directory, "silent.mkv");
 const pidFile = join(directory, "ffmpeg.pid");
 const wrapper = join(directory, "ffmpeg-wrapper.sh");
 
@@ -43,6 +50,24 @@ const bytesIn = async function* (bytes: Uint8Array, sizes: number[]) {
 
 const startsWithin = (aligned: Cue[], expected: Cue[]) =>
   Math.max(...aligned.map((cue, index) => Math.abs(cue.start - (expected[index]?.start ?? 0))));
+
+const pattern = [
+  { start: 1000, end: 3000, text: "" },
+  { start: 4000, end: 5500, text: "" },
+  { start: 7000, end: 10_000, text: "" },
+];
+
+const repeatedAt = (ms: number) => [...pattern, ...transform(pattern, (time) => time + ms)];
+
+const alignedTo = async (videoPath: string, cues: Cue[]) => {
+  const result = await alignToAudio(videoPath, cues);
+
+  if (result.kind !== "aligned") {
+    throw new Error("Expected speech in the test video");
+  }
+
+  return result;
+};
 
 const ffmpegIsGone = async () => {
   const pid = Number(await readFile(pidFile, "utf8"));
@@ -84,6 +109,29 @@ describe("samplesFrom", () => {
   });
 });
 
+describe("contrastOf", () => {
+  it("is high for a pattern that matches only at its true position", () => {
+    const spans = repeatedAt(55_000);
+
+    expect(contrastOf(spans, pattern, scoreOf(spans, pattern))).toBeGreaterThanOrEqual(
+      audioAcceptContrast,
+    );
+  });
+
+  it("is near 1 for a pattern that scores the same 37 s later", () => {
+    const spans = repeatedAt(37_000);
+
+    expect(contrastOf(spans, pattern, scoreOf(spans, pattern))).toBeCloseTo(1, 1);
+  });
+
+  it("is near 1 for a pattern that scores the same 149 s earlier", () => {
+    const spans = repeatedAt(149_000);
+    const late = spans.slice(pattern.length);
+
+    expect(contrastOf(spans, late, scoreOf(spans, late))).toBeCloseTo(1, 1);
+  });
+});
+
 describe("pcmFrom without ffmpeg", () => {
   it("asks for ffmpeg when it cannot be started", async () => {
     vi.stubEnv("SUBSONTIME_FFMPEG", join(directory, "no-such-ffmpeg"));
@@ -122,23 +170,25 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
         introMs + trackEnd + 2000,
       ),
       writeSilentPicture(pictureOnly, 2000),
+      writeSilentAudio(silent, 5000),
     ]);
   }, 60_000);
 
   it("brings a subtitle 2 s late back within 100 ms of the speech", async () => {
-    const result = await alignToAudio(
+    const result = await alignedTo(
       bursts,
       transform(track, (time) => time + 2000),
     );
 
     expect(result.speedRatio).toBe(1);
+    expect(result.contrast).toBeGreaterThanOrEqual(audioAcceptContrast);
     expect(startsWithin(result.cues, track)).toBeLessThanOrEqual(100);
   });
 
   it("recovers a subtitle timed for 25 fps on 23.976 fps audio", async () => {
     const speedRatio = speedRatioFromFPS(25, 23.976);
 
-    const result = await alignToAudio(
+    const result = await alignedTo(
       bursts,
       transform(track, (time) => time * speedRatio + 2000),
     );
@@ -150,13 +200,17 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
   it("keeps one offset across a 90 s silent intro", async () => {
     const subtitle = transform(resegment(track, 7), (time) => time + 2000);
 
-    const result = await alignToAudio(intro, subtitle);
+    const result = await alignedTo(intro, subtitle);
 
     const deltas = deltasOf(subtitle, result.cues, result.speedRatio);
 
     expect(result.offsetScore).toBeLessThan(splitWorthScore);
     expect(cutsOf(deltas)).toBe(0);
     expect(Math.abs(median(deltas) - (introMs - 2000))).toBeLessThanOrEqual(100);
+  });
+
+  it("reports no speech for a silent soundtrack", async () => {
+    expect(await alignToAudio(silent, track)).toEqual({ kind: "no-speech" });
   });
 
   it("names a video without an audio track", async () => {

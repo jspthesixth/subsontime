@@ -49,5 +49,19 @@ export const writeBursts = (path: string, bursts: Cue[], durationMs: number) =>
     path,
   ]);
 
+export const writeSilentAudio = (path: string, durationMs: number) =>
+  run([
+    ...picture(durationMs),
+    "-f",
+    "lavfi",
+    "-i",
+    `anullsrc=r=${sampleRate}:cl=mono:d=${seconds(durationMs)}`,
+    "-c:v",
+    "ffv1",
+    "-c:a",
+    "flac",
+    path,
+  ]);
+
 export const writeSilentPicture = (path: string, durationMs: number) =>
   run([...picture(durationMs), "-c:v", "ffv1", path]);

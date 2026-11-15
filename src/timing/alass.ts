@@ -25,6 +25,8 @@ const flatten = (cues: Cue[]) =>
     cues.flatMap((cue) => [cue.start, cue.end]).map((time) => BigInt(Math.round(time))),
   );
 
+export const scoreOf = (reference: Cue[], cues: Cue[]) => score(flatten(reference), flatten(cues));
+
 const scored = (reference: BigInt64Array, cues: Cue[]): Alignment => ({
   cues,
   score: score(reference, flatten(cues)),

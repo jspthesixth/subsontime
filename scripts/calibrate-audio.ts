@@ -8,15 +8,10 @@ import { decodeSubtitle } from "../src/subtitles/decode.ts";
 import { parseSubtitle } from "../src/subtitles/parse.ts";
 import { cutsOf, deltasOf, median } from "../src/timing/retime.ts";
 import { detectSpeech } from "../src/timing/speech.ts";
-import { score } from "../wasm/alass_wasm.js";
 
 const usage =
   "usage: SUBSONTIME_FFMPEG=<ffmpeg> node --experimental-strip-types scripts/calibrate-audio.ts <output dir> <imdb id>=<video> [<imdb id>=<video> ...]";
 const subtitlesPerFilm = 3;
-const wrongShiftsMs = Array.from(
-  { length: 20 },
-  (_, index) => (index < 10 ? index - 10 : index - 9) * 37_000,
-);
 
 const SubtitlesResponse = v.object({
   subtitles: v.array(
@@ -40,10 +35,10 @@ type Aligned = Subtitle & {
   original: Cue[];
   score: number;
   offsetScore: number;
+  contrast: number;
   speedRatio: number;
   shiftSeconds: number;
   cuts: number;
-  wrongMax: number;
 };
 
 const [outputDirectory, ...filmArguments] = process.argv.slice(2);
@@ -140,26 +135,13 @@ const filmFrom = async (argument: string): Promise<Film> => {
   };
 };
 
-const flatten = (cues: Cue[]) =>
-  BigInt64Array.from(
-    cues.flatMap((cue) => [cue.start, cue.end]).map((time) => BigInt(Math.round(time))),
-  );
-
-const wrongPositionMax = (speech: Cue[], cues: Cue[]) => {
-  const reference = flatten(speech);
-
-  return Math.max(
-    ...wrongShiftsMs.map((shift) =>
-      score(
-        reference,
-        flatten(cues.map((cue) => ({ ...cue, start: cue.start + shift, end: cue.end + shift }))),
-      ),
-    ),
-  );
-};
-
 const alignedTo = async (film: Film, subtitle: Subtitle): Promise<Aligned> => {
   const result = await alignToSpeech(film.speech, subtitle.cues);
+
+  if (result.kind === "no-speech") {
+    throw new Error(`No speech detected in ${film.name}`);
+  }
+
   const deltas = deltasOf(subtitle.cues, result.cues, result.speedRatio);
 
   return {
@@ -169,7 +151,6 @@ const alignedTo = async (film: Film, subtitle: Subtitle): Promise<Aligned> => {
     original: subtitle.cues,
     shiftSeconds: median(deltas) / 1000,
     cuts: cutsOf(deltas),
-    wrongMax: wrongPositionMax(film.speech, result.cues),
   };
 };
 
@@ -299,8 +280,8 @@ table(
     "ratio",
     "shift s",
     "cuts",
-    "wrong-position max",
-    "score / wrong max",
+    "baseline",
+    "contrast",
     "from anchor ms",
   ],
   checked.map((result) => [
@@ -313,8 +294,8 @@ table(
     fixed(result.speedRatio),
     result.shiftSeconds.toFixed(2),
     String(result.cuts),
-    fixed(result.wrongMax),
-    (result.score / result.wrongMax).toFixed(2),
+    fixed(result.score / result.contrast),
+    result.contrast.toFixed(2),
     result.isAnchor ? "anchor" : result.fromAnchor.toFixed(0),
   ]),
 );
@@ -345,8 +326,8 @@ table(
     "final score",
     "ratio",
     "cuts",
-    "wrong-position max",
-    "score / wrong max",
+    "baseline",
+    "contrast",
   ],
   unrelated.map((result) => [
     result.film,
@@ -355,8 +336,8 @@ table(
     fixed(result.score),
     fixed(result.speedRatio),
     String(result.cuts),
-    fixed(result.wrongMax),
-    (result.score / result.wrongMax).toFixed(2),
+    fixed(result.score / result.contrast),
+    result.contrast.toFixed(2),
   ]),
 );
 
@@ -366,7 +347,7 @@ const range = (values: number[]) =>
     : `min ${fixed(Math.min(...values))}  median ${fixed(median(values))}  max ${fixed(Math.max(...values))}`;
 
 table(
-  ["summary", "offset score", "final score", "score / wrong max"],
+  ["summary", "offset score", "final score", "contrast"],
   [
     ...[true, false].map((isCorrect) => {
       const group = checked.filter((result) => result.fromAnchor <= correctMs === isCorrect);
@@ -375,14 +356,14 @@ table(
         `related, ${isCorrect ? "within" : "over"} ${correctMs} ms of the anchor (${group.length})`,
         range(group.map((result) => result.offsetScore)),
         range(group.map((result) => result.score)),
-        range(group.map((result) => result.score / result.wrongMax)),
+        range(group.map((result) => result.contrast)),
       ];
     }),
     [
       `unrelated (${unrelated.length})`,
       range(unrelated.map((result) => result.offsetScore)),
       range(unrelated.map((result) => result.score)),
-      range(unrelated.map((result) => result.score / result.wrongMax)),
+      range(unrelated.map((result) => result.contrast)),
     ],
   ],
 );
