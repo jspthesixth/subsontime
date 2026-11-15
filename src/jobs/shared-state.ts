@@ -207,8 +207,8 @@ export const pausedAfterFailure = (state: SharedState, now = () => Date.now()): 
 };
 
 export const sharedStateFrom = (env: NodeJS.ProcessEnv) => {
-  const url = env["UPSTASH_REDIS_REST_URL"];
-  const token = env["UPSTASH_REDIS_REST_TOKEN"];
+  const url = env["UPSTASH_REDIS_REST_URL"] || env["KV_REST_API_URL"];
+  const token = env["UPSTASH_REDIS_REST_TOKEN"] || env["KV_REST_API_TOKEN"];
 
   return url && token
     ? pausedAfterFailure(

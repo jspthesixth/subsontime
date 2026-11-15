@@ -44,12 +44,14 @@ It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on 
 | `DATABASE_URL_TEST`        | no       | Postgres connection string the database tests run against. They are skipped without it.                                          |
 | `UPSTASH_REDIS_REST_URL`   | no       | Upstash Redis REST address. With the token, rate limits, logins, running jobs and served subtitles are shared between instances. |
 | `UPSTASH_REDIS_REST_TOKEN` | no       | Upstash Redis REST token.                                                                                                        |
+| `KV_REST_API_URL`          | no       | Used when `UPSTASH_REDIS_REST_URL` is unset. The Vercel Marketplace Upstash integration sets it.                                 |
+| `KV_REST_API_TOKEN`        | no       | Used when `UPSTASH_REDIS_REST_TOKEN` is unset. The Vercel Marketplace Upstash integration sets it.                               |
 
 ## Self-hosting notes
 
 Set `TRUST_PROXY=1` when the server runs behind a reverse proxy, so rate limits apply per client instead of per proxy. Leave it unset when the server is reachable directly, because clients could then spoof the header.
 
-Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` when more than one instance serves the addon, as on Vercel. Without them every instance keeps this state in its own memory, which is right for a single server.
+Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` and `KV_REST_API_TOKEN`) when more than one instance serves the addon, as on Vercel. Without them every instance keeps this state in its own memory, which is right for a single server.
 
 Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point at addons on your own network.
 

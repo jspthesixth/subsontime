@@ -289,6 +289,21 @@ describe("sharedStateFrom", () => {
     expect(sharedStateFrom({ UPSTASH_REDIS_REST_URL: "http://localhost:8079" })).toBeUndefined();
     expect(sharedStateFrom({ UPSTASH_REDIS_REST_TOKEN: "token" })).toBeUndefined();
   });
+
+  it("connects with the Upstash variables", () => {
+    expect(
+      sharedStateFrom({
+        UPSTASH_REDIS_REST_URL: "http://localhost:8079",
+        UPSTASH_REDIS_REST_TOKEN: "token",
+      }),
+    ).toBeDefined();
+  });
+
+  it("connects with the Vercel KV variables", () => {
+    expect(
+      sharedStateFrom({ KV_REST_API_URL: "http://localhost:8079", KV_REST_API_TOKEN: "token" }),
+    ).toBeDefined();
+  });
 });
 
 describe("orMiss", () => {
