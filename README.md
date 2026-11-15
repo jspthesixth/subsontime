@@ -41,6 +41,7 @@ It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on 
 | `TRUST_PROXY`              | no       | Set to `1` to take the client address from `X-Forwarded-For`.                                                                    |
 | `ALLOW_LOCAL_ADDONS`       | no       | Set to `1` to accept addon URLs on private and local addresses.                                                                  |
 | `DATABASE_URL`             | no       | Postgres connection string for Open Timings.                                                                                     |
+| `DATABASE_URL_UNPOOLED`    | no       | Direct Postgres connection string. `pnpm db:migrate` uses it instead of `DATABASE_URL` when set.                                 |
 | `DATABASE_URL_TEST`        | no       | Postgres connection string the database tests run against. They are skipped without it.                                          |
 | `UPSTASH_REDIS_REST_URL`   | no       | Upstash Redis REST address. With the token, rate limits, logins, running jobs and served subtitles are shared between instances. |
 | `UPSTASH_REDIS_REST_TOKEN` | no       | Upstash Redis REST token.                                                                                                        |

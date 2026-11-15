@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "regions": ["iad1"],
+  "regions": ["fra1"],
   "buildCommand": "pnpm build",
   "functions": { "api/index.ts": { "includeFiles": "wasm/**" } },
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]

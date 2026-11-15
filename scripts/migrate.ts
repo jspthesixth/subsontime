@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import postgres from "postgres";
 
-const url = process.env.DATABASE_URL;
+const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
 
 if (url === undefined || url === "") {
   console.error("DATABASE_URL is not set");
