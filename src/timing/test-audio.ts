@@ -1,7 +1,7 @@
 import { seededRandom } from "./test-tracks.ts";
 
 export const sampleRate = 16000;
-const fundamental = 140;
+export const fundamental = 140;
 const formants = [
   { frequency: 700, gain: 1 },
   { frequency: 1200, gain: 0.6 },
@@ -13,7 +13,7 @@ const harmonicGain = (frequency: number) =>
     .map((formant) => formant.gain / (1 + ((frequency - formant.frequency) / 150) ** 2))
     .reduce((sum, gain) => sum + gain, 0);
 
-const harmonics = Array.from({ length: 25 }, (_, index) => ({
+export const harmonics = Array.from({ length: 25 }, (_, index) => ({
   multiple: index + 1,
   gain: harmonicGain(fundamental * (index + 1)),
 }));

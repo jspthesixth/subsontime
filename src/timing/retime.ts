@@ -38,7 +38,7 @@ export const splitWorthScore = 0.85;
 const agreementMs = 150;
 const cutMs = 1000;
 
-const median = (values: number[]) => {
+export const median = (values: number[]) => {
   const sorted = values.toSorted((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
 
@@ -46,6 +46,15 @@ const median = (values: number[]) => {
     ? (sorted[middle] ?? 0)
     : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
 };
+
+export const deltasOf = (original: Cue[], aligned: Cue[], speedRatio: number) =>
+  aligned.map(
+    (cue, index) => cue.start - (original[index]?.start ?? cue.start * speedRatio) / speedRatio,
+  );
+
+export const cutsOf = (deltas: number[]) =>
+  deltas.slice(1).filter((delta, index) => Math.abs(delta - (deltas[index] ?? delta)) > cutMs)
+    .length;
 
 const speedRatioFor = (subtitle: Track, reference: Track) =>
   subtitle.candidate.fps !== undefined && reference.candidate.fps !== undefined
@@ -68,10 +77,7 @@ const bestAlignment = async (subtitle: Track, reference: Track, speedRatio: numb
 const alignTo = async (subtitle: Track, reference: Track): Promise<Aligned> => {
   const speedRatio = speedRatioFor(subtitle, reference);
   const { cues, score, offsetScore } = await bestAlignment(subtitle, reference, speedRatio);
-  const deltas = cues.map(
-    (cue, index) =>
-      cue.start - (subtitle.cues[index]?.start ?? cue.start * speedRatio) / speedRatio,
-  );
+  const deltas = deltasOf(subtitle.cues, cues, speedRatio);
 
   return {
     reference,
@@ -80,9 +86,7 @@ const alignTo = async (subtitle: Track, reference: Track): Promise<Aligned> => {
     offsetScore,
     speedRatio,
     offsetMs: Math.round(median(deltas)),
-    cuts: deltas
-      .slice(1)
-      .filter((delta, index) => Math.abs(delta - (deltas[index] ?? delta)) > cutMs).length,
+    cuts: cutsOf(deltas),
   };
 };
 
