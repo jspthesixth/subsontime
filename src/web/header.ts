@@ -26,10 +26,13 @@ export const header = (active: NavPage) =>
                 class="nav-link"
                 href="${href}"
                 aria-current="${page === active ? "page" : "false"}"
-                >${label}</a
-              >`,
+                ><span class="nav-label"
+                  >${label}<span class="nav-bar" aria-hidden="true"></span></span
+              ></a>`,
           )}
-          <a class="nav-link" href="https://github.com/jspthesixth/subsontime">GitHub</a>
+          <a class="nav-link" href="https://github.com/jspthesixth/subsontime"
+            ><span class="nav-label">GitHub<span class="nav-bar" aria-hidden="true"></span></span
+          ></a>
         </div>
         <a class="btn btn-primary btn-sm" href="/stremio">Add to Stremio</a>
         <button
