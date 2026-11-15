@@ -13,6 +13,8 @@ const sources: [RegExp, NonNullable<Release["source"]>][] = [
   [/^(dvdrip|dvd)$/i, "dvdrip"],
 ];
 
+export const releaseSources = [...new Set(sources.map(([, source]) => source))];
+
 const resolutions: [RegExp, NonNullable<Release["resolution"]>][] = [
   [/^(2160p|4k|uhd)$/i, "2160p"],
   [/^1080p$/i, "1080p"],
@@ -35,7 +37,10 @@ const findLabel = <T>(tokens: string[], table: [RegExp, T][]) =>
 const isAlias = (token: string) =>
   [...sources, ...resolutions].some(([pattern]) => matches(pattern, token));
 
-const isLabelNoise = (token: string) => /^(forced|sdh|hi|cc)$/i.test(token);
+const isLabelNoise = (token: string) => /^(forced|sdh|hi|cc|multi|dual)$/i.test(token);
+
+const isWholeAlias = (token: string) =>
+  [...sources, ...resolutions].some(([pattern]) => pattern.test(token));
 
 const isTrailingNoise = (token: string) =>
   isLabelNoise(token) || (/^[a-z]{2,3}$/i.test(token) && !isAlias(token));
@@ -52,11 +57,13 @@ const isCodec = (token: string) =>
   /^(aac|ac3|eac3|dts|ddp?|truehd|atmos|flac|opus|hevc|avc|av1|hdr(10)?|sdr|dv)$/i.test(token);
 
 const dashGroup = (tokens: string[]) => {
-  const group = dropTrailingNoise(tokens)
-    .at(-1)
-    ?.match(/-([A-Za-z0-9]{2,})$/)?.[1];
+  const kept = dropTrailingNoise(tokens);
+  const last = kept.at(-1) ?? "";
+  const group = last.match(/-([A-Za-z0-9]{2,})$/)?.[1];
 
-  return group === undefined || isAlias(group) ? undefined : group;
+  return group === undefined || kept.length < 2 || isWholeAlias(last) || isAlias(group)
+    ? undefined
+    : group;
 };
 
 const withoutLabelNoise = (tokens: string[]): string[] =>
@@ -120,6 +127,7 @@ const codecOf = (filename: string) => codecs.find(([pattern]) => pattern.test(fi
 
 export const releaseSignatureOf = (filename: string) => {
   const { group, resolution } = parseRelease(filename);
+
   const codec = codecOf(filename);
 
   return group === undefined
@@ -140,6 +148,7 @@ export const isDiscOrWeb = ({ source }: Release) => discOrWebSources.has(source)
 
 export const looksLikeRip = (filename: string) => {
   const { source, resolution, group } = parseRelease(filename);
+
   const codec = codecOf(filename);
 
   return (

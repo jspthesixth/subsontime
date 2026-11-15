@@ -195,8 +195,21 @@ describe("releaseSignatureOf", () => {
     );
   });
 
-  it("has no signature without a group", () => {
-    expect(releaseSignatureOf("Show S01E01 1080p x265.mkv")).toBeUndefined();
+  it.each([
+    "Show S01E01 1080p x265.mkv",
+    "Show.S01E01.1080p.WEB-DL.mkv",
+    "Show S01E01 (1080p WEB-DL x265 MULTI).mkv",
+    "Show S01E01 (1080p BluRay x265 DUAL).mkv",
+    "Some-Title.mkv",
+    "Show.S01E01.HDTV.x264.mkv",
+  ])("has no signature without a group in %s", (filename) => {
+    expect(releaseSignatureOf(filename)).toBeUndefined();
+  });
+
+  it("reads the group before a language-mix tag", () => {
+    expect(releaseSignatureOf("Show.S01E01.1080p.WEB-DL.x265-GRP.MULTI.mkv")).toBe(
+      "grp|1080p|h265",
+    );
   });
 });
 

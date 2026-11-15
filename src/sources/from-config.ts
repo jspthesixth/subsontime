@@ -26,8 +26,9 @@ type SourceDeps = {
 };
 
 const openSubtitlesV3URL = "https://opensubtitles-v3.strem.io/manifest.json";
-const openSubtitlesV3Name = "OpenSubtitles";
-const openSubtitlesAPIName = "OpenSubtitles API";
+
+export const openSubtitlesV3Name = "OpenSubtitles";
+export const openSubtitlesAPIName = "OpenSubtitles API";
 
 const renamed = (source: Source, name: string): Source => ({
   name,

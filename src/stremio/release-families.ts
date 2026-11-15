@@ -1,19 +1,19 @@
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import { parseJSON } from "../json.ts";
-import { releaseSignatureOf, type ReleaseFamily } from "../subtitles/release.ts";
+import { releaseSignatureOf, releaseSources, type ReleaseFamily } from "../subtitles/release.ts";
 
 const familySeconds = 90 * 24 * 60 * 60;
 
 const familySchema = v.object({
-  source: v.optional(v.picklist(["bluray", "web-dl", "webrip", "hdtv", "dvdrip"])),
+  source: v.optional(v.picklist(releaseSources)),
   group: v.string(),
 });
 
-export const releaseFamilyKeyOf = (imdbId: string, filename: string) => {
+export const releaseFamilyKeyOf = (imdbId: string, season: number, filename: string) => {
   const signature = releaseSignatureOf(filename);
 
-  return signature === undefined ? undefined : `fam:${imdbId}:${signature}`;
+  return signature === undefined ? undefined : `fam:${imdbId}:${season}:${signature}`;
 };
 
 export const recordReleaseFamily = (state: SharedState, key: string, family: ReleaseFamily) =>

@@ -573,6 +573,7 @@ describe("a hash from the other listing", () => {
     const first = await list(app, token, withoutHash);
 
     await list(app, token, withHash);
+
     const response = await app.request(first.body.subtitles[0]?.url ?? "");
 
     expect(response.status).toBe(200);
@@ -585,7 +586,9 @@ describe("a hash from the other listing", () => {
     const token = sealed();
 
     await list(app, token, withHash);
+
     const { body } = await list(app, token, withoutHash);
+
     const ref = refOf(body.subtitles[0]?.url ?? "");
 
     expect(ref.c).toEqual([
@@ -600,9 +603,11 @@ describe("a hash from the other listing", () => {
     const token = sealed();
 
     await list(app, token, withHash);
+
     const second = await list(app, token, withoutHash);
 
     await list(app, token, otherRelease);
+
     const response = await app.request(second.body.subtitles[0]?.url ?? "");
 
     expect(parseSubtitle(await response.text())).toEqual(shifted);
@@ -625,18 +630,18 @@ const timed = (spans: number[][]) =>
 const broadcast = timed(familyFixture.subtitle);
 const disc = timed(familyFixture.reference);
 
-const byQuery = (entriesFor: (query: VideoQuery) => Entry[]): SourceSet => {
+const byQuery = (entriesFor: (query: VideoQuery) => Entry[], name = "OpenSubtitles"): SourceSet => {
   const search: Source["search"] = async (query, signal) =>
-    fakeSource("Fake", entriesFor(query)).search(query, signal);
+    fakeSource(name, entriesFor(query)).search(query, signal);
   const download: Source["download"] = async (ref, signal) => {
     const episodes = [1, 23, 24].flatMap((episode) =>
       entriesFor({ type: "series", imdbId: "tt1442437", season: 1, episode, languages: [] }),
     );
 
-    return fakeSource("Fake", episodes).download(ref, signal);
+    return fakeSource(name, episodes).download(ref, signal);
   };
 
-  return { listed: [{ name: "Fake", search, download }], references: [] };
+  return { listed: [{ name, search, download }], references: [] };
 };
 
 const joy = (episode: number, title: string, group = "Joy") =>
@@ -648,7 +653,7 @@ const withHashOf = (episode: number) =>
   `&videoSize=${200_000_000 + episode}&videoHash=${hashOf(episode)}`;
 
 const familyEntries =
-  ({ discLang = "hrv", matched = "dvd" } = {}) =>
+  ({ discLang = "hrv", matched = "dvd", discRelease = "dvdrip.xvid-clerks" } = {}) =>
   (query: VideoQuery): Entry[] => [
     {
       ref: `e${query.episode ?? 0}-hdtv`,
@@ -660,7 +665,7 @@ const familyEntries =
     {
       ref: `e${query.episode ?? 0}-dvd`,
       lang: discLang,
-      releaseName: `modern.family.s01e${query.episode ?? 0}.dvdrip.xvid-clerks`,
+      releaseName: `modern.family.s01e${query.episode ?? 0}.${discRelease}`,
       hashMatch:
         query.videoHash === hashOf(query.episode ?? 0) && matched === "dvd" && query.episode !== 24,
       cues: disc,
@@ -679,12 +684,121 @@ const film = (hash: string) =>
 const namedFilm = (hash: string) =>
   `movie/tt0111161/filename=${encodeURIComponent("Film (1080p BluRay x265 10bit Joy).mkv")}&videoSize=1&videoHash=${hash}.json`;
 
+const episode23 = `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`;
+
+const namedEpisode = (season: number) =>
+  `series/tt1442437:${season}:24/filename=${encodeURIComponent(`Modern Family S0${season}E24 Family Portrait  (1080p BluRay x265 10bit Joy).mkv`)}${withHashOf(24)}.json`;
+
+const familyWrites = (state: ReturnType<typeof memorySharedState>) => {
+  const set = vi.spyOn(state, "set");
+
+  return () => set.mock.calls.filter(([key]) => key.startsWith("fam:"));
+};
+
 describe("release families", () => {
+  it("learns from a hash match only through OpenSubtitles", async () => {
+    const state = memorySharedState();
+    const writes = familyWrites(state);
+
+    await list(appWith(byQuery(familyEntries(), "addon.example"), { state }), sealed(), episode23);
+
+    expect(writes()).toEqual([]);
+  });
+
+  it("learns nothing from a matched release without a source", async () => {
+    const state = memorySharedState();
+    const writes = familyWrites(state);
+
+    await list(
+      appWith(byQuery(familyEntries({ discRelease: "xvid-clerks" })), { state }),
+      sealed(),
+      episode23,
+    );
+
+    expect(writes()).toEqual([]);
+  });
+
+  it("learns nothing from a file name without a group", async () => {
+    const state = memorySharedState();
+    const writes = familyWrites(state);
+    const weak = `series/tt1442437:1:23/filename=${encodeURIComponent("Show.S01E23.1080p.WEB-DL.mkv")}${withHashOf(23)}.json`;
+
+    await list(appWith(byQuery(familyEntries()), { state }), sealed(), weak);
+
+    expect(writes()).toEqual([]);
+  });
+
+  it("learns nothing when the install does not share", async () => {
+    const state = memorySharedState();
+    const writes = familyWrites(state);
+
+    await list(appWith(byQuery(familyEntries()), { state }), sealed({ share: false }), episode23);
+
+    expect(writes()).toEqual([]);
+  });
+
+  it("keeps a learned family to its season", async () => {
+    const app = appWith(byQuery(familyEntries()));
+    const token = sealed({ languages: ["hrv"] });
+
+    await list(app, token, episode23);
+
+    const sameSeason = await firstRefAt(app, token, namedEpisode(1));
+    const nextSeason = await firstRefAt(app, token, namedEpisode(2));
+
+    expect(sameSeason.ref.c[0]?.r).toBe("e24-dvd");
+    expect(nextSeason.ref.c[0]?.r).toBe("e24-hdtv");
+  });
+
+  it("reads no learned family when the install does not use shared data", async () => {
+    const app = appWith(byQuery(familyEntries()));
+
+    await list(app, sealed(), episode23);
+
+    const { ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"], useShared: false }),
+      namedEpisode(1),
+    );
+
+    expect(ref.c[0]?.r).toBe("e24-hdtv");
+  });
+
+  it("lets a hash match of the file win over a learned family", async () => {
+    const state = memorySharedState();
+    const token = sealed({ languages: ["hrv"] });
+
+    await list(appWith(byQuery(familyEntries()), { state }), token, episode23);
+
+    const { ref } = await firstRefAt(
+      appWith(byQuery(familyEntries({ matched: "hdtv" })), { state }),
+      token,
+      namedEpisode(1),
+    );
+
+    expect(ref.c[0]?.r).toBe("e24-hdtv");
+  });
+
+  it("downloads no reference for an entry that is all of the learned family", async () => {
+    const app = appWith(byQuery(familyEntries()));
+    const token = sealed({ languages: ["hrv"], bestOnly: false });
+
+    await list(app, token, episode23);
+
+    const { body } = await list(app, token, namedEpisode(1));
+
+    expect(body.subtitles.map(({ url }) => refOf(url).x.map(({ r }) => r))).toEqual([
+      [],
+      ["e24-dvd"],
+    ]);
+  });
+
   it("serves the release family an earlier episode of the same release matched", async () => {
     const app = appWith(byQuery(familyEntries()));
     const token = sealed({ languages: ["hrv"] });
 
     await list(app, token, `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`);
+
     const { url, ref } = await firstRefAt(
       app,
       token,
@@ -701,6 +815,7 @@ describe("release families", () => {
     const token = sealed({ languages: ["hrv"] });
 
     await list(app, token, `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`);
+
     const { url, ref } = await firstRefAt(
       app,
       token,
@@ -721,6 +836,7 @@ describe("release families", () => {
     const token = sealed({ languages: ["hrv"] });
 
     await list(app, token, `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`);
+
     const { ref } = await firstRefAt(
       app,
       token,
@@ -757,6 +873,7 @@ describe("release families", () => {
     const token = sealed({ languages: ["hrv"] });
 
     await list(app, token, namedFilm(hashOf(0)));
+
     const { ref } = await firstRefAt(app, token, namedFilm("ffffffffffffffff"));
 
     expect(ref.c[0]?.r).toBe("e0-hdtv");

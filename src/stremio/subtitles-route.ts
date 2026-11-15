@@ -2,7 +2,11 @@ import type { Context } from "hono";
 import { baseURL } from "../base-url.ts";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import { searchAll } from "../sources/search-all.ts";
-import type { SourceSet } from "../sources/from-config.ts";
+import {
+  openSubtitlesAPIName,
+  openSubtitlesV3Name,
+  type SourceSet,
+} from "../sources/from-config.ts";
 import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import {
@@ -12,6 +16,7 @@ import {
   parseRelease,
   releaseFamilyOf,
   releaseSimilarity,
+  sameRelease,
   type ReleaseFamily,
 } from "../subtitles/release.ts";
 import { freeFirst, pickReferences } from "../timing/references.ts";
@@ -49,14 +54,17 @@ export const toCandidateRef = (candidate: Candidate): CandidateRef => ({
   p: candidate.fps,
 });
 
+const familySources = new Set([openSubtitlesV3Name, openSubtitlesAPIName]);
+
 export const searchVideo = async (
   sources: SourceSet,
   query: VideoQuery,
-  family?: ReleaseFamily,
+  learnedFamily: Promise<ReleaseFamily | undefined> = Promise.resolve(undefined),
 ) => {
-  const [listed, referenceOnly] = await Promise.all([
+  const [listed, referenceOnly, family] = await Promise.all([
     searchAll(sources.listed, query),
     searchAll(sources.references, query),
+    learnedFamily,
   ]);
   const fileRelease = parseRelease(query.filename ?? "");
   const all = [...listed, ...referenceOnly];
@@ -66,12 +74,25 @@ export const searchVideo = async (
   const ripGuess = family === undefined && looksLikeRip(query.filename ?? "");
   const guessed = ({ release }: Candidate) => ripGuess && isDiscOrWeb(release);
   const fromGuess = learned.length === 0 && ripGuess;
+  const references = fromGuess ? freeFirst(all.filter(guessed)) : learned;
+  const exact = ({ release }: Candidate) => sameRelease(release, fileRelease);
 
   return {
-    references: fromGuess ? freeFirst(all.filter(guessed)) : learned,
-    fromGuess,
+    references,
+    referencesFor: (candidates: Candidate[]) => {
+      const first = candidates[0];
+      const allInFamily = candidates.every(
+        (candidate) => !candidate.hashMatch && inFamily(candidate),
+      );
+      const guessedFirst = fromGuess && first !== undefined && isDiscOrWeb(first.release);
+
+      return allInFamily || guessedFirst ? [] : references;
+    },
     observedFamily: all
-      .filter(({ hashMatch }) => hashMatch)
+      .filter(
+        ({ hashMatch, sourceName, release }) =>
+          hashMatch && familySources.has(sourceName) && release.source !== undefined,
+      )
       .map(({ release }) => releaseFamilyOf(release))
       .find((observed) => observed !== undefined),
     ranked: (lang: string) =>
@@ -80,6 +101,7 @@ export const searchVideo = async (
         .toSorted(
           (a, b) =>
             Number(b.hashMatch) - Number(a.hashMatch) ||
+            Number(exact(b)) - Number(exact(a)) ||
             Number(inFamily(b)) - Number(inFamily(a)) ||
             Number(guessed(b)) - Number(guessed(a)) ||
             releaseSimilarity(b.release, fileRelease) - releaseSimilarity(a.release, fileRelease),
@@ -129,13 +151,17 @@ export const subtitlesRoute =
       Number.isFinite(videoSize) ? videoSize : undefined,
     );
     const familyKey =
-      video.type === "series" && filename !== undefined
-        ? releaseFamilyKeyOf(video.imdbId, filename)
-        : undefined;
-    const [recalled, family] = await Promise.all([
-      listed !== undefined || fileKey === undefined ? undefined : recalledFileHash(state, fileKey),
-      familyKey === undefined ? undefined : recalledReleaseFamily(state, familyKey),
-    ]);
+      video.season === undefined || filename === undefined
+        ? undefined
+        : releaseFamilyKeyOf(video.imdbId, video.season, filename);
+    const family =
+      familyKey === undefined || !config.useShared
+        ? Promise.resolve(undefined)
+        : recalledReleaseFamily(state, familyKey);
+    const recalled =
+      listed !== undefined || fileKey === undefined
+        ? undefined
+        : await recalledFileHash(state, fileKey);
     const fingerprint =
       listed ?? (recalled === undefined ? undefined : { hash: recalled.w.h, size: recalled.w.z });
     const query = {
@@ -171,7 +197,10 @@ export const subtitlesRoute =
               d: hiddenKey,
             }),
           ]),
-      ...(listed === undefined || familyKey === undefined || found.observedFamily === undefined
+      ...(listed === undefined ||
+      familyKey === undefined ||
+      found.observedFamily === undefined ||
+      !config.share
         ? []
         : [recordReleaseFamily(state, familyKey, found.observedFamily)]),
     ];
@@ -190,10 +219,7 @@ export const subtitlesRoute =
           v: 1,
           q,
           c: candidates.map(toCandidateRef).map(unflagged),
-          x:
-            found.fromGuess && candidates[0] !== undefined && isDiscOrWeb(candidates[0].release)
-              ? []
-              : references.map(unflagged),
+          x: found.referencesFor(candidates).map(toCandidateRef).map(unflagged),
           w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
           k: listed === undefined ? fileKey : undefined,
           d: hiddenKey,
