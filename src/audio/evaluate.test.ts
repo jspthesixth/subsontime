@@ -10,11 +10,11 @@ import { alignToSpeech, audioDecisionOf, type Heard } from "./align-audio.ts";
 import {
   headContrastOf,
   headRule,
-  judgeEnvironmentKey,
   outcomeOf,
   pairsOf,
   rowsOf,
   summaryOf,
+  timingErrorOf,
   upperBound95,
   type Pair,
   type Row,
@@ -25,6 +25,7 @@ import {
   featuresFor,
   featuresOf,
   jobsOf,
+  judgeEnvironmentKey,
   labelledByFile,
   loaderOf,
   mislistedBy,
@@ -61,12 +62,15 @@ const subtitles: Record<string, { titles: string[]; cues: Cue[] }> = {
   excludedOnB: { titles: ["tt8"], cues: russian(speechC, "пятая") },
   clipOfA: { titles: ["tt7"], cues: russian(speechA.slice(0, 20), "седьмая") },
   ownC: { titles: ["tt3"], cues: russian(speechC, "шестая") },
+  remakeOfC: { titles: ["tt6"], cues: russian(speechC, "восьмая") },
+  episodeOfD: { titles: ["tt4:1:2"], cues: russian(speechC, "девятая") },
 };
 
 const files = [
   { sha256: "a", split: "train", imdbId: "tt1", speech: speechA },
   { sha256: "b", split: "train", imdbId: "tt2", speech: speechB },
   { sha256: "c", split: "test", imdbId: "tt3", speech: speechC },
+  { sha256: "d", split: "test", imdbId: "tt4:1:1", speech: speechC },
 ];
 
 const labels = [
@@ -117,6 +121,10 @@ beforeAll(async () => {
         normalizedSha256: `sha-${id}`,
       })),
       { id: "broken", titles: ["tt1"] },
+    ],
+    relatedTitles: [
+      { imdbId: "tt9", relation: "sequel", targets: ["tt1"] },
+      { imdbId: "tt6", relation: "remake", targets: ["tt3"] },
     ],
   });
   await writeJSON(join(root, "labels.json"), { entries: labels });
@@ -227,8 +235,6 @@ describe("pairsOf", () => {
         "ownA b negative",
         "ownB a negative",
         "ownB b positive",
-        "ownC a negative",
-        "ownC b negative",
         "sequelOfA a negative",
         "sequelOfA b negative",
         "untimedA b negative",
@@ -237,7 +243,7 @@ describe("pairsOf", () => {
         "clipOfA b negative",
       ].toSorted(),
     );
-    expect(skipped).toEqual({ unlabelled: 1, excluded: 1 });
+    expect(skipped).toEqual({ unlabelled: 1, excluded: 1, testSubtitles: 6 });
   });
 
   it("tags hard negatives by kind and keeps the identity flag", async () => {
@@ -359,17 +365,61 @@ describe("the feature cache", () => {
   it("reads a versioned cache file and skips a line cut short", async () => {
     const pairs = (await trainPairs()).filter((pair) => pair.subtitle === "ownA");
     const [first] = await computedFor(pairs);
-    const path = featurePath(root, "train", "rigid");
+
+    const path = featurePath(root, "train", "rigid", {});
 
     expect(path).toContain(`rigid-v${primitiveVersions.rigid}.jsonl`);
 
     await mkdir(join(path, ".."), { recursive: true });
     await writeFile(
       path,
-      `${JSON.stringify({ key: first?.key, value: first?.values.rigid })}\n{"key":`,
+      `${JSON.stringify({ key: first?.key, version: 1, sha: "abc", value: first?.values.rigid })}\n{"key":`,
     );
 
-    expect([...(await readCache(root, "train")).rigid.keys()]).toEqual([first?.key]);
+    expect([...(await readCache(root, "train", {}, "def")).rigid.keys()]).toEqual([first?.key]);
+  });
+
+  it("refuses the test split's cache without the judge", async () => {
+    expect(() => featurePath(root, "test", "rigid", {})).toThrow(judgeEnvironmentKey);
+    await expect(readCache(join(root, "missing"), "test", {}, "abc")).rejects.toThrow(
+      judgeEnvironmentKey,
+    );
+  });
+
+  it.each(["def", "abc-dirty"])(
+    "refuses a test cache computed at another sha than %s",
+    async (sha) => {
+      const judge = { [judgeEnvironmentKey]: "judge" };
+      const path = featurePath(root, "test", "rigid", judge);
+
+      await mkdir(join(path, ".."), { recursive: true });
+      await writeFile(path, `${JSON.stringify({ key: "k", version: 1, sha: "abc", value: {} })}\n`);
+
+      await expect(readCache(root, "test", judge, sha)).rejects.toThrow("abc");
+    },
+  );
+
+  it("fails on a cache line it cannot read before the last line", async () => {
+    const broken = await mkdtemp(join(tmpdir(), "subsontime-eval-broken-"));
+    const path = featurePath(broken, "train", "rigid", {});
+
+    await mkdir(join(path, ".."), { recursive: true });
+    await writeFile(
+      path,
+      `{"key":\n${JSON.stringify({ key: "k", version: 1, sha: "abc", value: {} })}\n`,
+    );
+
+    await expect(readCache(broken, "train", {}, "abc")).rejects.toThrow("Unreadable line");
+    await rm(broken, { recursive: true, force: true });
+  });
+
+  it("fails on a cache file it cannot read", async () => {
+    const broken = await mkdtemp(join(tmpdir(), "subsontime-eval-broken-"));
+
+    await mkdir(featurePath(broken, "train", "rigid", {}), { recursive: true });
+
+    await expect(readCache(broken, "train", {}, "abc")).rejects.toThrow("EISDIR");
+    await rm(broken, { recursive: true, force: true });
   });
 });
 
@@ -425,6 +475,16 @@ describe("outcomeOf", () => {
   });
 });
 
+describe("timingErrorOf", () => {
+  it("takes the nearest-rank quantiles the labels use", () => {
+    expect(timingErrorOf([10, 9, 8, 7, 6, 5, 4, 3, 2, 1], 0)).toEqual({ medianMs: 6, p90Ms: 10 });
+  });
+
+  it("measures the error after the ruled offset", () => {
+    expect(timingErrorOf([-100, 300, 500], 300)).toEqual({ medianMs: 200, p90Ms: 400 });
+  });
+});
+
 describe("upperBound95", () => {
   it("is 1 - 0.05^(1/n) with no failures", () => {
     expect(upperBound95(0, 3000)).toBeCloseTo(1 - 0.05 ** (1 / 3000), 9);
@@ -450,11 +510,14 @@ describe("summaryOf", () => {
     expect(summaryOf(rows, 0)).toMatchObject({
       pairs: 5,
       falseAccepts: { negatives: 1, positives: 0 },
-      bound: { failures: 1, pairs: 5, upper: upperBound95(1, 5) },
       negativesBound: { failures: 1, pairs: 3, upper: upperBound95(1, 3) },
       falseMismatches: 1,
       recall: { accepts: 1, positives: 2 },
     });
+  });
+
+  it("keeps one bound, over the negatives", () => {
+    expect(summaryOf(rows, 0)).not.toHaveProperty("bound");
   });
 
   it("breaks out hard negatives, unverified identities and mislisted pairs", () => {

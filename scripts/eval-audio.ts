@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { dirname, join } from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
@@ -19,6 +19,8 @@ import {
   jobsOf,
   labelledByFile,
   loaderOf,
+  openIfPresent,
+  primitives,
   primitiveVersions,
   readCache,
   type Computed,
@@ -32,6 +34,7 @@ type Shared = { root: string; labelled: [string, string[]][] };
 
 const serve = () => {
   const { root, labelled } = workerData as Shared;
+
   const load = loaderOf(root, new Map(labelled));
 
   parentPort?.on("message", async (job: Job) => {
@@ -48,14 +51,32 @@ const revision = () => {
   return `${git("rev-parse", "--short", "HEAD")}${dirty}`;
 };
 
+const endsMidLine = async (path: string) => {
+  const handle = await openIfPresent(path);
+
+  if (handle === undefined) {
+    return false;
+  }
+
+  try {
+    const { size } = await handle.stat();
+
+    const { buffer } = await handle.read(Buffer.alloc(1), 0, 1, Math.max(size - 1, 0));
+
+    return size > 0 && buffer[0] !== 0x0a;
+  } finally {
+    await handle.close();
+  }
+};
+
 const appender = async (path: string) => {
-  const existing = await readFile(path, "utf8").catch(() => "");
+  const midLine = await endsMidLine(path);
 
   await mkdir(dirname(path), { recursive: true });
 
   const stream = createWriteStream(path, { flags: "a" });
 
-  if (existing !== "" && !existing.endsWith("\n")) {
+  if (midLine) {
     stream.write("\n");
   }
 
@@ -64,13 +85,15 @@ const appender = async (path: string) => {
 
 const computeFeatures = async (root: string, split: string) => {
   const { pairs } = await pairsOf(root, split, process.env);
-  const queue = jobsOf(pairs, await readCache(root, split));
+
+  const sha = revision();
+  const queue = jobsOf(pairs, await readCache(root, split, process.env, sha));
   const targets = queue.reduce((sum, job) => sum + job.targets.length, 0);
   const streams = new Map(
     await Promise.all(
-      (Object.keys(primitiveVersions) as Primitive[]).map(
+      primitives.map(
         async (primitive) =>
-          [primitive, await appender(featurePath(root, split, primitive))] as const,
+          [primitive, await appender(featurePath(root, split, primitive, process.env))] as const,
       ),
     ),
   );
@@ -81,7 +104,11 @@ const computeFeatures = async (root: string, split: string) => {
   const write = (computed: Computed[]) =>
     computed.forEach(({ key, values }) =>
       Object.entries(values).forEach(([primitive, value]) =>
-        streams.get(primitive as Primitive)?.write(`${JSON.stringify({ key, value })}\n`),
+        streams
+          .get(primitive as Primitive)
+          ?.write(
+            `${JSON.stringify({ key, version: primitiveVersions[primitive as Primitive], sha, value })}\n`,
+          ),
       ),
     );
 
@@ -109,6 +136,7 @@ const computeFeatures = async (root: string, split: string) => {
         next();
       });
       worker.on("error", reject);
+      worker.on("exit", (code) => reject(new Error(`A worker exited with code ${code}`)));
       next();
     });
 
@@ -121,8 +149,11 @@ const computeFeatures = async (root: string, split: string) => {
 const decide = async (root: string, split: string) => {
   const started = performance.now();
   const { pairs, skipped } = await pairsOf(root, split, process.env);
-  const rows = rowsOf(featuresOf(pairs, await readCache(root, split)), headRule, labelOffsetMs);
-  const path = join(root, "results", `${split}-${revision()}.jsonl`);
+
+  const sha = revision();
+  const cache = await readCache(root, split, process.env, sha);
+  const rows = rowsOf(featuresOf(pairs, cache), headRule, labelOffsetMs);
+  const path = join(root, "results", `${split}-${sha}.jsonl`);
 
   await mkdir(dirname(path), { recursive: true });
 

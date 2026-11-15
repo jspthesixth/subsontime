@@ -8,9 +8,9 @@ import {
   usableShifts,
   type AudioDecision,
 } from "./align-audio.ts";
-import { bestFit, readJSON, shiftGridMs, type Features } from "./features.ts";
+import { offsetCues } from "../timing/alass.ts";
+import { bestFit, readJSON, shiftGridMs, splitOf, type Features } from "./features.ts";
 
-export const judgeEnvironmentKey = "SUBSONTIME_EVAL_SPLIT_TEST";
 export const labelOffsetMs = 0;
 export const correctTiming = { medianMs: 250, p90Ms: 1000 };
 
@@ -26,6 +26,7 @@ const ManifestSchema = v.object({
       normalizedSha256: v.optional(v.string()),
     }),
   ),
+  relatedTitles: v.array(v.object({ imdbId: v.string(), targets: v.array(v.string()) })),
 });
 
 const LabelsSchema = v.object({
@@ -88,47 +89,51 @@ export type Outcome =
   | "not-clear"
   | "mislisted";
 
-const splitOf = (name: string, env: NodeJS.ProcessEnv) => {
-  if (name === "test" && env[judgeEnvironmentKey] !== "judge") {
-    throw new Error(`The test split is for the judging seat only (${judgeEnvironmentKey}=judge).`);
-  }
-
-  if (name !== "train" && name !== "test") {
-    throw new Error(`Unknown split ${name}: use train or test.`);
-  }
-
-  return name;
-};
-
 const pairKey = (subtitle: string, file: string) => `${subtitle} ${file}`;
+
+const showOf = (title: string) => title.split(":")[0] ?? title;
 
 export const pairsOf = async (root: string, name: string, env: NodeJS.ProcessEnv) => {
   const split = splitOf(name, env);
   const manifest = await readJSON(join(root, "manifest.json"), ManifestSchema);
   const { entries } = await readJSON(join(root, "labels.json"), LabelsSchema);
+
   const hard = await readJSON(join(root, "hard-negatives.json"), HardNegativesSchema);
 
   const labels = new Map(entries.map((label) => [pairKey(label.subtitle, label.file), label]));
   const hardPairs = new Map(hard.pairs.map((pair) => [pairKey(pair.subtitle, pair.file), pair]));
   const excluded = new Set(hard.excluded.map((pair) => pairKey(pair.subtitle, pair.file)));
-  const usable = manifest.subtitles.flatMap(({ normalized, normalizedSha256, ...subtitle }) =>
+  const testTitles = new Set(
+    manifest.files.filter((file) => file.split === "test").map((file) => file.imdbId),
+  );
+  const testShows = new Set([...testTitles].map(showOf));
+  const relatedToTest = new Set(
+    manifest.relatedTitles
+      .filter((related) => related.targets.some((target) => testTitles.has(target)))
+      .map((related) => related.imdbId),
+  );
+  const isTestTitle = (title: string) =>
+    testTitles.has(title) || relatedToTest.has(title) || testShows.has(showOf(title));
+  const listed = manifest.subtitles.flatMap(({ normalized, normalizedSha256, ...subtitle }) =>
     normalized === undefined || normalizedSha256 === undefined
       ? []
       : [{ ...subtitle, sha: normalizedSha256 }],
   );
+  const usable = listed.filter(
+    (subtitle) => split === "test" || !subtitle.titles.some(isTestTitle),
+  );
+  const splitFiles = manifest.files.filter((file) => file.split === split);
 
-  const all = manifest.files
-    .filter((file) => file.split === split)
-    .flatMap((file) =>
-      usable.map((subtitle) => ({
-        subtitle: subtitle.id,
-        subtitleSha: subtitle.sha,
-        file: file.sha256,
-        fileTitle: file.imdbId,
-        own: subtitle.titles.includes(file.imdbId),
-        key: pairKey(subtitle.id, file.sha256),
-      })),
-    );
+  const all = splitFiles.flatMap((file) =>
+    usable.map((subtitle) => ({
+      subtitle: subtitle.id,
+      subtitleSha: subtitle.sha,
+      file: file.sha256,
+      fileTitle: file.imdbId,
+      own: subtitle.titles.includes(file.imdbId),
+      key: pairKey(subtitle.id, file.sha256),
+    })),
+  );
   const candidates = all.filter(({ key }) => !excluded.has(key));
 
   const pairs = candidates.flatMap(({ own, key, ...pair }): Pair[] => {
@@ -158,6 +163,7 @@ export const pairsOf = async (root: string, name: string, env: NodeJS.ProcessEnv
         candidates.filter(({ own }) => own).length -
         pairs.filter((pair) => pair.truth === "positive").length,
       excluded: all.length - candidates.length,
+      testSubtitles: (listed.length - usable.length) * splitFiles.length,
     },
   };
 };
@@ -180,16 +186,14 @@ const shiftScoreOf = (features: RuleFeatures, shift: number) => {
 
 export const headContrastOf = (features: RuleFeatures) => {
   const { rigid } = features;
-  const { speedRatio, offsetMs, score } = bestFit(rigid);
 
   if (rigid.speechSpans === 0 || !isPlausibleSpeech(rigid.speechShare)) {
     return undefined;
   }
 
-  const window = {
-    start: Math.round(rigid.window.start / speedRatio + offsetMs),
-    end: Math.round(rigid.window.end / speedRatio + offsetMs),
-  };
+  const { speedRatio, offsetMs, score } = bestFit(rigid);
+
+  const [window = rigid.window] = offsetCues([{ ...rigid.window, text: "" }], speedRatio, offsetMs);
 
   return contrastFrom(score, usableShifts(window, rigid.speechWindow), (shift) =>
     shiftScoreOf(features, shift),
@@ -204,7 +208,7 @@ export const timingErrorOf = (diffs: number[], offsetMs: number) => {
   return { medianMs: quantile(errors, 0.5), p90Ms: quantile(errors, 0.9) };
 };
 
-export const rowsOf = (features: Features[], rule: Rule, offsetMs: number): Row[] =>
+export const rowsOf = (features: Features[], rule: Rule, ruledOffsetMs: number): Row[] =>
   features.map(({ rigid, shifts, thirds, mislisting, timing, split, ...pair }) => {
     const fit = bestFit(rigid);
     const decision = rule({ rigid, shifts, thirds });
@@ -231,7 +235,7 @@ export const rowsOf = (features: Features[], rule: Rule, offsetMs: number): Row[
       coverage: (rigid.window.end - rigid.window.start) / Math.max(rigid.audioMs, 1),
       ...(startDiffsMs === undefined
         ? {}
-        : { startDiffsMs, timingErrorMs: timingErrorOf(startDiffsMs, offsetMs) }),
+        : { startDiffsMs, timingErrorMs: timingErrorOf(startDiffsMs, ruledOffsetMs) }),
       ...(mislistedBy === null || mislistedBy === undefined ? {} : { mislistedBy }),
     };
   });
@@ -332,7 +336,6 @@ export const summaryOf = (rows: Row[], offsetMs: number) => {
       negatives: countOf(negatives, "false-accept"),
       positives: countOf(positives, "false-accept"),
     },
-    bound: boundOf(counted),
     negativesBound: boundOf(negatives),
     falseMismatches: countOf(positives, "false-mismatch"),
     recall: {

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as v from "valibot";
 import type { Cue } from "../subtitles/cue.ts";
@@ -88,7 +88,21 @@ export type Cache = { [P in Primitive]: Map<string, Values[P]> };
 
 export type Features = Pair & Pick<Values, "rigid" | "shifts" | "thirds"> & Partial<Values>;
 
-const primitives = Object.keys(primitiveVersions) as Primitive[];
+export const primitives = Object.keys(primitiveVersions) as Primitive[];
+
+export const judgeEnvironmentKey = "SUBSONTIME_EVAL_SPLIT_TEST";
+
+export const splitOf = (name: string, env: NodeJS.ProcessEnv) => {
+  if (name === "test" && env[judgeEnvironmentKey] !== "judge") {
+    throw new Error(`The test split is for the judging seat only (${judgeEnvironmentKey}=judge).`);
+  }
+
+  if (name !== "train" && name !== "test") {
+    throw new Error(`Unknown split ${name}: use train or test.`);
+  }
+
+  return name;
+};
 
 type Target = { key: string; file: string; trusted?: string; negative: boolean };
 
@@ -123,8 +137,37 @@ export const readJSON = async <T extends v.GenericSchema>(path: string, schema: 
 export const featureKey = (pair: Pick<Pair, "subtitleSha" | "file">) =>
   `${pair.subtitleSha} ${pair.file}`;
 
-export const featurePath = (root: string, split: string, primitive: Primitive) =>
-  join(root, "features", split, `${primitive}-v${primitiveVersions[primitive]}.jsonl`);
+export const featurePath = (
+  root: string,
+  split: string,
+  primitive: Primitive,
+  env: NodeJS.ProcessEnv,
+) =>
+  join(
+    root,
+    "features",
+    splitOf(split, env),
+    `${primitive}-v${primitiveVersions[primitive]}.jsonl`,
+  );
+
+export const openIfPresent = async (path: string) => {
+  try {
+    return await open(path);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+};
+
+const CacheLineSchema = v.object({
+  key: v.string(),
+  version: v.number(),
+  sha: v.string(),
+  value: v.unknown(),
+});
 
 const memoized = <T>(load: (key: string) => Promise<T>) => {
   const loaded = new Map<string, Promise<T>>();
@@ -164,20 +207,62 @@ export const loaderOf = (root: string, labelled: Map<string, string[]>): Loader 
   };
 };
 
-export const readCache = async (root: string, split: string): Promise<Cache> => {
-  const read = async <P extends Primitive>(primitive: P) => {
-    const text = await readFile(featurePath(root, split, primitive), "utf8").catch(() => "");
-    const lines = text.split("\n").flatMap((line) => {
-      try {
-        return [JSON.parse(line) as { key: string; value: unknown }];
-      } catch {
-        return [];
-      }
-    });
+const parsedJSON = (line: string): unknown => {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+};
 
-    return new Map(
-      lines.map(({ key, value }) => [key, v.parse(primitiveSchemas[primitive], value)] as const),
-    ) as Cache[P];
+const cacheLinesOf = async function* (path: string) {
+  const handle = await openIfPresent(path);
+
+  if (handle === undefined) {
+    return;
+  }
+
+  try {
+    let unread: string | undefined;
+
+    for await (const line of handle.readLines()) {
+      if (unread !== undefined) {
+        throw new Error(`Unreadable line in ${path}: ${unread.slice(0, 80)}`);
+      }
+
+      const parsed = v.safeParse(CacheLineSchema, parsedJSON(line));
+
+      if (parsed.success) {
+        yield parsed.output;
+      } else {
+        unread = line;
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+};
+
+export const readCache = async (
+  root: string,
+  split: string,
+  env: NodeJS.ProcessEnv,
+  sha: string,
+): Promise<Cache> => {
+  const judged = splitOf(split, env) === "test";
+
+  const read = async <P extends Primitive>(primitive: P) => {
+    const values: Cache[P] = new Map();
+
+    for await (const line of cacheLinesOf(featurePath(root, split, primitive, env))) {
+      if (judged && (line.sha !== sha || sha.endsWith("-dirty"))) {
+        throw new Error(`The ${primitive} cache was computed at ${line.sha}, not at ${sha}.`);
+      }
+
+      values.set(line.key, v.parse(primitiveSchemas[primitive], line.value) as never);
+    }
+
+    return values;
   };
 
   return {
@@ -280,6 +365,7 @@ export const featuresFor = async (job: Job, load: Loader): Promise<Computed[]> =
       const heard = await load.heard(target.file);
       const rigid = target.rigid ?? rigidOf(heard, cues);
       const { speedRatio, offsetMs } = bestFit(rigid);
+
       const rigidCues = offsetCues(cues, speedRatio, offsetMs);
       const trusted = async () => {
         if (target.trusted === undefined) {
