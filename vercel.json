@@ -1,4 +1,6 @@
 {
+  "framework": null,
   "buildCommand": "pnpm build",
+  "functions": { "api/index.ts": { "includeFiles": "wasm/**" } },
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
