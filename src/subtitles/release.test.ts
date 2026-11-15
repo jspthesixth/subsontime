@@ -45,6 +45,37 @@ describe("parseRelease", () => {
   it("recognizes directors cut", () => {
     expect(parseRelease("Movie.Directors.Cut.1080p.BluRay-AAA").extended).toBe(true);
   });
+
+  it("reads a release kept in trailing parentheses", () => {
+    expect(parseRelease("Modern Family S01E23 Hawaii  (1080p x265 10bit Joy).mkv")).toEqual({
+      source: undefined,
+      resolution: "1080p",
+      group: "Joy",
+      extended: false,
+    });
+  });
+
+  it("reads the source from trailing parentheses", () => {
+    expect(parseRelease("Movie (2019) (1080p BluRay x265 10bit AAC 5.1 Tigole)")).toEqual({
+      source: "bluray",
+      resolution: "1080p",
+      group: "Tigole",
+      extended: false,
+    });
+  });
+
+  it("takes no codec as the group of trailing parentheses", () => {
+    expect(parseRelease("Movie (1080p BluRay x265 AAC)").group).toBeUndefined();
+  });
+
+  it("ignores a bracketed tag without release labels", () => {
+    expect(parseRelease("Show S01E23 1080p BluRay [Tvdb-95011]")).toEqual({
+      source: "bluray",
+      resolution: "1080p",
+      group: undefined,
+      extended: false,
+    });
+  });
 });
 
 describe("sameRelease", () => {

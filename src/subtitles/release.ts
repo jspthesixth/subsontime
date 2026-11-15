@@ -43,19 +43,37 @@ const dropTrailingNoise = (tokens: string[]): string[] =>
     ? dropTrailingNoise(tokens.slice(0, -1))
     : tokens;
 
-export const parseRelease = (name: string): Release => {
-  const base = name
-    .replace(/\.(mkv|mp4|avi|srt|sub|ass|vtt)$/i, "")
-    .replace(/\s*[[(][^\])]*[\])]$/, "");
-  const tokens = tokenize(base);
+const trailingTag = /\s*[[(]([^\])]*)[\])]$/;
+
+const isCodec = (token: string) =>
+  /^(aac|ac3|eac3|dts|ddp?|truehd|atmos|flac|opus|hevc|avc|hdr|sdr|remux)$/i.test(token);
+
+const dashGroup = (tokens: string[]) => {
   const group = dropTrailingNoise(tokens)
     .at(-1)
     ?.match(/-([A-Za-z0-9]{2,})$/)?.[1];
 
+  return group === undefined || isAlias(group) ? undefined : group;
+};
+
+const tagGroup = (tag: string[]) => {
+  const last = tag.at(-1) ?? "";
+
+  return /^[A-Za-z]{2,}[A-Za-z0-9]*$/.test(last) && !isAlias(last) && !isCodec(last)
+    ? last
+    : undefined;
+};
+
+export const parseRelease = (name: string): Release => {
+  const stem = name.replace(/\.(mkv|mp4|avi|srt|sub|ass|vtt)$/i, "");
+  const tag = tokenize(stem.match(trailingTag)?.[1] ?? "");
+  const releaseTag = tag.some(isAlias);
+  const tokens = tokenize(releaseTag ? stem : stem.replace(trailingTag, ""));
+
   return {
     source: findLabel(tokens, sources),
     resolution: findLabel(tokens, resolutions),
-    group,
+    group: releaseTag ? (dashGroup(tag) ?? tagGroup(tag)) : dashGroup(tokens),
     extended: tokens.some(
       (token, index) =>
         /^(extended|uncut|unrated)$/i.test(token) ||
