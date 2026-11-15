@@ -113,9 +113,9 @@ export const createGuard = ({
   dispatcher: new Agent({ connect: { lookup: guardedLookup(allowLocal, resolve) } }),
 });
 
-const defaultGuard = createGuard({
-  allowLocal: readGroup(serverSchema, process.env).allowLocalAddons,
-});
+export const allowLocalAddons = readGroup(serverSchema, process.env).allowLocalAddons;
+
+const defaultGuard = createGuard({ allowLocal: allowLocalAddons });
 
 const blockedCause = (error: unknown) =>
   error instanceof Error && error.cause instanceof BlockedAddressError ? error.cause : error;

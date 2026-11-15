@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
+import { cliSchema, readGroup } from "../config/env.ts";
 
 const fileName = "install-id";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -10,19 +11,21 @@ export const configDirOf = (
   env: Record<string, string | undefined>,
   home: string,
 ) => {
-  if (env["SUBSONTIME_CONFIG_DIR"]) {
-    return env["SUBSONTIME_CONFIG_DIR"];
+  const { configDir, appData, xdgConfigHome } = readGroup(cliSchema, env);
+
+  if (configDir !== undefined) {
+    return configDir;
   }
 
   if (platform === "win32") {
-    return win32.join(env["APPDATA"] || win32.join(home, "AppData", "Roaming"), "subsontime");
+    return win32.join(appData ?? win32.join(home, "AppData", "Roaming"), "subsontime");
   }
 
   if (platform === "darwin") {
     return posix.join(home, "Library", "Application Support", "subsontime");
   }
 
-  return posix.join(env["XDG_CONFIG_HOME"] || posix.join(home, ".config"), "subsontime");
+  return posix.join(xdgConfigHome ?? posix.join(home, ".config"), "subsontime");
 };
 
 const alreadyExists = (error: unknown) =>

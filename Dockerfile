@@ -22,5 +22,5 @@ ENV PORT=7000
 EXPOSE 7000
 
 USER node
-HEALTHCHECK --interval=30s --timeout=3s CMD wget -q -O /dev/null http://localhost:7000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s CMD wget -q -O /dev/null http://localhost:${PORT}/health || exit 1
 CMD ["node", "--experimental-strip-types", "src/server.ts"]

@@ -1,8 +1,8 @@
 import * as v from "valibot";
 
-export const minimumSecretLength = 32;
+export const minimumKeyLength = 32;
 export const defaultDailyDownloads = 4;
-export const installSaltMessage = `INSTALL_SALT must be set to at least ${minimumSecretLength} characters`;
+export const installSaltMessage = `INSTALL_SALT must be set to at least ${minimumKeyLength} characters`;
 
 const text = v.pipe(
   v.optional(v.string()),
@@ -10,14 +10,14 @@ const text = v.pipe(
 );
 
 const secretText = (message: string) =>
-  v.pipe(v.optional(v.string(), ""), v.minLength(minimumSecretLength, message));
+  v.pipe(v.optional(v.string(), ""), v.minLength(minimumKeyLength, message));
 
 export const serverSchema = v.pipe(
   v.object({
-    PORT: v.optional(v.string()),
+    PORT: text,
     PUBLIC_URL: text,
-    TRUST_PROXY: v.optional(v.string()),
-    ALLOW_LOCAL_ADDONS: v.optional(v.string()),
+    TRUST_PROXY: text,
+    ALLOW_LOCAL_ADDONS: text,
   }),
   v.transform(({ PORT, PUBLIC_URL, TRUST_PROXY, ALLOW_LOCAL_ADDONS }) => ({
     port: Number(PORT ?? 7000),
@@ -29,7 +29,7 @@ export const serverSchema = v.pipe(
 
 export const secretsSchema = v.pipe(
   v.object({
-    SECRET: secretText(`SECRET must be set to at least ${minimumSecretLength} characters`),
+    SECRET: secretText(`SECRET must be set to at least ${minimumKeyLength} characters`),
     INSTALL_SALT: secretText(installSaltMessage),
   }),
   v.check(
@@ -47,11 +47,31 @@ const dailyDownloads = v.pipe(
 );
 
 export const sourcesSchema = v.pipe(
-  v.object({ OPENSUBTITLES_APP_KEY: text, OPENSUBTITLES_DAILY_DOWNLOADS: dailyDownloads }),
-  v.transform(({ OPENSUBTITLES_APP_KEY, OPENSUBTITLES_DAILY_DOWNLOADS }) => ({
-    openSubtitlesAppKey: OPENSUBTITLES_APP_KEY,
-    openSubtitlesDailyDownloads: OPENSUBTITLES_DAILY_DOWNLOADS,
-  })),
+  v.object({
+    OPENSUBTITLES_APP_KEY: text,
+    OPENSUBTITLES_DAILY_DOWNLOADS: dailyDownloads,
+    TITLOVI_USERNAME: text,
+    TITLOVI_PASSWORD: text,
+    SUBDL_API_KEY: text,
+    SUBSOURCE_API_KEY: text,
+  }),
+  v.transform(
+    ({
+      OPENSUBTITLES_APP_KEY,
+      OPENSUBTITLES_DAILY_DOWNLOADS,
+      TITLOVI_USERNAME,
+      TITLOVI_PASSWORD,
+      SUBDL_API_KEY,
+      SUBSOURCE_API_KEY,
+    }) => ({
+      openSubtitlesAppKey: OPENSUBTITLES_APP_KEY,
+      openSubtitlesDailyDownloads: OPENSUBTITLES_DAILY_DOWNLOADS,
+      titloviUsername: TITLOVI_USERNAME,
+      titloviPassword: TITLOVI_PASSWORD,
+      subdlAPIKey: SUBDL_API_KEY,
+      subsourceAPIKey: SUBSOURCE_API_KEY,
+    }),
+  ),
 );
 
 export const databaseSchema = v.pipe(
@@ -79,8 +99,26 @@ export const sharedStateSchema = v.pipe(
   ),
 );
 
+export const cliSchema = v.pipe(
+  v.object({ NO_COLOR: text, SUBSONTIME_CONFIG_DIR: text, APPDATA: text, XDG_CONFIG_HOME: text }),
+  v.transform(({ NO_COLOR, SUBSONTIME_CONFIG_DIR, APPDATA, XDG_CONFIG_HOME }) => ({
+    noColor: NO_COLOR !== undefined,
+    configDir: SUBSONTIME_CONFIG_DIR,
+    appData: APPDATA,
+    xdgConfigHome: XDG_CONFIG_HOME,
+  })),
+);
+
+export const audioSchema = v.pipe(
+  v.object({ SUBSONTIME_FFMPEG: text, SUBSONTIME_FFPROBE: text }),
+  v.transform(({ SUBSONTIME_FFMPEG, SUBSONTIME_FFPROBE }) => ({
+    ffmpeg: SUBSONTIME_FFMPEG,
+    ffprobe: SUBSONTIME_FFPROBE,
+  })),
+);
+
 export const testsSchema = v.pipe(
-  v.object({ DATABASE_URL_TEST: v.optional(v.string()) }),
+  v.object({ DATABASE_URL_TEST: text }),
   v.transform(({ DATABASE_URL_TEST }) => ({ databaseURL: DATABASE_URL_TEST })),
 );
 

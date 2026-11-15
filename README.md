@@ -55,6 +55,10 @@ It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on 
 | ------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
 | `OPENSUBTITLES_APP_KEY`         | no       | App key for the OpenSubtitles source. With it, a file's hash finds the subtitles made for it.              |
 | `OPENSUBTITLES_DAILY_DOWNLOADS` | no       | OpenSubtitles API downloads allowed per UTC day across the server. Defaults to 4, below the free plan's 5. |
+| `TITLOVI_USERNAME`              | no       | Titlovi username for the command line. With the password, adds the Titlovi source.                         |
+| `TITLOVI_PASSWORD`              | no       | Titlovi password for the command line.                                                                     |
+| `SUBDL_API_KEY`                 | no       | SubDL API key for the command line. Adds the SubDL source.                                                 |
+| `SUBSOURCE_API_KEY`             | no       | SubSource API key for the command line. Adds the SubSource source.                                         |
 
 ### Database
 
@@ -71,6 +75,22 @@ It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on 
 | `UPSTASH_REDIS_REST_TOKEN` | no       | Upstash Redis REST token.                                                                                                        |
 | `KV_REST_API_URL`          | no       | Used when `UPSTASH_REDIS_REST_URL` is unset. The Vercel Marketplace Upstash integration sets it.                                 |
 | `KV_REST_API_TOKEN`        | no       | Used when `UPSTASH_REDIS_REST_TOKEN` is unset. The Vercel Marketplace Upstash integration sets it.                               |
+
+### CLI
+
+| Variable                | Required | Purpose                                                            |
+| ----------------------- | -------- | ------------------------------------------------------------------ |
+| `NO_COLOR`              | no       | Set to anything to print without color.                            |
+| `SUBSONTIME_CONFIG_DIR` | no       | Folder that keeps the install id.                                  |
+| `APPDATA`               | no       | Windows config folder, used when `SUBSONTIME_CONFIG_DIR` is unset. |
+| `XDG_CONFIG_HOME`       | no       | Linux config folder, used when `SUBSONTIME_CONFIG_DIR` is unset.   |
+
+### Audio
+
+| Variable             | Required | Purpose                                                             |
+| -------------------- | -------- | ------------------------------------------------------------------- |
+| `SUBSONTIME_FFMPEG`  | no       | Path to `ffmpeg` for `--audio`. Defaults to `ffmpeg` on the `PATH`. |
+| `SUBSONTIME_FFPROBE` | no       | Path to `ffprobe`. Defaults to the one next to `ffmpeg`.            |
 
 ### Tests
 

@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import postgres from "postgres";
-import { readGroup, databaseSchema } from "../src/config/env.ts";
+import { databaseSchema, readGroup } from "../src/config/env.ts";
 
 const { url: pooledURL, unpooledURL } = readGroup(databaseSchema, process.env);
 

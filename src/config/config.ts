@@ -1,6 +1,5 @@
 import * as v from "valibot";
-import { isPublicURL } from "../http.ts";
-import { readGroup, serverSchema } from "./env.ts";
+import { allowLocalAddons, isPublicURL } from "../http.ts";
 
 export class ConfigError extends Error {}
 
@@ -9,7 +8,7 @@ const manifestURL = v.pipe(
   v.check(
     (url) =>
       !/[?#]/.test(url) &&
-      isPublicURL(url, readGroup(serverSchema, process.env).allowLocalAddons) &&
+      isPublicURL(url, allowLocalAddons) &&
       new URL(url).pathname.endsWith("/manifest.json"),
     "Must be an https manifest.json URL",
   ),

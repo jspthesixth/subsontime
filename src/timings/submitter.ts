@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
-import { installSaltMessage, minimumSecretLength } from "../config/env.ts";
+import { installSaltMessage, minimumKeyLength } from "../config/env.ts";
 import { TimingsInputError } from "./api.ts";
 
 const installIdMessage = "Send installId as a UUID";
 const uuidSchema = v.pipe(v.string(), v.uuid());
 
 export const submitterOf = (installId: string, salt: string): string => {
-  if (salt.length < minimumSecretLength) {
+  if (salt.length < minimumKeyLength) {
     throw new Error(installSaltMessage);
   }
 

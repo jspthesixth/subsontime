@@ -6,8 +6,8 @@ import { parseArgs } from "node:util";
 import packageJSON from "../../package.json" with { type: "json" };
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import type { SourceSettings } from "../config/config.ts";
-import { readGroup, sourcesSchema } from "../config/env.ts";
 import { defaultConfig, openSubtitlesAddonURL } from "../config/default-config.ts";
+import { cliSchema, readGroup, sourcesSchema } from "../config/env.ts";
 import { memorySharedState } from "../jobs/shared-state.ts";
 import { fromLocales, toISO6391, toISO6392 } from "../languages.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
@@ -110,21 +110,25 @@ const sourcesOf = (env: Env, text: string | undefined): SourceSet => {
     throw new UsageError(`Unknown source ${unknown}. Use ${sourceNames.join(", ")}`);
   }
 
+  const {
+    openSubtitlesAppKey,
+    openSubtitlesDailyDownloads,
+    titloviUsername,
+    titloviPassword,
+    subdlAPIKey,
+    subsourceAPIKey,
+  } = readGroup(sourcesSchema, env);
+
   const settings: [string, SourceSettings | undefined][] = [
     ["opensubtitles", { kind: "stremio-addon", url: openSubtitlesAddonURL }],
     [
       "titlovi",
-      env["TITLOVI_USERNAME"] && env["TITLOVI_PASSWORD"]
-        ? { kind: "titlovi", username: env["TITLOVI_USERNAME"], password: env["TITLOVI_PASSWORD"] }
+      titloviUsername && titloviPassword
+        ? { kind: "titlovi", username: titloviUsername, password: titloviPassword }
         : undefined,
     ],
-    ["subdl", env["SUBDL_API_KEY"] ? { kind: "subdl", apiKey: env["SUBDL_API_KEY"] } : undefined],
-    [
-      "subsource",
-      env["SUBSOURCE_API_KEY"]
-        ? { kind: "subsource", apiKey: env["SUBSOURCE_API_KEY"] }
-        : undefined,
-    ],
+    ["subdl", subdlAPIKey ? { kind: "subdl", apiKey: subdlAPIKey } : undefined],
+    ["subsource", subsourceAPIKey ? { kind: "subsource", apiKey: subsourceAPIKey } : undefined],
   ];
   const config = {
     ...defaultConfig(["eng"]),
@@ -134,7 +138,6 @@ const sourcesOf = (env: Env, text: string | undefined): SourceSet => {
   };
 
   const state = memorySharedState();
-  const { openSubtitlesAppKey, openSubtitlesDailyDownloads } = readGroup(sourcesSchema, env);
 
   return sourcesFromConfig(config, {
     tokens: tokenCacheFor(state, randomUUID(), randomBytes(32)),
@@ -269,7 +272,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
 export const defaultDeps = (): CLIDeps => ({
   print: (text) => process.stdout.write(text),
   printError: (text) => process.stderr.write(text),
-  color: process.stdout.isTTY === true && !process.env["NO_COLOR"],
+  color: process.stdout.isTTY === true && !readGroup(cliSchema, process.env).noColor,
   env: process.env,
   configDir: configDirOf(process.platform, process.env, homedir()),
   fallbackConfigDir: fallbackConfigDir(tmpdir(), process.getuid?.()),

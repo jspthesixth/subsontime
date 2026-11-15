@@ -7,6 +7,15 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+const configSchemaAllowingLocalAddons = async () => {
+  vi.stubEnv("ALLOW_LOCAL_ADDONS", "1");
+  vi.resetModules();
+
+  const { configSchema: schema } = await import("./config.ts");
+
+  return schema;
+};
+
 const withAddon = (url: string) => ({
   ...defaultConfig(["eng"]),
   sources: [{ kind: "stremio-addon", url }],
@@ -48,15 +57,14 @@ describe("configSchema", () => {
     expect(v.safeParse(configSchema, config).success).toBe(false);
   });
 
-  it("accepts a local http manifest", () => {
-    vi.stubEnv("ALLOW_LOCAL_ADDONS", "1");
-
+  it("accepts a local http manifest", async () => {
+    const localSchema = await configSchemaAllowingLocalAddons();
     const config = {
       ...defaultConfig(["eng"]),
       sources: [{ kind: "stremio-addon", url: "http://127.0.0.1:7000/manifest.json" }],
     };
 
-    expect(v.safeParse(configSchema, config).success).toBe(true);
+    expect(v.safeParse(localSchema, config).success).toBe(true);
   });
 
   it.each([
@@ -80,10 +88,10 @@ describe("configSchema", () => {
     ["https://[64:ff9b::a00:5]/manifest.json"],
     ["https://10.0.0.5/manifest.json"],
     ["https://[::1]/manifest.json"],
-  ])("rejects %s", (url) => {
-    vi.stubEnv("ALLOW_LOCAL_ADDONS", "1");
+  ])("rejects %s", async (url) => {
+    const localSchema = await configSchemaAllowingLocalAddons();
 
-    expect(v.safeParse(configSchema, withAddon(url)).success).toBe(false);
+    expect(v.safeParse(localSchema, withAddon(url)).success).toBe(false);
   });
 
   it("rejects an empty credential", () => {
