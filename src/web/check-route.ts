@@ -111,7 +111,7 @@ const seriesSchema = v.object({
 
 const languageNames = new Map(languageOptions.map(({ code, name }) => [code, name]));
 
-const nameOf = (code: string) => languageNames.get(code) ?? code;
+export const nameOf = (code: string) => languageNames.get(code) ?? code;
 
 const seconds = (ms: number) => `${ms < 0 ? "-" : "+"}${Math.abs(ms / 1000).toFixed(2)} s`;
 
@@ -122,7 +122,10 @@ const speedText = (ratio: number, fps: number | undefined) =>
     ? `speed ×${ratio.toFixed(4)}`
     : `speed ${fpsText(fps)} to ${fpsText(fps / ratio)}`;
 
-const retimedDetail = ({ offsetMs, speedRatio, cuts }: Retimed, fps: number | undefined) =>
+export const retimedDetail = (
+  { offsetMs, speedRatio, cuts }: Pick<Retimed, "offsetMs" | "speedRatio" | "cuts">,
+  fps: number | undefined,
+) =>
   [
     seconds(offsetMs),
     ...(speedRatio === 1 ? [] : [speedText(speedRatio, fps)]),
@@ -132,7 +135,7 @@ const retimedDetail = ({ offsetMs, speedRatio, cuts }: Retimed, fps: number | un
 const sharedFixDetail = ({ agreeing, fromAudio }: SharedFix) =>
   [`${agreeing} agree`, ...(fromAudio ? ["from audio"] : [])].join(" · ");
 
-const timingOf = ({ result }: Attempt, fps: number | undefined) => {
+export const timingOf = ({ result }: Attempt, fps: number | undefined) => {
   switch (result?.kind) {
     case "made-for-file":
       return { label: "Made for this file", detail: "fingerprint match" };
@@ -161,7 +164,7 @@ const hiddenReason = ({ reason = "mismatch" }: Hidden) =>
     ? "Hidden by Open Timings: made for another video."
     : `Hidden by Open Timings: reported as ${reason.replaceAll("-", " ")}.`;
 
-const reasonOf = ({ result, hidden }: Attempt) => {
+export const reasonOf = ({ result, hidden }: Attempt) => {
   if (hidden !== undefined) {
     return hiddenReason(hidden);
   }
@@ -367,7 +370,7 @@ export const checkRoute =
     }
   };
 
-const searchCatalog = async (type: CatalogType, query: string) => {
+export const searchCatalog = async (type: CatalogType, query: string) => {
   const response = await fetchWithTimeout(
     `${cinemetaURL}/catalog/${type}/top/search=${encodeURIComponent(query)}.json`,
     { maxBytes: maximumSearchBytes },

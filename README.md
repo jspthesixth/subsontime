@@ -17,6 +17,18 @@ docker run -e SECRET=<at least 32 random characters> -e INSTALL_SALT=<at least 3
 
 Open `http://localhost:7000/stremio` to configure the addon and get its install link.
 
+## Command line
+
+For video files on disk, the `subsontime` command finds subtitles, times them to the exact file and writes `<video name>.<language>.srt` next to the video. It never overwrites a subtitle: when that name is taken it writes `<video name>.<language>.subsontime.srt`.
+
+```sh
+node bin/subsontime.js fix "Example.Movie.2024.1080p.WEB-DL-GROUP.mkv" --lang hr,en --audio
+```
+
+It takes a file or a folder (one level deep, or every level with `--recursive`; samples and files under 50 MB are left out). `--audio` aligns to the soundtrack and needs `ffmpeg` (or `SUBSONTIME_FFMPEG` pointing at one). Fixes it times are shared with Open Timings under a random install id kept in your config folder; `--private` shares nothing and `--offline` makes no network call, with `--subtitle <path>` for the subtitle to align. `OPENSUBTITLES_APP_KEY`, `TITLOVI_USERNAME` and `TITLOVI_PASSWORD`, `SUBDL_API_KEY` and `SUBSOURCE_API_KEY` add sources. Run `node bin/subsontime.js --help` for every option.
+
+It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on a usage error and 3 when `--audio` was given without ffmpeg.
+
 ## Environment variables
 
 | Variable                   | Required | Purpose                                                                                                                          |

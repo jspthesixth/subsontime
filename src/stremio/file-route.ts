@@ -44,8 +44,9 @@ export type SubtitleCache = {
 };
 
 type Served = { found: boolean; srt: string };
-type Share = { submit: typeof submitFix; input: unknown };
+export type Share = { kind: "fix" | "mismatch"; input: object };
 
+const submitters = { fix: submitFix, mismatch: submitMismatch };
 const downloadTimeoutMs = 8000;
 const srtType = "application/x-subrip; charset=utf-8";
 const srtSeconds = 24 * 60 * 60;
@@ -198,7 +199,7 @@ const decodeServed = (text: string): Served | undefined => {
     : undefined;
 };
 
-const fixCuesOf = (cues: Cue[]) =>
+export const fixCuesOf = (cues: Cue[]) =>
   toFixCues(cues)
     .map((cue) => ({
       h: cue.h,
@@ -213,7 +214,7 @@ const referenceKeyOf = (reference: Track) => {
   return key === "" ? undefined : key;
 };
 
-const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
+export const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
   attempts.flatMap(({ track, result, hidden }): Share[] => {
     if (track === undefined || hidden !== undefined) {
       return [];
@@ -225,7 +226,7 @@ const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
 
       return [
         {
-          submit: submitFix,
+          kind: "fix",
           input: {
             video,
             subtitle: fixCuesOf(cues),
@@ -237,7 +238,7 @@ const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
     }
 
     return result?.kind === "mismatch"
-      ? [{ submit: submitMismatch, input: { video, subtitleHashes: hashesOf(track.cues) } }]
+      ? [{ kind: "mismatch", input: { video, subtitleHashes: hashesOf(track.cues) } }]
       : [];
   });
 
@@ -255,7 +256,9 @@ const shareAfterResponse = (
       const origin = await originOf(client);
 
       await Promise.all(
-        shares.map(({ submit, input }) => submit(store, input, { submitter, origin, summaries })),
+        shares.map(({ kind, input }) =>
+          submitters[kind](store, input, { submitter, origin, summaries }),
+        ),
       );
     })
     .catch(logWrite);

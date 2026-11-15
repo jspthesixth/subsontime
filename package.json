@@ -4,6 +4,9 @@
   "private": true,
   "description": "Subtitles that fit the file you are playing. A Stremio addon that retimes every subtitle to your exact video.",
   "license": "GPL-3.0-or-later",
+  "bin": {
+    "subsontime": "./bin/subsontime.js"
+  },
   "type": "module",
   "scripts": {
     "dev": "node --watch --env-file-if-exists=.env.local --experimental-strip-types src/server.ts",

@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 
 export const pcmSampleRate = 16000;
 
+export const ffmpegCommand = () => process.env.SUBSONTIME_FFMPEG || "ffmpeg";
+
 const stderrTailLength = 4096;
 
 const decodeArguments = (videoPath: string) => [
@@ -57,7 +59,7 @@ export const exitError = (
 export const pcmFrom = async function* (videoPath: string, signal: AbortSignal) {
   signal.throwIfAborted();
 
-  const child = spawn(process.env.SUBSONTIME_FFMPEG || "ffmpeg", decodeArguments(videoPath), {
+  const child = spawn(ffmpegCommand(), decodeArguments(videoPath), {
     stdio: ["ignore", "pipe", "pipe"],
     signal,
   });
