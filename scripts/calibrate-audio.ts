@@ -1,13 +1,12 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import * as v from "valibot";
-import { alignToSpeech } from "../src/audio/align-audio.ts";
-import { pcmFrom, pcmSampleRate } from "../src/audio/ffmpeg.ts";
+import { alignToSpeech, hear, speechShareOf } from "../src/audio/align-audio.ts";
+import { pcmFrom } from "../src/audio/ffmpeg.ts";
 import type { Cue } from "../src/subtitles/cue.ts";
 import { decodeSubtitle } from "../src/subtitles/decode.ts";
 import { parseSubtitle } from "../src/subtitles/parse.ts";
 import { cutsOf, deltasOf, median } from "../src/timing/retime.ts";
-import { detectSpeech } from "../src/timing/speech.ts";
 
 const usage =
   "usage: SUBSONTIME_FFMPEG=<ffmpeg> node --experimental-strip-types scripts/calibrate-audio.ts <output dir> <imdb id>=<video> [<imdb id>=<video> ...] (<output dir>/<imdb id>-local-<name>.srt adds a subtitle)";
@@ -120,19 +119,12 @@ const subtitlesFor = async (imdbId: string) => {
 const speechOf = async (imdbId: string, videoPath: string) => {
   const started = performance.now();
   const stored = await cached(join(outputDirectory, `${imdbId}.speech.json`), async () => {
-    let samples = 0;
-    const counted = async function* () {
-      for await (const chunk of pcmFrom(videoPath, new AbortController().signal)) {
-        samples += chunk.length;
-        yield chunk;
-      }
-    };
-    const speech = await detectSpeech(counted(), pcmSampleRate);
+    const { spans, audioMs } = await hear(pcmFrom(videoPath, new AbortController().signal));
 
     return JSON.stringify({
-      speech,
+      speech: spans,
       decodeSeconds: (performance.now() - started) / 1000,
-      audioMs: (samples * 1000) / pcmSampleRate,
+      audioMs,
     });
   });
 
@@ -289,24 +281,25 @@ table(
     "subtitle min",
     "decode + detect s",
   ],
-  films.map((film) => [
-    film.name,
-    seconds(film.audioMs / 60),
-    String(film.speech.length),
-    seconds(film.speech.reduce((sum, span) => sum + span.end - span.start, 0) / 60),
-    (
-      (100 * film.speech.reduce((sum, span) => sum + span.end - span.start, 0)) /
-      film.audioMs
-    ).toFixed(1),
-    seconds(
-      median(
-        film.subtitles.map((subtitle) =>
-          subtitle.cues.reduce((sum, cue) => sum + cue.end - cue.start, 0),
-        ),
-      ) / 60,
-    ),
-    film.decodeSeconds.toFixed(0),
-  ]),
+  films.map((film) => {
+    const share = speechShareOf({ spans: film.speech, audioMs: film.audioMs });
+
+    return [
+      film.name,
+      seconds(film.audioMs / 60),
+      String(film.speech.length),
+      seconds((share * film.audioMs) / 60),
+      (100 * share).toFixed(1),
+      seconds(
+        median(
+          film.subtitles.map((subtitle) =>
+            subtitle.cues.reduce((sum, cue) => sum + cue.end - cue.start, 0),
+          ),
+        ) / 60,
+      ),
+      film.decodeSeconds.toFixed(0),
+    ];
+  }),
 );
 
 table(
