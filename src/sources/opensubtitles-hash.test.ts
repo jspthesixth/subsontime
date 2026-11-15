@@ -7,10 +7,11 @@ import {
   budgetedDownloads,
   downloadBudget,
   openSubtitlesHashSource,
+  sharedListing,
   type DownloadBudget,
 } from "./opensubtitles-hash.ts";
 import { openSubtitlesSource } from "./opensubtitles.ts";
-import type { VideoQuery } from "./source.ts";
+import type { Candidate, VideoQuery } from "./source.ts";
 import { stremioAddonSource } from "./stremio-addon.ts";
 import { memoryTokenCache } from "./test-sources.ts";
 
@@ -78,7 +79,8 @@ const sourceWith = (state: SharedState = memorySharedState(), budget = openBudge
     appKey: "app-key",
     state,
     budget,
-    restDownload: (ref, signal) => rest.download(ref, signal),
+    rest,
+    listing: sharedListing(manifestURL, "OpenSubtitles"),
   });
 };
 
@@ -98,8 +100,8 @@ const failingState = (): SharedState => ({
 
 const signal = () => AbortSignal.timeout(1000);
 
-const summary = (candidates: { ref: string; lang: string; hashMatch: boolean }[]) =>
-  candidates.map(({ ref, lang, hashMatch }) => [ref, lang, hashMatch]);
+const summary = (candidates: Candidate[]) =>
+  candidates.map(({ ref, lang, hashMatch, metered }) => [ref, lang, hashMatch, metered === true]);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -117,16 +119,50 @@ describe("openSubtitlesHashSource search", () => {
         "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1953294863",
         "eng",
         false,
+        false,
       ],
-      [matchedV3URL, "eng", true],
+      [matchedV3URL, "eng", true, false],
       [
         "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1952547961?senc=cp1250",
         "hrv",
         false,
+        false,
       ],
-      ["735363", "hrv", true],
+      ["735363", "hrv", true, true],
     ]);
     expect(candidates.every(({ sourceName }) => sourceName === "OpenSubtitles")).toBe(true);
+  });
+
+  it("joins a numeric v3 id to a legacy id sent as a string", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      urlOf(input).startsWith(v3ListingURL)
+        ? new Response(
+            JSON.stringify({
+              subtitles: v3Fixture.subtitles.map((entry) => ({ ...entry, id: Number(entry.id) })),
+            }),
+          )
+        : new Response(
+            JSON.stringify({
+              ...restFixture,
+              data: restFixture.data.map((entry) => ({
+                ...entry,
+                attributes: {
+                  ...entry.attributes,
+                  legacy_subtitle_id: String(entry.attributes.legacy_subtitle_id),
+                },
+              })),
+            }),
+          ),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const candidates = await sourceWith().search(peterPan, signal());
+
+    expect(candidates.filter(({ hashMatch }) => hashMatch).map(({ ref }) => ref)).toEqual([
+      matchedV3URL,
+      "735363",
+    ]);
   });
 
   it("asks the REST search for the hash, the title and the languages", async () => {

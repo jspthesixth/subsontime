@@ -242,6 +242,22 @@ describe("pickReferences", () => {
     expect(refs(pickReferences(candidates, fileRelease))).toEqual(["b", "c", "e"]);
   });
 
+  it("spends no quota on a reference while a free hash match exists", () => {
+    const candidates = [
+      { ...hashMatch("a", "hrv"), metered: true },
+      hashMatch("b", "eng"),
+      hashMatch("c", "spa"),
+    ];
+
+    expect(refs(pickReferences(candidates, fileRelease))).toEqual(["b", "c"]);
+  });
+
+  it("takes a metered hash match when nothing free matches", () => {
+    const candidates = [{ ...hashMatch("a", "hrv"), metered: true }, sameRelease("b")];
+
+    expect(refs(pickReferences(candidates, fileRelease))).toEqual(["a"]);
+  });
+
   it("picks nothing when no candidate matches", () => {
     expect(pickReferences([otherRelease("a")], fileRelease)).toEqual([]);
   });

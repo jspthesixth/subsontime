@@ -60,6 +60,8 @@ It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on 
 | `SUBDL_API_KEY`                 | no       | SubDL API key for the command line. Adds the SubDL source.                                                 |
 | `SUBSOURCE_API_KEY`             | no       | SubSource API key for the command line. Adds the SubSource source.                                         |
 
+With the app key, a file without a hash takes its timing references from the OpenSubtitles addon listing, not the OpenSubtitles API, so it spends none of the daily downloads. The downloads go only to subtitles made for the file that the addon does not list.
+
 ### Database
 
 | Variable                | Required | Purpose                                                                                          |

@@ -9,6 +9,7 @@ import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
+import type { VideoQuery } from "../sources/source.ts";
 import { fakeSource, memoryTokenCache } from "../sources/test-sources.ts";
 import { memorySharedState } from "../jobs/shared-state.ts";
 import { memorySingleFlight } from "../jobs/single-flight.ts";
@@ -640,7 +641,7 @@ describe("sourcesFromConfig", () => {
     ]);
   });
 
-  it("leaves the matches v3 does not list to an OpenSubtitles login", async () => {
+  it("lists each OpenSubtitles match once next to a login, through v3 where it can", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input) =>
       String(input).startsWith("https://api.opensubtitles.com")
         ? new Response(JSON.stringify(restHashFixture))
@@ -649,7 +650,7 @@ describe("sourcesFromConfig", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const [openSubtitles] = sourcesFromConfig(
+    const { listed } = sourcesFromConfig(
       {
         ...defaultConfig(["eng", "hrv"]),
         sources: [
@@ -658,21 +659,29 @@ describe("sourcesFromConfig", () => {
         ],
       },
       { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
-    ).listed;
-    const candidates = await openSubtitles?.search(
-      {
-        type: "movie",
-        imdbId: "tt0046183",
-        videoHash: "466d8f728dbe2142",
-        languages: ["eng", "hrv"],
-      },
-      AbortSignal.timeout(1000),
+    );
+    const query: VideoQuery = {
+      type: "movie",
+      imdbId: "tt0046183",
+      videoHash: "466d8f728dbe2142",
+      languages: ["eng", "hrv"],
+    };
+    const found = await Promise.all(
+      listed.map((source) => source.search(query, AbortSignal.timeout(1000))),
     );
 
-    expect(candidates?.filter(({ hashMatch }) => hashMatch).map(({ lang }) => lang)).toEqual([
-      "eng",
+    expect(
+      found.flat().map(({ sourceName, ref, hashMatch }) => [sourceName, ref.slice(-10), hashMatch]),
+    ).toEqual([
+      ["OpenSubtitles", "1953294863", false],
+      ["OpenSubtitles", "1953315756", true],
+      ["OpenSubtitles", "enc=cp1250", false],
+      ["OpenSubtitles API", "735363", true],
+      ["OpenSubtitles API", "12038440", false],
     ]);
-    expect(candidates?.map(({ ref }) => ref)).not.toContain("735363");
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("strem.io"))).toHaveLength(
+      1,
+    );
   });
 
   it("names the OpenSubtitles API candidates after the wrapped source", async () => {

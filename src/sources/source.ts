@@ -19,6 +19,7 @@ export type Candidate = {
   releaseName?: string;
   hashMatch: boolean;
   fps?: number;
+  metered?: boolean;
 };
 
 export interface Source {

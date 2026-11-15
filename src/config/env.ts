@@ -46,10 +46,16 @@ const dailyDownloads = v.pipe(
   v.transform(Number),
 );
 
+export const openSubtitlesBudgetSchema = v.pipe(
+  v.object({ OPENSUBTITLES_DAILY_DOWNLOADS: dailyDownloads }),
+  v.transform(({ OPENSUBTITLES_DAILY_DOWNLOADS }) => ({
+    openSubtitlesDailyDownloads: OPENSUBTITLES_DAILY_DOWNLOADS,
+  })),
+);
+
 export const sourcesSchema = v.pipe(
   v.object({
     OPENSUBTITLES_APP_KEY: text,
-    OPENSUBTITLES_DAILY_DOWNLOADS: dailyDownloads,
     TITLOVI_USERNAME: text,
     TITLOVI_PASSWORD: text,
     SUBDL_API_KEY: text,
@@ -58,14 +64,12 @@ export const sourcesSchema = v.pipe(
   v.transform(
     ({
       OPENSUBTITLES_APP_KEY,
-      OPENSUBTITLES_DAILY_DOWNLOADS,
       TITLOVI_USERNAME,
       TITLOVI_PASSWORD,
       SUBDL_API_KEY,
       SUBSOURCE_API_KEY,
     }) => ({
       openSubtitlesAppKey: OPENSUBTITLES_APP_KEY,
-      openSubtitlesDailyDownloads: OPENSUBTITLES_DAILY_DOWNLOADS,
       titloviUsername: TITLOVI_USERNAME,
       titloviPassword: TITLOVI_PASSWORD,
       subdlAPIKey: SUBDL_API_KEY,
@@ -138,7 +142,7 @@ export const readGroup = <Schema extends v.GenericSchema>(
 export const readEnvironment = (env: NodeJS.ProcessEnv) => ({
   server: readGroup(serverSchema, env),
   secrets: readGroup(secretsSchema, env),
-  sources: readGroup(sourcesSchema, env),
+  sources: { ...readGroup(sourcesSchema, env), ...readGroup(openSubtitlesBudgetSchema, env) },
   database: readGroup(databaseSchema, env),
   sharedState: readGroup(sharedStateSchema, env),
 });

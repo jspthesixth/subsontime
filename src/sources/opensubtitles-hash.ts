@@ -13,7 +13,7 @@ import {
   type RESTEntry,
 } from "./opensubtitles.ts";
 import type { Candidate, Source, VideoQuery } from "./source.ts";
-import { addonEntries, stremioAddonSource } from "./stremio-addon.ts";
+import { addonEntries, stremioAddonSource, type AddonEntry } from "./stremio-addon.ts";
 
 export type DownloadBudget = { left(): Promise<boolean>; spend(): Promise<boolean> };
 
@@ -41,7 +41,9 @@ export const budgetedDownloads = (
   budget: DownloadBudget,
   state: SharedState,
 ): Source => ({
-  ...source,
+  name: source.name,
+  search: async (query, signal) =>
+    (await source.search(query, signal)).map((candidate) => ({ ...candidate, metered: true })),
   async download(ref, signal) {
     const key = `os:file:${ref}`;
     const cached = await orMiss(() => state.get(key), undefined);
@@ -70,7 +72,44 @@ const firstPerLanguage = (candidates: Candidate[]) =>
     (candidate, index) => candidates.findIndex(({ lang }) => lang === candidate.lang) === index,
   );
 
-const legacyIdOf = (entry: RESTEntry) => String(entry.attributes.legacy_subtitle_id);
+const legacyIdOf = (entry: RESTEntry) => {
+  const id = entry.attributes.legacy_subtitle_id ?? undefined;
+
+  return id === undefined ? undefined : String(id);
+};
+
+const addonIds = (entries: AddonEntry[]) =>
+  new Set(entries.flatMap(({ id }) => (id === undefined ? [] : [String(id)])));
+
+export type Listing = (query: VideoQuery, signal: AbortSignal) => Promise<AddonEntry[]>;
+
+export const sharedListing = (manifestURL: string, name: string): Listing => {
+  const listings = new Map<string, Promise<AddonEntry[]>>();
+
+  return (query, signal) => {
+    const key = JSON.stringify(query);
+    const listing = listings.get(key) ?? addonEntries(manifestURL, name, query, signal);
+
+    listings.set(key, listing);
+
+    return listing;
+  };
+};
+
+export const withoutListed = (login: Source, appKey: string, listing: Listing): Source => ({
+  ...login,
+  async search(query, signal) {
+    const [entries, listed] = await Promise.all([
+      searchRESTEntries(appKey, query, signal),
+      listing(query, signal).catch((): AddonEntry[] => []),
+    ]);
+    const ids = addonIds(listed);
+
+    return (entries ?? [])
+      .filter((entry) => !ids.has(legacyIdOf(entry) ?? ""))
+      .flatMap(restCandidate);
+  },
+});
 
 export const openSubtitlesHashSource = ({
   manifestURL,
@@ -78,14 +117,16 @@ export const openSubtitlesHashSource = ({
   appKey,
   state,
   budget,
-  restDownload,
+  rest,
+  listing,
 }: {
   manifestURL: string;
   name: string;
   appKey: string;
   state: SharedState;
   budget: DownloadBudget;
-  restDownload: Source["download"];
+  rest: Source;
+  listing: Listing;
 }): Source => {
   const addon = stremioAddonSource(manifestURL, name);
   const allowSearch = rateLimit(state, (key) => key, "opensubtitles", searchesPerSecond, 1000);
@@ -130,27 +171,27 @@ export const openSubtitlesHashSource = ({
     name,
     async search(query, signal) {
       if (movieHashOf(query) === undefined) {
-        return addon.search(query, signal);
+        return (await listing(query, signal)).map(({ candidate }) => candidate);
       }
 
       const [entries, matches] = await Promise.all([
-        addonEntries(manifestURL, name, query, signal),
+        listing(query, signal),
         hashMatches(query, signal),
       ]);
 
-      const listedIds = new Set(entries.flatMap(({ id }) => id ?? []));
-      const matchedIds = new Set(matches.map(legacyIdOf));
+      const listedIds = addonIds(entries);
+      const matchedIds = new Set(matches.flatMap((entry) => legacyIdOf(entry) ?? []));
       const listed = entries.map(({ id, candidate }) => ({
         ...candidate,
-        hashMatch: candidate.hashMatch || (id !== undefined && matchedIds.has(id)),
+        hashMatch: candidate.hashMatch || (id !== undefined && matchedIds.has(String(id))),
       }));
       const covered = new Set(listed.filter(({ hashMatch }) => hashMatch).map(({ lang }) => lang));
       const missing = firstPerLanguage(
         matches
-          .filter((entry) => !listedIds.has(legacyIdOf(entry)))
+          .filter((entry) => !listedIds.has(legacyIdOf(entry) ?? ""))
           .flatMap(restCandidate)
           .filter(({ lang }) => query.languages.includes(lang) && !covered.has(lang))
-          .map((candidate) => ({ ...candidate, sourceName: name })),
+          .map((candidate) => ({ ...candidate, sourceName: name, metered: true })),
       );
 
       if (missing.length === 0 || !(await budget.left())) {
@@ -160,6 +201,6 @@ export const openSubtitlesHashSource = ({
       return [...listed, ...missing];
     },
     download: (ref, signal) =>
-      /^\d+$/.test(ref) ? restDownload(ref, signal) : addon.download(ref, signal),
+      /^\d+$/.test(ref) ? rest.download(ref, signal) : addon.download(ref, signal),
   };
 };

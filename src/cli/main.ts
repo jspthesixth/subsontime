@@ -7,7 +7,7 @@ import packageJSON from "../../package.json" with { type: "json" };
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import type { SourceSettings } from "../config/config.ts";
 import { defaultConfig, openSubtitlesAddonURL } from "../config/default-config.ts";
-import { cliSchema, readGroup, sourcesSchema } from "../config/env.ts";
+import { cliSchema, openSubtitlesBudgetSchema, readGroup, sourcesSchema } from "../config/env.ts";
 import { memorySharedState } from "../jobs/shared-state.ts";
 import { fromLocales, toISO6391, toISO6392 } from "../languages.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
@@ -110,14 +110,8 @@ const sourcesOf = (env: Env, text: string | undefined): SourceSet => {
     throw new UsageError(`Unknown source ${unknown}. Use ${sourceNames.join(", ")}`);
   }
 
-  const {
-    openSubtitlesAppKey,
-    openSubtitlesDailyDownloads,
-    titloviUsername,
-    titloviPassword,
-    subdlAPIKey,
-    subsourceAPIKey,
-  } = readGroup(sourcesSchema, env);
+  const { openSubtitlesAppKey, titloviUsername, titloviPassword, subdlAPIKey, subsourceAPIKey } =
+    readGroup(sourcesSchema, env);
 
   const settings: [string, SourceSettings | undefined][] = [
     ["opensubtitles", { kind: "stremio-addon", url: openSubtitlesAddonURL }],
@@ -142,8 +136,9 @@ const sourcesOf = (env: Env, text: string | undefined): SourceSet => {
   return sourcesFromConfig(config, {
     tokens: tokenCacheFor(state, randomUUID(), randomBytes(32)),
     state,
-    openSubtitlesAppKey: chosen.includes("opensubtitles") ? openSubtitlesAppKey : undefined,
-    openSubtitlesDailyDownloads,
+    ...(chosen.includes("opensubtitles")
+      ? { openSubtitlesAppKey, ...readGroup(openSubtitlesBudgetSchema, env) }
+      : {}),
   });
 };
 

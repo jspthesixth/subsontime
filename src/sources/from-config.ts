@@ -6,6 +6,8 @@ import {
   budgetedDownloads,
   downloadBudget,
   openSubtitlesHashSource,
+  sharedListing,
+  withoutListed,
 } from "./opensubtitles-hash.ts";
 import type { Source } from "./source.ts";
 import { stremioAddonSource } from "./stremio-addon.ts";
@@ -24,6 +26,7 @@ type SourceDeps = {
 };
 
 const openSubtitlesV3URL = "https://opensubtitles-v3.strem.io/manifest.json";
+const openSubtitlesV3Name = "OpenSubtitles";
 const openSubtitlesAPIName = "OpenSubtitles API";
 
 const renamed = (source: Source, name: string): Source => ({
@@ -33,68 +36,66 @@ const renamed = (source: Source, name: string): Source => ({
   download: (ref, signal) => source.download(ref, signal),
 });
 
-const budgetOf = (deps: SourceDeps) =>
-  downloadBudget(deps.state, deps.openSubtitlesDailyDownloads ?? defaultDailyDownloads);
-
-const anonymousREST = (appKey: string, deps: SourceDeps, budget = budgetOf(deps)) =>
-  budgetedDownloads(openSubtitlesSource(undefined, appKey, deps.tokens), budget, deps.state);
-
-const openSubtitlesAPI = (
-  credentials: { username: string; password: string } | undefined,
-  deps: SourceDeps,
-) => {
-  const appKey = deps.openSubtitlesAppKey;
-
-  if (appKey === undefined) {
-    return [];
-  }
-
-  return [
-    renamed(
-      credentials === undefined
-        ? anonymousREST(appKey, deps)
-        : openSubtitlesSource(credentials, appKey, deps.tokens),
-      openSubtitlesAPIName,
-    ),
-  ];
+type OpenSubtitles = {
+  v3: Source;
+  login: (credentials: { username: string; password: string }) => Source;
+  reference: Source;
 };
 
-const openSubtitlesV3 = (deps: SourceDeps) => {
-  const appKey = deps.openSubtitlesAppKey;
+const isV3 = (settings: SourceSettings) =>
+  settings.kind === "stremio-addon" && settings.url === openSubtitlesV3URL;
 
-  if (appKey === undefined) {
-    return stremioAddonSource(openSubtitlesV3URL, "OpenSubtitles");
-  }
+const isLogin = (settings: SourceSettings) => settings.kind === "opensubtitles";
 
-  const budget = budgetOf(deps);
-  const rest = anonymousREST(appKey, deps, budget);
-
-  return openSubtitlesHashSource({
-    manifestURL: openSubtitlesV3URL,
-    name: "OpenSubtitles",
-    appKey,
-    state: deps.state,
+const openSubtitlesFor = (appKey: string, config: Config, deps: SourceDeps): OpenSubtitles => {
+  const withLogin = config.sources.some(isLogin);
+  const withV3 = config.sources.some(isV3);
+  const budget = downloadBudget(
+    deps.state,
+    withLogin ? 0 : (deps.openSubtitlesDailyDownloads ?? defaultDailyDownloads),
+  );
+  const rest = budgetedDownloads(
+    openSubtitlesSource(undefined, appKey, deps.tokens),
     budget,
-    restDownload: (ref, signal) => rest.download(ref, signal),
-  });
+    deps.state,
+  );
+  const listing = sharedListing(openSubtitlesV3URL, openSubtitlesV3Name);
+
+  return {
+    v3: openSubtitlesHashSource({
+      manifestURL: openSubtitlesV3URL,
+      name: openSubtitlesV3Name,
+      appKey,
+      state: deps.state,
+      budget,
+      rest,
+      listing,
+    }),
+    login: (credentials) => {
+      const login = openSubtitlesSource(credentials, appKey, deps.tokens);
+
+      return renamed(withV3 ? withoutListed(login, appKey, listing) : login, openSubtitlesAPIName);
+    },
+    reference: renamed(rest, openSubtitlesAPIName),
+  };
 };
 
-const coversOpenSubtitles = (settings: SourceSettings) =>
-  settings.kind === "opensubtitles" ||
-  (settings.kind === "stremio-addon" && settings.url === openSubtitlesV3URL);
-
-const toSources = (settings: SourceSettings, deps: SourceDeps): Source[] => {
+const toSources = (
+  settings: SourceSettings,
+  tokens: TokenCache,
+  openSubtitles?: OpenSubtitles,
+): Source[] => {
   switch (settings.kind) {
     case "stremio-addon":
       return [
         settings.url === openSubtitlesV3URL
-          ? openSubtitlesV3(deps)
+          ? (openSubtitles?.v3 ?? stremioAddonSource(openSubtitlesV3URL, openSubtitlesV3Name))
           : stremioAddonSource(settings.url, new URL(settings.url).host),
       ];
     case "opensubtitles":
-      return openSubtitlesAPI(settings, deps);
+      return openSubtitles === undefined ? [] : [openSubtitles.login(settings)];
     case "titlovi":
-      return [titloviSource(settings, deps.tokens)];
+      return [titloviSource(settings, tokens)];
     case "subdl":
       return [subdlSource(settings.apiKey)];
     case "subsource":
@@ -103,13 +104,12 @@ const toSources = (settings: SourceSettings, deps: SourceDeps): Source[] => {
 };
 
 export const sourcesFromConfig = (config: Config, deps: SourceDeps): SourceSet => {
-  const withLogin = config.sources.some(({ kind }) => kind === "opensubtitles");
-  const sourceDeps = withLogin ? { ...deps, openSubtitlesDailyDownloads: 0 } : deps;
+  const appKey = deps.openSubtitlesAppKey;
+  const openSubtitles = appKey === undefined ? undefined : openSubtitlesFor(appKey, config, deps);
+  const covered = config.sources.some((settings) => isV3(settings) || isLogin(settings));
 
   return {
-    listed: config.sources.flatMap((settings) => toSources(settings, sourceDeps)),
-    references: config.sources.some(coversOpenSubtitles)
-      ? []
-      : openSubtitlesAPI(undefined, sourceDeps),
+    listed: config.sources.flatMap((settings) => toSources(settings, deps.tokens, openSubtitles)),
+    references: covered || openSubtitles === undefined ? [] : [openSubtitles.reference],
   };
 };

@@ -9,6 +9,7 @@ export const pickReferences = (candidates: Candidate[], fileRelease: Release): C
     hashMatches.length > 0
       ? hashMatches
       : candidates.filter((candidate) => sameRelease(candidate.release, fileRelease));
+  const free = pool.filter(({ metered }) => metered !== true);
 
-  return pool.slice(0, maximumReferences);
+  return (free.length > 0 ? free : pool).slice(0, maximumReferences);
 };

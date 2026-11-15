@@ -13,7 +13,7 @@ const searchTimeoutMs = 4000;
 const downloadTimeoutMs = 8000;
 
 const entrySchema = v.object({
-  id: v.optional(v.string()),
+  id: v.optional(v.union([v.string(), v.number()])),
   url: v.string(),
   lang: v.string(),
   m: v.optional(v.unknown()),
@@ -88,7 +88,7 @@ const toCandidate = (name: string, entry: v.InferOutput<typeof entrySchema>): Ca
   };
 };
 
-export type AddonEntry = { id?: string; candidate: Candidate };
+export type AddonEntry = { id?: string | number; candidate: Candidate };
 
 export const addonEntries = async (
   manifestURL: string,

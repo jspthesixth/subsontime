@@ -667,6 +667,23 @@ describe("exit codes", () => {
     expect(output).toContain("\n  en  no subtitles found\n");
   });
 
+  it("leaves the OpenSubtitles download limit alone without the OpenSubtitles source", async () => {
+    const video = await writeVideo(`${movieName}.mkv`);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ status: true, results: [] }))),
+    );
+
+    const { code, errors } = await run(
+      ["fix", video, "--lang", "en", "--imdb", "tt0111161", "--private", "--sources", "subdl"],
+      { env: { OPENSUBTITLES_DAILY_DOWNLOADS: "four", SUBDL_API_KEY: "key" } },
+    );
+
+    expect(errors).not.toContain("OPENSUBTITLES_DAILY_DOWNLOADS");
+    expect(code).toBe(1);
+  });
+
   it.each([
     [["fix"]],
     [["unknown"]],

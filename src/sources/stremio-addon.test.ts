@@ -44,6 +44,21 @@ describe("parseStremioId", () => {
 });
 
 describe("stremioAddonSource", () => {
+  it("keeps an entry whose id is a number", async () => {
+    stubFetch(
+      JSON.stringify({
+        subtitles: [{ id: 42, url: "https://subs.example.com/42.srt", lang: "eng" }],
+      }),
+    );
+
+    const candidates = await stremioAddonSource(
+      "https://subs.example.com/manifest.json",
+      "subs.example.com",
+    ).search(movie, AbortSignal.timeout(1000));
+
+    expect(candidates.map(({ ref }) => ref)).toEqual(["https://subs.example.com/42.srt"]);
+  });
+
   it("maps the OpenSubtitles v3 response to candidates", async () => {
     stubFetch(JSON.stringify(fixture));
 
