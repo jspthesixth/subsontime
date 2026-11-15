@@ -121,7 +121,8 @@ const computeFeatures = async (root: string, split: string) => {
         const job = queue.shift();
 
         if (job === undefined) {
-          void worker.terminate().then(() => resolve());
+          resolve();
+          void worker.terminate();
 
           return;
         }
