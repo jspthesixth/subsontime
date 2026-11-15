@@ -43,6 +43,7 @@
     "@stylistic/eslint-plugin": "6.0.0",
     "@types/node": "24.19.2",
     "esbuild": "0.28.2",
+    "iso-639-2": "3.0.2",
     "oxfmt": "0.78.0",
     "oxlint": "1.93.0",
     "postject": "1.0.0-alpha.6",
