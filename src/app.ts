@@ -2,6 +2,7 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
+import { baseURL } from "./base-url.ts";
 import { ConfigError, type Config } from "./config/config.ts";
 import { invalidLinkMessage, sealedConfigPattern, unseal } from "./config/seal.ts";
 import { memorySingleFlight, sharedSingleFlight, type SingleFlight } from "./jobs/single-flight.ts";
@@ -232,7 +233,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     await next();
   });
 
-  app.get("/:config/manifest.json", (context) => context.json(manifest));
+  app.get("/:config/manifest.json", (context) =>
+    context.json({ ...manifest, logo: `${baseURL(context, deps.publicURL)}/logo.png` }),
+  );
   app.get("/:config/configure", (context) => context.redirect("/stremio"));
   app.get("/:config/subtitles/:type/:id", subtitlesRoute(routeDeps));
   app.get("/:config/subtitles/:type/:id/:extra", subtitlesRoute(routeDeps));

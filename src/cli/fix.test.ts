@@ -780,7 +780,7 @@ describe("exit codes", () => {
       output: expect.stringContaining("subsontime fix <file-or-folder>"),
       errors: "",
     });
-    expect(await run(["--version"])).toEqual({ code: 0, output: "0.0.0\n", errors: "" });
+    expect(await run(["--version"])).toEqual({ code: 0, output: "0.1.0\n", errors: "" });
   });
 });
 

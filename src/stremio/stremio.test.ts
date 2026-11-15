@@ -76,6 +76,7 @@ describe("manifest", () => {
       idPrefixes: ["tt"],
       catalogs: [],
       behaviorHints: { configurable: true, configurationRequired: false },
+      logo: "http://localhost/logo.png",
     });
   });
 

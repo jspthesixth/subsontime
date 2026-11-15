@@ -1,6 +1,6 @@
 {
   "name": "subsontime",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Subtitles that fit the file you are playing. A Stremio addon that retimes every subtitle to your exact video.",
   "license": "GPL-3.0-or-later",
@@ -21,7 +21,7 @@
     "build:cli": "node --experimental-strip-types scripts/build-sea.ts",
     "lint:rust": "cd crates/alass-wasm && cargo clippy --target wasm32-unknown-unknown -- -D warnings",
     "build": "pnpm build:client && pnpm build:assets",
-    "build:assets": "mkdir -p public/fonts && cp src/web/styles.css public/styles.css && cp node_modules/@fontsource-variable/geist/files/geist-*-wght-normal.woff2 node_modules/@fontsource-variable/geist-mono/files/geist-mono-*-wght-normal.woff2 public/fonts/",
+    "build:assets": "mkdir -p public/fonts && cp src/web/styles.css public/styles.css && cp src/web/logo.png public/logo.png && cp node_modules/@fontsource-variable/geist/files/geist-*-wght-normal.woff2 node_modules/@fontsource-variable/geist-mono/files/geist-mono-*-wght-normal.woff2 public/fonts/",
     "db:up": "docker compose up -d --wait postgres",
     "db:migrate": "node --env-file-if-exists=.env.local --experimental-strip-types scripts/migrate.ts"
   },
