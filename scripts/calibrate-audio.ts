@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import * as v from "valibot";
 import { alignToSpeech } from "../src/audio/align-audio.ts";
@@ -10,7 +10,7 @@ import { cutsOf, deltasOf, median } from "../src/timing/retime.ts";
 import { detectSpeech } from "../src/timing/speech.ts";
 
 const usage =
-  "usage: SUBSONTIME_FFMPEG=<ffmpeg> node --experimental-strip-types scripts/calibrate-audio.ts <output dir> <imdb id>=<video> [<imdb id>=<video> ...]";
+  "usage: SUBSONTIME_FFMPEG=<ffmpeg> node --experimental-strip-types scripts/calibrate-audio.ts <output dir> <imdb id>=<video> [<imdb id>=<video> ...] (<output dir>/<imdb id>-local-<name>.srt adds a subtitle)";
 const subtitlesPerFilm = 3;
 
 const SubtitlesResponse = v.object({
@@ -91,8 +91,12 @@ const subtitlesFor = async (imdbId: string) => {
     .filter((entry) => entry.lang === "eng")
     .slice(0, subtitlesPerFilm);
 
-  return Promise.all(
-    english.map(async (entry) => {
+  const local = (await readdir(outputDirectory)).filter((name) =>
+    name.startsWith(`${imdbId}-local-`),
+  );
+
+  return Promise.all([
+    ...english.map(async (entry) => {
       const text = await cached(join(outputDirectory, `${imdbId}-${entry.id}.srt`), async () =>
         decodeSubtitle(new Uint8Array(await (await fetch(entry.url)).arrayBuffer()), "eng"),
       );
@@ -104,7 +108,13 @@ const subtitlesFor = async (imdbId: string) => {
         cues: parseSubtitle(text),
       };
     }),
-  );
+    ...local.map(async (name) => ({
+      id: name.slice(imdbId.length + 1, -".srt".length),
+      name,
+      fps: "?",
+      cues: parseSubtitle(decodeSubtitle(await readFile(join(outputDirectory, name)), "eng")),
+    })),
+  ]);
 };
 
 const speechOf = async (imdbId: string, videoPath: string) => {

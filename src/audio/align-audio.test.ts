@@ -155,6 +155,15 @@ describe("contrastOf", () => {
     ).toBeCloseTo(1, 1);
   });
 
+  it.each([
+    [0.085, false],
+    [0.136, true],
+  ])("judges a score of %f against a noise floor when no wrong shift scores", (score, accepted) => {
+    const spans = patternWithin(transform(pattern, (time) => time + 55_000));
+
+    expect((contrastOf(spans, pattern, score) ?? 0) >= audioAcceptContrast).toBe(accepted);
+  });
+
   it("measures a short clip on the 4 shifts that stay on its speech", () => {
     expect(contrastOfPattern(sortedSpans([second(135), ...pattern, second(275)]))).toBeTypeOf(
       "number",

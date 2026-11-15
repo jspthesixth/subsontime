@@ -27,7 +27,7 @@ export const audioMismatchContrast = 1.5;
 export const plausibleSpeechShare = { min: 0.15, max: 0.9 };
 
 const wrongShiftsMs = [37, 71, 113, 149].flatMap((seconds) => [-seconds * 1000, seconds * 1000]);
-const minimumBaseline = 0.01;
+const minimumBaseline = 0.03;
 const shortClipMs = 300_000;
 const minimumShifts = 4;
 
@@ -118,13 +118,14 @@ export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAli
 
   const speedRatio = bestSpeedRatio(speech, cues, speedRatios, withinSpeech);
   const best = await bestAlignment(speech, cues, speedRatio);
-  const contrast = contrastOf(speech, best.cues, scoreOf(speech, best.cues));
+  const score = scoreOf(speech, best.cues);
+  const contrast = contrastOf(speech, best.cues, score);
 
   if (contrast === undefined) {
     return { kind: "too-short" };
   }
 
-  return { kind: "aligned", ...best, speedRatio, contrast };
+  return { kind: "aligned", ...best, score, speedRatio, contrast };
 };
 
 export const alignToAudio = async (
