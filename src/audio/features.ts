@@ -150,15 +150,53 @@ export const featurePath = (
     `${primitive}-v${primitiveVersions[primitive]}.jsonl`,
   );
 
-export const openIfPresent = async (path: string) => {
+export const openIfPresent = async (path: string, flags = "r") => {
   try {
-    return await open(path);
+    return await open(path, flags);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return undefined;
     }
 
     throw error;
+  }
+};
+
+const tailChunkBytes = 65_536;
+
+export const trimCutLine = async (path: string) => {
+  const handle = await openIfPresent(path, "r+");
+
+  if (handle === undefined) {
+    return;
+  }
+
+  try {
+    const { size } = await handle.stat();
+    let end = size;
+
+    while (end > 0) {
+      const start = Math.max(end - tailChunkBytes, 0);
+      const { buffer, bytesRead } = await handle.read(
+        Buffer.alloc(end - start),
+        0,
+        end - start,
+        start,
+      );
+      const newline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
+
+      if (newline >= 0) {
+        await handle.truncate(start + newline + 1);
+
+        return;
+      }
+
+      end = start;
+    }
+
+    await handle.truncate(0);
+  } finally {
+    await handle.close();
   }
 };
 

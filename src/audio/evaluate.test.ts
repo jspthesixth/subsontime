@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -31,6 +31,7 @@ import {
   mislistedBy,
   primitiveVersions,
   readCache,
+  trimCutLine,
   type Cache,
   type Computed,
 } from "./features.ts";
@@ -398,6 +399,32 @@ describe("the feature cache", () => {
       await expect(readCache(root, "test", judge, sha)).rejects.toThrow("abc");
     },
   );
+
+  it("drops a line cut short before appending after it", async () => {
+    const cut = await mkdtemp(join(tmpdir(), "subsontime-eval-cut-"));
+    const path = featurePath(cut, "train", "rigid", {});
+    const line = (key: string) =>
+      JSON.stringify({ key, version: 1, sha: "abc", value: rigidValue });
+    const rigidValue = {
+      audioMs: 1,
+      speechSpans: 1,
+      speechShare: 0.5,
+      window: { start: 0, end: 1 },
+      speechWindow: { start: 0, end: 1 },
+      fits: [],
+    };
+
+    await mkdir(join(path, ".."), { recursive: true });
+    await writeFile(path, `${line("first")}\n${line("second").slice(0, 30)}`);
+    await trimCutLine(path);
+    await appendFile(path, `${line("third")}\n`);
+
+    expect([...(await readCache(cut, "train", {}, "abc")).rigid.keys()]).toEqual([
+      "first",
+      "third",
+    ]);
+    await rm(cut, { recursive: true, force: true });
+  });
 
   it("fails on a cache line it cannot read before the last line", async () => {
     const broken = await mkdtemp(join(tmpdir(), "subsontime-eval-broken-"));

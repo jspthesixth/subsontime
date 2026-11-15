@@ -19,10 +19,10 @@ import {
   jobsOf,
   labelledByFile,
   loaderOf,
-  openIfPresent,
   primitives,
   primitiveVersions,
   readCache,
+  trimCutLine,
   type Computed,
   type Job,
   type Primitive,
@@ -51,36 +51,11 @@ const revision = () => {
   return `${git("rev-parse", "--short", "HEAD")}${dirty}`;
 };
 
-const endsMidLine = async (path: string) => {
-  const handle = await openIfPresent(path);
-
-  if (handle === undefined) {
-    return false;
-  }
-
-  try {
-    const { size } = await handle.stat();
-
-    const { buffer } = await handle.read(Buffer.alloc(1), 0, 1, Math.max(size - 1, 0));
-
-    return size > 0 && buffer[0] !== 0x0a;
-  } finally {
-    await handle.close();
-  }
-};
-
 const appender = async (path: string) => {
-  const midLine = await endsMidLine(path);
-
   await mkdir(dirname(path), { recursive: true });
+  await trimCutLine(path);
 
-  const stream = createWriteStream(path, { flags: "a" });
-
-  if (midLine) {
-    stream.write("\n");
-  }
-
-  return stream;
+  return createWriteStream(path, { flags: "a" });
 };
 
 const computeFeatures = async (root: string, split: string) => {
