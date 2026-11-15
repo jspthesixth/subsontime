@@ -41,6 +41,13 @@ import { fileFingerprint } from "./video-hash.ts";
 
 export type Sharing = "on" | "private" | "offline";
 
+export type ShareOutcome = "shared" | "no-install-id" | "no-answer";
+
+export const shareFailures = {
+  "no-install-id": "could not save the install id",
+  "no-answer": "Open Timings did not answer",
+};
+
 export type Paint = { value: (text: string) => string; dim: (text: string) => string };
 
 export type FixContext = {
@@ -507,20 +514,24 @@ export const shareAll = async (
     return undefined;
   }
 
-  try {
-    const installId = await context.installId();
+  const installId = await context.installId().catch(() => undefined);
 
+  if (installId === undefined) {
+    return "no-install-id";
+  }
+
+  try {
     for (const share of shares) {
       await timings.submit(share, installId);
     }
 
-    return true;
+    return "shared";
   } catch {
-    return false;
+    return "no-answer";
   }
 };
 
-const shareLines = (sharing: Sharing, sent: boolean | undefined): Line[] => {
+const shareLines = (sharing: Sharing, sent: ShareOutcome | undefined): Line[] => {
   if (sharing !== "on") {
     return [{ label: "not shared", value: `--${sharing}`, tone: "dim" }];
   }
@@ -529,9 +540,9 @@ const shareLines = (sharing: Sharing, sent: boolean | undefined): Line[] => {
     return [];
   }
 
-  return sent
+  return sent === "shared"
     ? [{ label: "shared with Open Timings", value: "numbers and fingerprints only", tone: "dim" }]
-    : [{ label: "not shared", value: "Open Timings did not answer", tone: "dim" }];
+    : [{ label: "not shared", value: shareFailures[sent], tone: "dim" }];
 };
 
 const releaseOf = (found: Found, lang: string, candidate: CandidateRef) =>

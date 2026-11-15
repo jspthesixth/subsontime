@@ -377,6 +377,23 @@ describe("with the audio measured", () => {
     );
   });
 
+  it("says when no folder can hold the install id", async () => {
+    const paths = await prepare();
+    const { url, requests } = await startTimings();
+    const home = join(work, "home");
+
+    await mkdir(home, { mode: 0o500 });
+    configDir = join(home, ".config", "subsontime");
+    vi.mocked(alignToAudio).mockResolvedValueOnce(aligned(shiftedBy(1200), 9.4));
+
+    const { output } = await run(argsFor(paths, "--api", url));
+
+    expect(output).toBe(
+      "subsontime: synced to the audio +1.20 s · contrast 9.4 · not shared, could not save the install id\n",
+    );
+    expect(posts(requests)).toEqual([]);
+  });
+
   it("exits 0 with one line when anything throws", async () => {
     const paths = await prepare();
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
 
 const fileName = "install-id";
@@ -10,6 +10,10 @@ export const configDirOf = (
   env: Record<string, string | undefined>,
   home: string,
 ) => {
+  if (env["SUBSONTIME_CONFIG_DIR"]) {
+    return env["SUBSONTIME_CONFIG_DIR"];
+  }
+
   if (platform === "win32") {
     return win32.join(env["APPDATA"] || win32.join(home, "AppData", "Roaming"), "subsontime");
   }
@@ -31,6 +35,18 @@ const createOnce = (path: string) =>
     }
   });
 
+export const fallbackConfigDir = (temp: string, uid: number | undefined) =>
+  join(temp, `subsontime-${uid ?? "user"}`);
+
+const ownDirectory = async (directory: string) => {
+  const info = await lstat(directory);
+  const uid = process.getuid?.();
+
+  if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) {
+    throw new Error(`${directory} is not this user's folder`);
+  }
+};
+
 export const installIdIn = async (directory: string): Promise<string> => {
   const path = join(directory, fileName);
 
@@ -47,3 +63,15 @@ export const installIdIn = async (directory: string): Promise<string> => {
 
   return installIdIn(directory);
 };
+
+export const installIdFrom = (directory: string, fallback: string | undefined) =>
+  installIdIn(directory).catch(async () => {
+    if (fallback === undefined) {
+      throw new Error("could not save the install id");
+    }
+
+    await mkdir(fallback, { recursive: true, mode: 0o700 });
+    await ownDirectory(fallback);
+
+    return installIdIn(fallback);
+  });

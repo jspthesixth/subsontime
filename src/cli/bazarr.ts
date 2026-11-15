@@ -18,13 +18,15 @@ import {
   ratioOf,
   replaceFile,
   shareAll,
+  shareFailures,
   sharedOf,
   shiftText,
   timingOf,
   unusedReason,
+  type ShareOutcome,
   type Sharing,
 } from "./fix.ts";
-import { installIdIn } from "./install-id.ts";
+import { installIdFrom } from "./install-id.ts";
 import type { CLIDeps } from "./main.ts";
 import { defaultAPIURL, timingsClient } from "./timings-client.ts";
 import { fileFingerprint } from "./video-hash.ts";
@@ -56,12 +58,12 @@ const firstLine = (error: unknown) =>
 
 const code3Of = (lang: string) => toISO6392(toISO6391(lang) ?? lang) ?? lang.toLowerCase();
 
-const sharedText = (sent: boolean | undefined) => {
+const sharedText = (sent: ShareOutcome | undefined) => {
   if (sent === undefined) {
     return "not shared, --private";
   }
 
-  return sent ? "shared" : "not shared, Open Timings did not answer";
+  return sent === "shared" ? "shared" : `not shared, ${shareFailures[sent]}`;
 };
 
 const inSync = (original: Cue[], timed: Cue[], speedRatio: number) => {
@@ -110,7 +112,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
   const context = {
     sharing,
     timings: isPrivate === true ? undefined : timingsClient(api ?? defaultAPIURL),
-    installId: () => installIdIn(deps.configDir),
+    installId: () => installIdFrom(deps.configDir, deps.fallbackConfigDir),
   };
   const code3 = lang === undefined ? undefined : code3Of(lang);
   const cues = await readCues(subtitle, code3);

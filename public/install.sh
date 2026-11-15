@@ -77,6 +77,8 @@ install_subsontime() {
   echo
   echo "As Bazarr's post-processing command:"
   echo "subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}}"
+  echo
+  echo "In a linuxserver.io image, set SUBSONTIME_CONFIG_DIR=/config/subsontime on the container."
 }
 
 install_subsontime

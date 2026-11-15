@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
 import packageJSON from "../../package.json" with { type: "json" };
@@ -22,7 +22,7 @@ import {
   plainPaint,
   type Sharing,
 } from "./fix.ts";
-import { configDirOf, installIdIn } from "./install-id.ts";
+import { configDirOf, fallbackConfigDir, installIdFrom } from "./install-id.ts";
 import { defaultAPIURL, timingsClient } from "./timings-client.ts";
 
 type Env = Record<string, string | undefined>;
@@ -33,6 +33,7 @@ export type CLIDeps = {
   color: boolean;
   env: Env;
   configDir: string;
+  fallbackConfigDir?: string;
   locales: readonly string[];
   sources?: SourceSet;
 };
@@ -226,7 +227,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
     sharing,
     sources,
     timings: sharing === "on" ? timingsClient(values.api ?? defaultAPIURL) : undefined,
-    installId: () => installIdIn(deps.configDir),
+    installId: () => installIdFrom(deps.configDir, deps.fallbackConfigDir),
     paint,
     named: videos.length > 1,
     imdbId: values.imdb,
@@ -267,6 +268,7 @@ export const defaultDeps = (): CLIDeps => ({
   color: process.stdout.isTTY === true && !process.env["NO_COLOR"],
   env: process.env,
   configDir: configDirOf(process.platform, process.env, homedir()),
+  fallbackConfigDir: fallbackConfigDir(tmpdir(), process.getuid?.()),
   locales: [Intl.DateTimeFormat().resolvedOptions().locale],
 });
 

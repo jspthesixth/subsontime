@@ -22,6 +22,7 @@ services:
     image: lscr.io/linuxserver/bazarr:v1.6.2-ls372
     environment:
       TZ: Etc/UTC
+      SUBSONTIME_CONFIG_DIR: /config/subsontime
     volumes:
       - bazarr-config:/config
       - ${MEDIA_DIR:?set MEDIA_DIR to the folder that holds the films}:/movies

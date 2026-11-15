@@ -25,7 +25,7 @@ import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { memoryStore } from "../timings/db.ts";
 import { abandonWrites, findVideos } from "./fix.ts";
 import { cleanName, identify } from "./identify.ts";
-import { configDirOf, installIdIn } from "./install-id.ts";
+import { configDirOf, fallbackConfigDir, installIdFrom, installIdIn } from "./install-id.ts";
 import { main, type CLIDeps } from "./main.ts";
 import {
   confirmFix,
@@ -401,6 +401,23 @@ describe("Open Timings", () => {
     expect(code).toBe(0);
     expect(output).toContain(`${detailLine("not shared", "Open Timings did not answer")}\n`);
   });
+
+  it("says when no folder can hold the install id", async () => {
+    const { url, requests } = await startTimings();
+    const video = await writeVideo(`${movieName}.mkv`);
+    const home = join(work, "home");
+
+    await mkdir(home, { mode: 0o500 });
+
+    const { code, output } = await run(
+      ["fix", video, "--lang", "en", "--imdb", "tt0111161", "--api", url],
+      { sources: retimedSources(), configDir: join(home, ".config", "subsontime") },
+    );
+
+    expect(code).toBe(0);
+    expect(output).toContain(`${detailLine("not shared", "could not save the install id")}\n`);
+    expect(posts(requests)).toEqual([]);
+  });
 });
 
 describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
@@ -758,8 +775,65 @@ describe("install id location", () => {
       { APPDATA: "C:\\Users\\someone\\AppData\\Roaming" },
       "C:\\Users\\someone\\AppData\\Roaming\\subsontime",
     ],
+    [
+      "linux",
+      { SUBSONTIME_CONFIG_DIR: "/config/subsontime", XDG_CONFIG_HOME: "/xdg" },
+      "/config/subsontime",
+    ],
+    ["win32", { SUBSONTIME_CONFIG_DIR: "D:\\subsontime" }, "D:\\subsontime"],
   ] as const)("on %s with %j is %s", (platform, env, expected) => {
     expect(configDirOf(platform, env, "/home/someone")).toBe(expected);
+  });
+
+  it("falls back to a folder named after the user", () => {
+    expect(fallbackConfigDir("/tmp", 911)).toBe("/tmp/subsontime-911");
+  });
+
+  it("keeps the install id in the config folder when it can", async () => {
+    const configured = join(work, "config");
+    const fallback = join(work, "fallback");
+    const installId = await installIdFrom(configured, fallback);
+
+    expect(await readFile(join(configured, "install-id"), "utf8")).toBe(installId);
+    await expect(stat(fallback)).rejects.toThrow("ENOENT");
+  });
+
+  it("keeps the install id in the fallback folder when the home is read-only", async () => {
+    const home = join(work, "home");
+    const fallback = join(work, "fallback");
+
+    await mkdir(home, { mode: 0o500 });
+
+    const installId = await installIdFrom(join(home, ".config", "subsontime"), fallback);
+
+    expect(installId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await readFile(join(fallback, "install-id"), "utf8")).toBe(installId);
+    expect((await stat(fallback)).mode & 0o777).toBe(0o700);
+    expect(await installIdFrom(join(home, ".config", "subsontime"), fallback)).toBe(installId);
+  });
+
+  it("refuses a fallback that is not a folder of its own", async () => {
+    const home = join(work, "home");
+    const fallback = join(work, "fallback");
+
+    await mkdir(home, { mode: 0o500 });
+    await mkdir(join(work, "elsewhere"));
+    await symlink(join(work, "elsewhere"), fallback);
+
+    await expect(installIdFrom(join(home, "config"), fallback)).rejects.toThrow(
+      "is not this user's folder",
+    );
+    expect(await readdir(join(work, "elsewhere"))).toEqual([]);
+  });
+
+  it("fails with the cause when no folder can be written", async () => {
+    const home = join(work, "home");
+
+    await mkdir(home, { mode: 0o500 });
+
+    await expect(installIdFrom(join(home, "config"), undefined)).rejects.toThrow(
+      "could not save the install id",
+    );
   });
 });
 
