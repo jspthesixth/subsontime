@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Cue } from "../subtitles/cue.ts";
 import { alignCues, alignOffset, bestSpeedRatio, speedRatioFromFPS, speedRatios } from "./alass.ts";
-import { fastestOfThree, resegment, syntheticTrack, transform } from "./test-tracks.ts";
+import { resegment, syntheticTrack, transform } from "./test-tracks.ts";
 
 const reference = syntheticTrack(1, 200);
 const related = resegment(reference, 7);
@@ -81,13 +81,6 @@ describe("alignCues", () => {
 
     expect(cues.map((cue) => cue.text)).toEqual(related.map((cue) => cue.text));
   });
-
-  it("aligns two 1500-cue tracks in under 1500 ms", async () => {
-    const long = syntheticTrack(3, 1500);
-    const shifted = transform(long, (time) => time + 2000);
-
-    expect(await fastestOfThree(() => alignCues(long, shifted))).toBeLessThan(1500);
-  }, 10_000);
 });
 
 describe("alignOffset", () => {
@@ -111,13 +104,6 @@ describe("alignOffset", () => {
 
     expect(relatedError(cues)).toBeLessThanOrEqual(60);
     expect(score).toBeGreaterThanOrEqual(0.6);
-  });
-
-  it("aligns two 1500-cue tracks in under 300 ms", async () => {
-    const long = syntheticTrack(3, 1500);
-    const shifted = transform(long, (time) => time + 2000);
-
-    expect(await fastestOfThree(() => alignOffset(long, shifted))).toBeLessThan(300);
   });
 });
 

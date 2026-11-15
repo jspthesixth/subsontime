@@ -5,31 +5,11 @@ import { parseRelease } from "../subtitles/release.ts";
 import { alignCues, alignOffset, speedRatioFromFPS } from "./alass.ts";
 import { pickReferences } from "./references.ts";
 import { mismatchMaximumScore, retime, retimedMinimumScore } from "./retime.ts";
-import { fastestOfThree, resegment, syntheticTrack, transform } from "./test-tracks.ts";
-
-const fileRelease = parseRelease("Movie.2024.1080p.BluRay.x264-GROUP");
-
-const candidate = (overrides: Partial<Candidate>): Candidate => ({
-  sourceName: "test",
-  ref: "ref",
-  lang: "eng",
-  release: fileRelease,
-  hashMatch: false,
-  ...overrides,
-});
-
-const byHash = (cues: Cue[], fps?: number) => ({
-  candidate: candidate({ ref: "reference", hashMatch: true, fps }),
-  cues,
-});
+import { byHash, candidate, fileRelease, subtitleOf } from "./test-candidates.ts";
+import { resegment, syntheticTrack, transform } from "./test-tracks.ts";
 
 const byReleaseName = (cues: Cue[], fps?: number) => ({
   candidate: candidate({ ref: "reference", fps }),
-  cues,
-});
-
-const subtitleOf = (cues: Cue[], fps?: number) => ({
-  candidate: candidate({ ref: "subtitle", fps }),
   cues,
 });
 
@@ -207,13 +187,6 @@ describe("retime", () => {
   it("does not retime without references", async () => {
     expect(await retime(subtitleOf(shifted), [])).toEqual({ kind: "not-retimed", cues: shifted });
   });
-
-  it("retimes a 1500-cue subtitle against one hash reference in under 1500 ms", async () => {
-    const long = syntheticTrack(3, 1500);
-    const subtitle = subtitleOf(transform(resegment(long, 7), (time) => time + 2000));
-
-    expect(await fastestOfThree(() => retime(subtitle, [byHash(long)]))).toBeLessThan(1500);
-  }, 10_000);
 });
 
 const sameRelease = (ref: string) => candidate({ ref });

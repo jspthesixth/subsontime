@@ -9,6 +9,7 @@
     "dev": "node --watch --env-file-if-exists=.env.local --experimental-strip-types src/server.ts",
     "check": "oxfmt --check . && oxlint && tsc --noEmit && vitest run",
     "test": "vitest run",
+    "test:perf": "vitest run --config vitest.perf.config.ts",
     "lint": "oxlint",
     "format": "oxfmt .",
     "typecheck": "tsc --noEmit",

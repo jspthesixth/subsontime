@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp, type AppDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
-import { defaultConfig } from "../config/default-config.ts";
-import { seal } from "../config/seal.ts";
 import { memorySharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource } from "../sources/test-sources.ts";
@@ -10,62 +7,40 @@ import type { Cue } from "../subtitles/cue.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { retime } from "../timing/retime.ts";
-import { syntheticTrack, transform } from "../timing/test-tracks.ts";
+import { syntheticTrack } from "../timing/test-tracks.ts";
 import { lookUp } from "../timings/api.ts";
 import { memoryStore, type NewFix, type TimingsStore } from "../timings/db.ts";
 import { cueHashes, toFixCues } from "../timings/fingerprint.ts";
-import { groupingKeyOf, submitterOf } from "../timings/submitter.ts";
+import { groupingKeyOf } from "../timings/submitter.ts";
 import { decodeRef, refKey } from "./refs.ts";
+import {
+  appWith,
+  firstURL,
+  hanging,
+  installed,
+  installSalt,
+  retimedSources,
+  secret,
+  shifted,
+  track,
+  video,
+  type App,
+  type Listing,
+} from "./test-app.ts";
 
 vi.mock("../timing/retime.ts", { spy: true });
 vi.mock("../timings/api.ts", { spy: true });
 
-type Listing = { subtitles: { id: string; lang: string; url: string }[] };
-type App = ReturnType<typeof createApp>;
-
-const secret = "a-test-secret-that-is-long-enough-1234";
-const installSalt = "an-install-salt-that-is-long-enough-5678";
-const video = { hash: "0123456789abcdef", size: 1_234_567 };
-const extras = `videoHash=${video.hash}&videoSize=${video.size}`;
-const track = syntheticTrack(1, 200);
-const shifted = transform(track, (time) => time + 2000);
 const unrelated = syntheticTrack(2, 200).map((cue) => ({ ...cue, text: `Wrong ${cue.text}` }));
 const other = syntheticTrack(3, 200).map((cue) => ({ ...cue, text: `Other ${cue.text}` }));
 const partlyChanged = track.map((cue, index) =>
   index % 10 < 3 ? { ...cue, text: `Changed ${cue.text}` } : cue,
 );
 const third = syntheticTrack(4, 200).map((cue) => ({ ...cue, text: `Third ${cue.text}` }));
-const budgetMs = 300;
 
 const failing = (): Promise<never> => Promise.reject(new TypeError("secret detail"));
 
-const hanging = (): Promise<never> => new Promise(() => {});
-
 const hashesOf = (cues: Cue[]) => cueHashes(cues).filter((hash) => hash !== undefined);
-
-const appWith = (
-  sources: SourceSet,
-  store: TimingsStore = memoryStore(),
-  deps: Partial<AppDeps> = {},
-) =>
-  createApp({
-    secret,
-    installSalt,
-    timings: store,
-    sourcesFor: () => sources,
-    clientKey: (context) => context.req.header("x-test-client") ?? "client-a",
-    ...deps,
-  });
-
-const installed = (overrides: Partial<Config> = {}) => {
-  const config = { ...defaultConfig(["eng"]), ...overrides };
-
-  return {
-    config,
-    token: seal(config, secret),
-    submitter: submitterOf(config.installId, installSalt),
-  };
-};
 
 const refOf = (url: string) =>
   decodeRef(
@@ -75,13 +50,6 @@ const refOf = (url: string) =>
       ?.replace(/\.srt$/, "") ?? "",
     refKey(secret),
   );
-
-const firstURL = async (app: App, token: string, more = "") => {
-  const listing = await app.request(`/${token}/subtitles/movie/tt0111161/${extras}${more}.json`);
-  const { subtitles } = (await listing.json()) as Listing;
-
-  return subtitles[0]?.url ?? "";
-};
 
 const play = async (app: App, token: string) => {
   const response = await app.request(await firstURL(app, token));
@@ -152,11 +120,6 @@ const deferredStore = () => {
 };
 
 const deferSpy = () => vi.fn<(work: Promise<unknown>) => void>();
-
-const retimedSources = () => ({
-  listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])],
-  references: [fakeSource("Reference", [{ ref: "r", hashMatch: true, cues: track }])],
-});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -326,37 +289,6 @@ describe("reading Open Timings", () => {
         ["secret detail", submitter, config.installId, token].some((part) => line.includes(part)),
       ),
     ).toBe(false);
-  });
-
-  it("answers within the read budget when the store hangs", async () => {
-    const hangingStore: TimingsStore = {
-      ...memoryStore(),
-      fixesFor: hanging,
-      mismatchesFor: hanging,
-      reportsFor: hanging,
-    };
-    const { token } = installed({ share: false });
-
-    const timed = async (store: TimingsStore) => {
-      const app = appWith(retimedSources(), store);
-      const listingStarted = performance.now();
-      const url = await firstURL(app, token);
-      const fileStarted = performance.now();
-      const text = await (await app.request(url)).text();
-
-      return {
-        listingMs: fileStarted - listingStarted,
-        fileMs: performance.now() - fileStarted,
-        text,
-      };
-    };
-
-    const normal = await timed(memoryStore());
-    const hung = await timed(hangingStore);
-
-    expect(hung.text).toBe(normal.text);
-    expect(hung.listingMs).toBeLessThan(normal.listingMs + budgetMs + 150);
-    expect(hung.fileMs).toBeLessThan(normal.fileMs + budgetMs + 150);
   });
 
   it("keeps the hidden list longer than Stremio keeps a listing", async () => {

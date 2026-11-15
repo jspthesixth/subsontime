@@ -1,81 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
 import { SpeechDetector } from "../../wasm/alass_wasm.js";
 import { detectSpeech } from "./speech.ts";
-
-const sampleRate = 16000;
-const fundamental = 140;
-const formants = [
-  { frequency: 700, gain: 1 },
-  { frequency: 1200, gain: 0.6 },
-  { frequency: 2500, gain: 0.3 },
-];
-
-const harmonicGain = (frequency: number) =>
-  formants
-    .map((formant) => formant.gain / (1 + ((frequency - formant.frequency) / 150) ** 2))
-    .reduce((sum, gain) => sum + gain, 0);
-
-const harmonics = Array.from({ length: 25 }, (_, index) => ({
-  multiple: index + 1,
-  gain: harmonicGain(fundamental * (index + 1)),
-}));
-
-const voiced = (time: number) => {
-  const phase =
-    2 *
-    Math.PI *
-    (fundamental * time - (30 / (2 * Math.PI * 3)) * (Math.cos(2 * Math.PI * 3 * time) - 1));
-  const envelope = 0.55 + 0.45 * Math.sin(2 * Math.PI * 4 * time);
-
-  return (
-    harmonics
-      .map((harmonic) => Math.sin(phase * harmonic.multiple) * harmonic.gain)
-      .reduce((sum, value) => sum + value, 0) *
-    0.3 *
-    envelope *
-    8000
-  );
-};
-
-const samples = (ms: number) => Math.round((ms * sampleRate) / 1000);
-
-const burst = (ms: number) =>
-  Int16Array.from({ length: samples(ms) }, (_, index) => voiced(index / sampleRate));
-
-const silence = (ms: number) => new Int16Array(samples(ms));
-
-const concat = (parts: Int16Array[]) => {
-  const joined = new Int16Array(parts.reduce((length, part) => length + part.length, 0));
-
-  parts.reduce((offset, part) => {
-    joined.set(part, offset);
-
-    return offset + part.length;
-  }, 0);
-
-  return joined;
-};
-
-const chunked = async function* (pcm: Int16Array, size: number) {
-  for (let offset = 0; offset < pcm.length; offset += size) {
-    yield pcm.subarray(offset, offset + size);
-  }
-};
-
-const once = async function* (pcm: Int16Array) {
-  yield pcm;
-};
+import {
+  burst,
+  chunked,
+  concat,
+  once,
+  rms,
+  sampleRate,
+  silence,
+  tone,
+  whiteNoise,
+} from "./test-audio.ts";
 
 const failing = async function* () {
   yield silence(100);
   throw new Error("ffmpeg exited");
 };
 
+const detected = (parts: Int16Array[]) => detectSpeech(once(concat(parts)), sampleRate);
+
 const gapped = (ms: number) =>
-  detectSpeech(
-    once(concat([silence(500), burst(600), silence(ms), burst(600), silence(500)])),
-    sampleRate,
-  );
+  detected([silence(500), burst(600), silence(ms), burst(600), silence(500)]);
+
+const lone = (ms: number) => detected([silence(500), burst(ms), silence(1000)]);
+
+const speechLevel = rms(burst(1000));
 
 const bursts = [
   { start: 500, end: 1500 },
@@ -109,6 +59,28 @@ describe("detectSpeech", () => {
     expect(await detectSpeech(once(silence(5000)), sampleRate)).toEqual([]);
   });
 
+  it("finds nothing in white noise at the speech level", async () => {
+    expect(
+      await detected([silence(500), whiteNoise(1000, speechLevel * Math.sqrt(3), 1), silence(500)]),
+    ).toEqual([]);
+  });
+
+  it("marks white noise at half the speech level as speech", async () => {
+    expect(
+      await detected([
+        silence(500),
+        whiteNoise(1000, (speechLevel * Math.sqrt(3)) / 2, 1),
+        silence(500),
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("marks a pure 300 Hz tone at the speech level as speech", async () => {
+    expect(
+      await detected([silence(500), tone(1000, 300, speechLevel * Math.SQRT2), silence(500)]),
+    ).toHaveLength(1);
+  });
+
   it("gives the same spans for 4 KB chunks, odd chunks and one push", async () => {
     const whole = await detectSpeech(once(speech), sampleRate);
 
@@ -117,27 +89,34 @@ describe("detectSpeech", () => {
     expect(await detectSpeech(chunked(speech, 37), sampleRate)).toEqual(whole);
   });
 
-  it("merges speech across a gap under 200 ms and keeps a longer gap", async () => {
-    expect(await gapped(150)).toHaveLength(1);
-    expect(await gapped(600)).toHaveLength(2);
+  it("merges speech across a 192 ms gap and splits it at 208 ms", async () => {
+    const split = await gapped(260);
+
+    expect(await gapped(250)).toHaveLength(1);
+    expect(split).toHaveLength(2);
+    expect((split[1]?.start ?? 0) - (split[0]?.end ?? 0)).toBe(208);
   });
 
-  it("drops a burst shorter than 300 ms", async () => {
-    const cues = await detectSpeech(
-      once(concat([silence(500), burst(150), silence(1000), burst(1000), silence(500)])),
-      sampleRate,
-    );
+  it("keeps a 304 ms span and drops a 288 ms one", async () => {
+    const kept = await lone(250);
 
-    expect(cues).toHaveLength(1);
-    expect(Math.abs((cues[0]?.start ?? 0) - 1650)).toBeLessThanOrEqual(60);
+    expect(kept).toHaveLength(1);
+    expect((kept[0]?.end ?? 0) - (kept[0]?.start ?? 0)).toBe(304);
+    expect(await lone(240)).toEqual([]);
+  });
+
+  it("keeps the end of speech that stops inside the last partial frame", async () => {
+    const [cue] = await detected([silence(500), burst(1000)]);
+
+    expect(Math.abs((cue?.end ?? 0) - 1500)).toBeLessThanOrEqual(16);
   });
 
   it("frees the detector when the audio stream fails", async () => {
-    const dispose = vi.spyOn(SpeechDetector.prototype, Symbol.dispose);
+    const free = vi.spyOn(SpeechDetector.prototype, "free");
 
     await expect(detectSpeech(failing(), sampleRate)).rejects.toThrow("ffmpeg exited");
-    expect(dispose).toHaveBeenCalledOnce();
-    dispose.mockRestore();
+    expect(free).toHaveBeenCalledOnce();
+    free.mockRestore();
   });
 
   it("rejects a sample rate other than 16 kHz", async () => {

@@ -164,6 +164,15 @@ impl SpeechDetector {
     }
 
     pub fn finish(&mut self) -> Vec<i64> {
+        if !self.remainder.is_empty() {
+            self.remainder.resize(FRAME_SAMPLES, 0);
+
+            let score = self.detector.predict_i16(&self.remainder);
+
+            self.remainder.clear();
+            self.mark(score);
+        }
+
         self.close();
         std::mem::take(&mut self.spans)
     }

@@ -1,58 +1,31 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { dialogueTrack, fastestOfThree, seededRandom } from "../timing/test-tracks.ts";
-import {
-  digest as digestWith,
-  present,
-  publicTimings,
-  summarize as summarizeWith,
-  type Digest,
-} from "./confirm.ts";
-import { subtitleKey, type FixRow, type MismatchRow, type NewFix, type ReportRow } from "./db.ts";
-import { subtitleSketch, toFixCues, type CueHash, type FixCue } from "./fingerprint.ts";
+import { seededRandom } from "../timing/test-tracks.ts";
+import { present, publicTimings, summarize as summarizeWith, type Digest } from "./confirm.ts";
+import type { MismatchRow, ReportRow } from "./db.ts";
+import { subtitleSketch, type CueHash } from "./fingerprint.ts";
 import { groupingKeyOf } from "./submitter.ts";
+import {
+  alice,
+  digest,
+  fix,
+  fixesOnly,
+  hashesOf,
+  hashLike,
+  idOf,
+  nextTime,
+  originOf,
+  shifted,
+  submitterAt,
+  subtitle,
+  summarize,
+  video,
+} from "./test-fixes.ts";
 
-const video = { hash: "0123456789abcdef", size: 7_345_678_901 };
-const alice = "a".repeat(32);
 const bob = "b".repeat(32);
 const carol = "c".repeat(32);
 const dave = "d".repeat(32);
 const referenceOne = "1111111111111111";
 const referenceTwo = "2222222222222222";
-
-let clock = Date.UTC(2026, 10, 1);
-
-const nextTime = () => {
-  clock += 1000;
-
-  return new Date(clock);
-};
-
-const subtitle = (seed: number, count = 40) => toFixCues(dialogueTrack(seed, count));
-
-const shifted = (cues: FixCue[], by: number) =>
-  cues.map((cue) => ({ ...cue, s: cue.s + by, e: cue.e + by }));
-
-const hashesOf = (cues: FixCue[]) => cues.map((cue) => cue.h);
-
-const originOf = (submitter: string) => submitter.slice(-16);
-
-const submitterAt = (index: number) => index.toString(16).padStart(32, "0");
-
-const idOf = (cues: FixCue[]) => subtitleKey(hashesOf(cues));
-
-const hashLike = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 16);
-
-const fix = (cues: FixCue[], overrides: Partial<NewFix> = {}): FixRow => ({
-  video,
-  subtitleHashes: hashesOf(cues),
-  cues,
-  method: "audio",
-  submitter: alice,
-  origin: originOf(overrides.submitter ?? alice),
-  ...overrides,
-  createdAt: nextTime(),
-});
 
 const mismatch = (
   subtitleHashes: CueHash[],
@@ -66,18 +39,6 @@ const report = (
   reason: ReportRow["reason"] = "timing-off",
   origin = originOf(submitter),
 ): ReportRow => ({ video, subtitleHashes, reason, submitter, origin, createdAt: nextTime() });
-
-const groupingKey = groupingKeyOf("s".repeat(32));
-
-const summarize = (
-  fixes: FixRow[],
-  mismatches: MismatchRow[],
-  reports: ReportRow[],
-  viewer?: string,
-) => summarizeWith(fixes, mismatches, reports, { groupingKey, viewer });
-
-const digest = (fixes: FixRow[], mismatches: MismatchRow[], reports: ReportRow[]) =>
-  digestWith(fixes, mismatches, reports, groupingKey);
 
 const cuesFor = (list: CueHash[]) => list.map((h, at) => ({ h, s: at * 1000, e: at * 1000 + 900 }));
 
@@ -114,8 +75,6 @@ const decoyRun = (run: number, origins: string[]) => {
 };
 
 const listed = (sections: Digest) => sections.filter((section) => section.fixView).length;
-
-const fixesOnly = (fixes: FixRow[]) => summarize(fixes, [], []).fixes;
 
 describe("summarize confirmation", () => {
   const cues = subtitle(1);
@@ -637,69 +596,10 @@ describe("summarize limits", () => {
     });
     expect(Buffer.byteLength(JSON.stringify(timings))).toBeLessThan(200 * 1024);
   });
-
-  it("summarizes 500 fixes of 2000 cues in under 300 ms", async () => {
-    const cues = subtitle(7, 2000);
-    const fixes = Array.from({ length: 500 }, (_, index) =>
-      fix(index % 10 === 0 ? shifted(cues, 1000 + index * 250) : shifted(cues, index % 50), {
-        submitter: submitterAt(index),
-      }),
-    );
-
-    expect(fixesOnly(fixes)).toMatchObject([{ status: "confirmed", agreeing: 45 }]);
-    expect(await fastestOfThree(() => fixesOnly(fixes))).toBeLessThan(300);
-  });
-
-  it("summarizes 500 crafted near-identical rows of 2000 lines in under 500 ms", async () => {
-    const cues = subtitle(8, 2000);
-    const fixes = Array.from({ length: 500 }, (_, index) => {
-      const edited = cues.map((cue, at) =>
-        at % 20 === index % 20 ? { ...cue, h: hashLike(`${index}-${at}`) } : cue,
-      );
-
-      return fix(shifted(index === 0 ? cues : edited, index * 150), {
-        submitter: submitterAt(index),
-      });
-    });
-
-    expect(digest(fixes, [], [])).toHaveLength(20);
-    expect(await fastestOfThree(() => fixesOnly(fixes))).toBeLessThan(500);
-  });
 });
 
 describe("summarize grouping bounds", () => {
   const base = subtitle(9, 2000);
-  const edited = (index: number, edit: (at: number) => boolean) =>
-    base.map((cue, at) => (edit(at) ? { ...cue, h: hashLike(`${index}-${at}`) } : cue));
-
-  it("summarizes 500 rows about 0.82 similar to each other in under 500 ms", async () => {
-    const fixes = Array.from({ length: 500 }, (_, index) =>
-      fix(
-        shifted(
-          edited(index, (at) => at < 200),
-          index * 150,
-        ),
-        {
-          submitter: submitterAt(index),
-        },
-      ),
-    );
-
-    expect(fixesOnly(fixes)).toHaveLength(20);
-    expect(await fastestOfThree(() => fixesOnly(fixes))).toBeLessThan(500);
-  });
-
-  it("keeps 64 groups of 500 different subtitles from 500 origins in under 500 ms", async () => {
-    const fixes = Array.from({ length: 500 }, (_, index) =>
-      fix(
-        edited(index, () => true),
-        { submitter: submitterAt(index) },
-      ),
-    );
-
-    expect(digest(fixes, [], [])).toHaveLength(64);
-    expect(await fastestOfThree(() => digest(fixes, [], []))).toBeLessThan(500);
-  });
 
   it("lets one origin start at most 8 groups", () => {
     const fixes = Array.from({ length: 20 }, (_, index) =>
