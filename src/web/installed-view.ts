@@ -1,6 +1,8 @@
 import { html } from "hono/html";
 import { arrowIcon, copyIcon, moreArrow } from "./icons.ts";
 
+export const removeOldInstall = "Remove the old Subs On Time in Stremio after installing this one.";
+
 export const installedView = html`<main
   class="wrap"
   style="padding-top: 80px; padding-bottom: 112px;"
@@ -13,6 +15,7 @@ export const installedView = html`<main
           Open Stremio and confirm. Then play anything: subtitles arrive in the player, already
           timed.
         </p>
+        <p class="small" id="installed-edit-note" hidden>${removeOldInstall}</p>
       </div>
       <div class="row-wrap gap-12">
         <a class="btn btn-primary btn-wide-mobile" id="open-stremio"

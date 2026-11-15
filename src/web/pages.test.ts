@@ -60,6 +60,14 @@ describe("GET /stremio", () => {
     expect(page).toContain("flagged so it is left out for everyone once another connection agrees");
   });
 
+  it("reminds to remove the old install, hidden until an install is edited", async () => {
+    const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
+    const reminder = "Remove the old Subs On Time in Stremio after installing this one.";
+
+    expect(page).toContain(`<span class="small" id="edit-note" hidden>${reminder}</span>`);
+    expect(page).toContain(`<p class="small" id="installed-edit-note" hidden>${reminder}</p>`);
+  });
+
   it("lists languages by their native names", async () => {
     const page = await (await app.request("/stremio")).text();
 

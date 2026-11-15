@@ -214,6 +214,7 @@ const showInstalled = ({ installURL, stremioURL, webURL }: Installed) => {
   const copyLabel = find(view, "#copy-label");
 
   find(view, "#installed-summary").textContent = summaryOf(state);
+  find(view, "#installed-edit-note").hidden = openedInstall === undefined;
   find(view, "#installed-summary").after(heading);
   heading.textContent = "Subs On Time is ready.";
   find<HTMLAnchorElement>(view, "#open-stremio").href = stremioURL;

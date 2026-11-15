@@ -1,6 +1,6 @@
 import { html } from "hono/html";
 import { arrowIcon, earlierIcon, moreArrow, removeIcon, statusIcon } from "./icons.ts";
-import { installedView } from "./installed-view.ts";
+import { installedView, removeOldInstall } from "./installed-view.ts";
 import { languageOptions } from "./language-options.ts";
 import { layout } from "./layout.ts";
 
@@ -274,9 +274,7 @@ const installBar = html`<div class="install-bar" id="install-bar">
     <div class="stack" style="gap: 2px;">
       <span class="h4">Ready to install</span>
       <span class="small" id="install-summary"></span>
-      <span class="small" id="edit-note" hidden
-        >Remove the old Subs On Time in Stremio after installing this one.</span
-      >
+      <span class="small" id="edit-note" hidden>${removeOldInstall}</span>
       <span class="small error" id="install-error" role="alert"></span>
     </div>
     <div class="row-wrap gap-12" style="flex: 0 1 auto;">
