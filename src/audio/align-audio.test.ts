@@ -4,13 +4,14 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import nightOfTheLivingDead from "../../test/fixtures/audio/night-of-the-living-dead.json" with { type: "json" };
 import type { Cue } from "../subtitles/cue.ts";
-import { scoreOf, speedRatioFromFPS } from "../timing/alass.ts";
+import { alignCues, scoreOf, speedRatioFromFPS } from "../timing/alass.ts";
 import { cutsOf, deltasOf, median, splitWorthScore } from "../timing/retime.ts";
 import { resegment, syntheticTrack, transform } from "../timing/test-tracks.ts";
 import {
   alignToAudio,
   alignToSpeech,
   audioAcceptContrast,
+  audioMismatchContrast,
   contrastOf,
   plausibleSpeechShare,
 } from "./align-audio.ts";
@@ -192,7 +193,51 @@ describe("alignToSpeech on a full-length film", () => {
     ).toBeCloseTo(-5200, -3);
     expect(result).toHaveProperty(
       "contrast",
+      expect.toSatisfy((value) => value >= audioMismatchContrast),
+    );
+  });
+});
+
+describe("alignToSpeech with a rigid gate", () => {
+  const speech = syntheticTrack(3, 300);
+  const heard = { spans: speech, audioMs: (speech.at(-1)?.end ?? 0) + 2000 };
+  const movedBy = (offsetOf: (index: number) => number) =>
+    speech.map((cue, index) => ({
+      ...cue,
+      start: cue.start + offsetOf(index),
+      end: cue.end + offsetOf(index),
+    }));
+
+  it("does not accept a subtitle that only a split fit matches", async () => {
+    const scattered = movedBy((index) => {
+      const chunk = Math.floor(index / 20);
+
+      return (((chunk * 7919) % 50) - 25) * 1000 + (chunk % 2) * 300;
+    });
+    const split = await alignCues(speech, scattered, { withinReference: true });
+
+    expect(contrastOf(speech, split.cues, scoreOf(speech, split.cues))).toBeGreaterThanOrEqual(
+      audioAcceptContrast,
+    );
+    expect(await alignToSpeech(heard, scattered)).toHaveProperty(
+      "contrast",
+      expect.toSatisfy((value) => value < audioAcceptContrast),
+    );
+  });
+
+  it("refines the cues of a rigidly accepted subtitle with a split", async () => {
+    const cut = Math.floor(speech.length * 0.85);
+    const result = await alignToSpeech(
+      heard,
+      movedBy((index) => (index < cut ? 2000 : 3500)),
+    );
+
+    expect(result).toHaveProperty(
+      "contrast",
       expect.toSatisfy((value) => value >= audioAcceptContrast),
+    );
+    expect(startsWithin(result.kind === "aligned" ? result.cues : [], speech)).toBeLessThanOrEqual(
+      100,
     );
   });
 });

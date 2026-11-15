@@ -3,7 +3,7 @@ import type { Cue } from "../subtitles/cue.ts";
 
 type AlignOptions = { speedRatio?: number; withinReference?: boolean };
 
-type Alignment = { cues: Cue[]; score: number };
+export type Alignment = { cues: Cue[]; score: number };
 
 export const speedRatios: readonly number[] = [
   1,

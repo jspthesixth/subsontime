@@ -1,5 +1,12 @@
 import type { Cue } from "../subtitles/cue.ts";
-import { alignCues, alignOffset, bestSpeedRatio, scoreOf, speedRatios } from "../timing/alass.ts";
+import {
+  alignCues,
+  alignOffset,
+  bestSpeedRatio,
+  scoreOf,
+  speedRatios,
+  type Alignment,
+} from "../timing/alass.ts";
 import { splitWorthScore } from "../timing/retime.ts";
 import { detectSpeech } from "../timing/speech.ts";
 import { pcmFrom, pcmSampleRate } from "./ffmpeg.ts";
@@ -67,16 +74,14 @@ export const contrastOf = (spans: Cue[], cues: Cue[], score: number) => {
   );
 };
 
-const bestAlignment = async (speech: Cue[], cues: Cue[], speedRatio: number) => {
-  const offset = alignOffset(speech, cues, { ...withinSpeech, speedRatio });
-
-  if (offset.score >= splitWorthScore) {
-    return { ...offset, offsetScore: offset.score };
+const refined = async (speech: Cue[], rigid: Alignment, cues: Cue[], speedRatio: number) => {
+  if (rigid.score >= splitWorthScore) {
+    return rigid.cues;
   }
 
   const split = await alignCues(speech, cues, { ...withinSpeech, speedRatio });
 
-  return { ...(split.score > offset.score ? split : offset), offsetScore: offset.score };
+  return split.score > rigid.score ? split.cues : rigid.cues;
 };
 
 export const speechShareOf = ({ spans, audioMs }: Heard) =>
@@ -117,15 +122,24 @@ export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAli
   }
 
   const speedRatio = bestSpeedRatio(speech, cues, speedRatios, withinSpeech);
-  const best = await bestAlignment(speech, cues, speedRatio);
-  const score = scoreOf(speech, best.cues);
-  const contrast = contrastOf(speech, best.cues, score);
+  const rigid = alignOffset(speech, cues, { ...withinSpeech, speedRatio });
+  const score = scoreOf(speech, rigid.cues);
+  const contrast = contrastOf(speech, rigid.cues, score);
 
   if (contrast === undefined) {
     return { kind: "too-short" };
   }
 
-  return { kind: "aligned", ...best, score, speedRatio, contrast };
+  const accepted = contrast >= audioAcceptContrast;
+
+  return {
+    kind: "aligned",
+    cues: accepted ? await refined(speech, rigid, cues, speedRatio) : rigid.cues,
+    score,
+    offsetScore: rigid.score,
+    speedRatio,
+    contrast,
+  };
 };
 
 export const alignToAudio = async (
