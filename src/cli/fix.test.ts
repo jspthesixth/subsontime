@@ -42,7 +42,7 @@ vi.mock("node:fs/promises", { spy: true });
 const track = syntheticTrack(1, 200);
 const shifted = transform(track, (time) => time + 2000);
 const unrelated = syntheticTrack(2, 200).map((cue) => ({ ...cue, text: `Wrong ${cue.text}` }));
-const spoken = syntheticTrack(1, 30);
+const spoken = syntheticTrack(1, 90);
 const spokenEnd = spoken.at(-1)?.end ?? 0;
 const lateSpoken = transform(spoken, (time) => time + 2000);
 const otherSpoken = transform(spoken, (time) => time + 3000).map((cue) => ({
@@ -472,7 +472,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     expect(posts(requests)).toEqual([]);
   });
 
-  it("skips a subtitle whose contrast is under 1.5 and reports no mismatch", async () => {
+  it("skips a subtitle whose contrast is under 1 and reports no mismatch", async () => {
     const video = await copyBursts(`${movieName}.mkv`);
     const { url, requests } = await startTimings();
 
@@ -482,7 +482,8 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
       score: 0.2,
       offsetScore: 0.2,
       speedRatio: 1,
-      contrast: 1.1,
+      contrast: 0.9,
+      decision: "mismatch",
     });
 
     const { code, output } = await run(
@@ -525,6 +526,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
         offsetScore: 0.3,
         speedRatio: 1,
         contrast: 2.1,
+        decision: "not-clear",
       },
       "not clear enough (contrast 2.1)",
     ],

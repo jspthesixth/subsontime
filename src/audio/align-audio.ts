@@ -1,13 +1,5 @@
 import type { Cue } from "../subtitles/cue.ts";
-import {
-  alignCues,
-  alignOffset,
-  bestSpeedRatio,
-  scoreOf,
-  speedRatios,
-  type Alignment,
-} from "../timing/alass.ts";
-import { splitWorthScore } from "../timing/retime.ts";
+import { alignOffset, bestSpeedRatio, scoreOf, speedRatios } from "../timing/alass.ts";
 import { detectSpeech } from "../timing/speech.ts";
 import { audioStreamOf, pcmFrom, pcmSampleRate } from "./ffmpeg.ts";
 
@@ -23,6 +15,7 @@ export type AudioAlignment =
       offsetScore: number;
       speedRatio: number;
       contrast: number;
+      decision: AudioDecision;
     }
   | { kind: "no-speech" }
   | { kind: "implausible-speech"; share: number }
@@ -32,15 +25,17 @@ export type AudioAlignment =
 export type AudioDecision = "accept" | "not-clear" | "mismatch";
 
 export const audioAcceptContrast = 3.5;
-export const audioMismatchContrast = 1.5;
+export const audioMismatchContrast = 1;
+export const thirdsAgreementMs = 250;
 export const plausibleSpeechShare = { min: 0.15, max: 0.9 };
 
 export const wrongShiftsMs = [37, 71, 113, 149].flatMap((seconds) => [
   -seconds * 1000,
   seconds * 1000,
 ]);
+export const shortClipMs = 300_000;
+
 const minimumBaseline = 0.03;
-const shortClipMs = 300_000;
 const minimumShifts = 4;
 
 export const withinSpeech = { withinReference: true };
@@ -75,33 +70,42 @@ export const contrastOf = (spans: Cue[], cues: Cue[], score: number) =>
     scoreOf(spans, shifted(cues, shift)),
   );
 
-export const prefersSplit = (rigidScore: number, splitScore: number) =>
-  rigidScore < splitWorthScore && splitScore > rigidScore;
+export const thirdsOf = (cues: Cue[]) =>
+  [0, 1, 2].map((third) =>
+    cues.slice(Math.floor((third * cues.length) / 3), Math.floor(((third + 1) * cues.length) / 3)),
+  );
 
-const refined = async (speech: Cue[], rigid: Alignment, cues: Cue[], speedRatio: number) => {
-  if (rigid.score >= splitWorthScore) {
-    return rigid.cues;
-  }
-
-  const split = await alignCues(speech, cues, { ...withinSpeech, speedRatio });
-
-  return prefersSplit(rigid.score, split.score) ? split.cues : rigid.cues;
+export type AudioEvidence = {
+  contrast: number;
+  windowMs: number;
+  thirdOffsetsMs: (number | null)[];
 };
 
-export const decisionOf = (contrast: number | undefined): AudioDecision => {
-  if (contrast === undefined) {
+const thirdsAgree = (offsets: (number | null)[]) => {
+  const known = offsets.filter((offset) => offset !== null);
+
+  return known.length === 3 && Math.max(...known) - Math.min(...known) <= thirdsAgreementMs;
+};
+
+export const decisionOf = (evidence?: AudioEvidence): AudioDecision => {
+  if (evidence === undefined) {
     return "not-clear";
   }
+
+  const { contrast, windowMs, thirdOffsetsMs } = evidence;
 
   if (contrast < audioMismatchContrast) {
     return "mismatch";
   }
 
-  return contrast >= audioAcceptContrast ? "accept" : "not-clear";
+  const accepted =
+    contrast >= audioAcceptContrast && windowMs >= shortClipMs && thirdsAgree(thirdOffsetsMs);
+
+  return accepted ? "accept" : "not-clear";
 };
 
 export const audioDecisionOf = (alignment: AudioAlignment) =>
-  decisionOf(alignment.kind === "aligned" ? alignment.contrast : undefined);
+  alignment.kind === "aligned" ? alignment.decision : "not-clear";
 
 export const speechShareOf = ({ spans, audioMs }: Heard) =>
   spans.reduce((sum, span) => sum + span.end - span.start, 0) / Math.max(audioMs, 1);
@@ -149,15 +153,21 @@ export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAli
     return { kind: "too-short" };
   }
 
-  const accepted = contrast >= audioAcceptContrast;
+  const { start, end } = windowOf(rigid.cues);
+  const thirdOffsetsMs = thirdsOf(cues).map((third) =>
+    third.length === 0
+      ? null
+      : alignOffset(speech, third, { ...withinSpeech, speedRatio }).offsetMs,
+  );
 
   return {
     kind: "aligned",
-    cues: accepted ? await refined(speech, rigid, cues, speedRatio) : rigid.cues,
+    cues: rigid.cues,
     score,
     offsetScore: rigid.score,
     speedRatio,
     contrast,
+    decision: decisionOf({ contrast, windowMs: end - start, thirdOffsetsMs }),
   };
 };
 

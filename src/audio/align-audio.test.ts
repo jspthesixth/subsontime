@@ -14,7 +14,10 @@ import {
   audioDecisionOf,
   audioMismatchContrast,
   contrastOf,
+  decisionOf,
   plausibleSpeechShare,
+  shortClipMs,
+  thirdsAgreementMs,
 } from "./align-audio.ts";
 import { exitError, pcmFrom, samplesFrom } from "./ffmpeg.ts";
 import {
@@ -226,20 +229,30 @@ describe("alignToSpeech with a rigid gate", () => {
     );
   });
 
-  it("refines the cues of a rigidly accepted subtitle with a split", async () => {
-    const cut = Math.floor(speech.length * 0.85);
+  it("accepts a subtitle one offset away with its rigid cues", async () => {
+    const result = await alignToSpeech(
+      heard,
+      movedBy(() => 2000),
+    );
+
+    expect(result).toMatchObject({ kind: "aligned", decision: "accept" });
+    expect(startsWithin(result.kind === "aligned" ? result.cues : [], speech)).toBeLessThanOrEqual(
+      100,
+    );
+  });
+
+  it("does not accept a subtitle whose thirds need offsets 1.5 s apart", async () => {
+    const cut = Math.floor(speech.length / 2);
     const result = await alignToSpeech(
       heard,
       movedBy((index) => (index < cut ? 2000 : 3500)),
     );
 
-    expect(result).toHaveProperty(
-      "contrast",
-      expect.toSatisfy((value) => value >= audioAcceptContrast),
-    );
-    expect(startsWithin(result.kind === "aligned" ? result.cues : [], speech)).toBeLessThanOrEqual(
-      100,
-    );
+    expect(result).toMatchObject({
+      kind: "aligned",
+      contrast: expect.toSatisfy((value) => value >= audioAcceptContrast),
+      decision: "not-clear",
+    });
   });
 });
 
@@ -265,23 +278,52 @@ describe("alignToSpeech", () => {
   );
 });
 
-const alignedAt = (contrast: number) => ({
-  kind: "aligned" as const,
-  cues: track,
-  score: 0.5,
-  offsetScore: 0.5,
-  speedRatio: 1,
-  contrast,
+const agreeing = {
+  contrast: audioAcceptContrast,
+  windowMs: shortClipMs,
+  thirdOffsetsMs: [0, thirdsAgreementMs, 100],
+};
+
+describe("decisionOf", () => {
+  it.each([
+    ["a full subtitle whose thirds agree", agreeing, "accept"],
+    [
+      "a contrast just under the bar",
+      { ...agreeing, contrast: audioAcceptContrast - 0.01 },
+      "not-clear",
+    ],
+    ["a subtitle under 300 s", { ...agreeing, windowMs: shortClipMs - 1 }, "not-clear"],
+    [
+      "thirds 1 ms too far apart",
+      { ...agreeing, thirdOffsetsMs: [0, thirdsAgreementMs + 1, 100] },
+      "not-clear",
+    ],
+    ["an empty third", { ...agreeing, thirdOffsetsMs: [0, null, 100] }, "not-clear"],
+    ["the mismatch bar", { ...agreeing, contrast: audioMismatchContrast }, "not-clear"],
+    [
+      "a contrast just under the mismatch bar",
+      { ...agreeing, contrast: audioMismatchContrast - 0.01 },
+      "mismatch",
+    ],
+    ["no contrast", undefined, "not-clear"],
+  ])("decides %s", (_, evidence, decision) => {
+    expect(decisionOf(evidence)).toBe(decision);
+  });
 });
 
 describe("audioDecisionOf", () => {
-  it.each([
-    [audioAcceptContrast, "accept"],
-    [audioAcceptContrast - 0.01, "not-clear"],
-    [audioMismatchContrast, "not-clear"],
-    [audioMismatchContrast - 0.01, "mismatch"],
-  ])("decides %f contrast is %s", (contrast, decision) => {
-    expect(audioDecisionOf(alignedAt(contrast))).toBe(decision);
+  it("reads the decision of an aligned subtitle", () => {
+    expect(
+      audioDecisionOf({
+        kind: "aligned",
+        cues: track,
+        score: 0.5,
+        offsetScore: 0.5,
+        speedRatio: 1,
+        contrast: 9,
+        decision: "mismatch",
+      }),
+    ).toBe("mismatch");
   });
 
   it.each([

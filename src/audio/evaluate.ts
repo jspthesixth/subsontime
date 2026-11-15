@@ -4,9 +4,9 @@ import {
   contrastFrom,
   decisionOf,
   isPlausibleSpeech,
-  prefersSplit,
   usableShifts,
   type AudioDecision,
+  type AudioEvidence,
 } from "./align-audio.ts";
 import { offsetCues } from "../timing/alass.ts";
 import { bestFit, readJSON, shiftGridMs, splitOf, type Features } from "./features.ts";
@@ -184,8 +184,8 @@ const shiftScoreOf = (features: RuleFeatures, shift: number) => {
   return score;
 };
 
-export const headContrastOf = (features: RuleFeatures) => {
-  const { rigid } = features;
+export const evidenceOf = (features: RuleFeatures): AudioEvidence | undefined => {
+  const { rigid, thirds } = features;
 
   if (rigid.speechSpans === 0 || !isPlausibleSpeech(rigid.speechShare)) {
     return undefined;
@@ -194,13 +194,20 @@ export const headContrastOf = (features: RuleFeatures) => {
   const { speedRatio, offsetMs, score } = bestFit(rigid);
 
   const [window = rigid.window] = offsetCues([{ ...rigid.window, text: "" }], speedRatio, offsetMs);
-
-  return contrastFrom(score, usableShifts(window, rigid.speechWindow), (shift) =>
+  const contrast = contrastFrom(score, usableShifts(window, rigid.speechWindow), (shift) =>
     shiftScoreOf(features, shift),
   );
+
+  return contrast === undefined
+    ? undefined
+    : {
+        contrast,
+        windowMs: window.end - window.start,
+        thirdOffsetsMs: thirds.map((third) => third?.offsetMs ?? null),
+      };
 };
 
-export const headRule: Rule = (features) => decisionOf(headContrastOf(features));
+export const headRule: Rule = (features) => decisionOf(evidenceOf(features));
 
 export const timingErrorOf = (diffs: number[], offsetMs: number) => {
   const errors = diffs.map((diff) => Math.abs(diff - offsetMs));
@@ -209,18 +216,11 @@ export const timingErrorOf = (diffs: number[], offsetMs: number) => {
 };
 
 export const rowsOf = (features: Features[], rule: Rule, ruledOffsetMs: number): Row[] =>
-  features.map(({ rigid, shifts, thirds, mislisting, timing, split, ...pair }) => {
+  features.map(({ rigid, shifts, thirds, mislisting, timing, split: _split, ...pair }) => {
     const fit = bestFit(rigid);
     const decision = rule({ rigid, shifts, thirds });
-    const refined =
-      decision === "accept" &&
-      split !== undefined &&
-      prefersSplit(fit.withinScore, split.withinScore)
-        ? split
-        : undefined;
-    const startDiffsMs =
-      pair.truth === "positive" ? (refined?.diffsMs ?? timing?.diffsMs) : undefined;
-    const contrast = headContrastOf({ rigid, shifts, thirds });
+    const startDiffsMs = pair.truth === "positive" ? timing?.diffsMs : undefined;
+    const contrast = evidenceOf({ rigid, shifts, thirds })?.contrast;
     const mislistedBy = pair.truth === "negative" && decision === "accept" ? mislisting?.by : null;
 
     return {
@@ -230,7 +230,7 @@ export const rowsOf = (features: Features[], rule: Rule, ruledOffsetMs: number):
       score: fit.score,
       offsetScore: fit.withinScore,
       speedRatio: fit.speedRatio,
-      offsetMs: refined?.offsetMs ?? fit.offsetMs,
+      offsetMs: fit.offsetMs,
       speechShare: rigid.speechShare,
       coverage: (rigid.window.end - rigid.window.start) / Math.max(rigid.audioMs, 1),
       ...(startDiffsMs === undefined

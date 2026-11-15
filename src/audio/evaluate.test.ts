@@ -8,7 +8,7 @@ import { writeSRT } from "../subtitles/write.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { alignToSpeech, audioDecisionOf, type Heard } from "./align-audio.ts";
 import {
-  headContrastOf,
+  evidenceOf,
   headRule,
   outcomeOf,
   pairsOf,
@@ -311,7 +311,7 @@ describe("headRule over cached features", () => {
     ],
   ])("gives no contrast for %s as alignToSpeech does", async (_, heard, cues, kind) => {
     expect(await alignToSpeech(heard, cues)).toMatchObject({ kind });
-    expect(headContrastOf(await ruleFeaturesOf(heard, cues))).toBeUndefined();
+    expect(evidenceOf(await ruleFeaturesOf(heard, cues))).toBeUndefined();
   });
 
   it("accepts an own subtitle with the label's timing", async () => {

@@ -17,6 +17,7 @@ import { shiftOf } from "../timing/retime.ts";
 import {
   shifted,
   speechShareOf,
+  thirdsOf,
   windowOf,
   withinSpeech,
   wrongShiftsMs,
@@ -388,11 +389,6 @@ const rigidOf = (heard: Heard, cues: Cue[]): Rigid => ({
     };
   }),
 });
-
-const thirdsOf = (cues: Cue[]) =>
-  [0, 1, 2].map((third) =>
-    cues.slice(Math.floor((third * cues.length) / 3), Math.floor(((third + 1) * cues.length) / 3)),
-  );
 
 export const featuresFor = async (job: Job, load: Loader): Promise<Computed[]> => {
   const cues = await load.cues(job.subtitle);

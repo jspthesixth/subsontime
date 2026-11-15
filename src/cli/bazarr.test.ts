@@ -7,6 +7,8 @@ import {
   alignToAudio,
   audioAcceptContrast,
   audioMismatchContrast,
+  decisionOf,
+  shortClipMs,
   type AudioAlignment,
 } from "../audio/align-audio.ts";
 import { ffmpegFound } from "../audio/ffmpeg.ts";
@@ -29,7 +31,7 @@ import {
 vi.mock("../audio/align-audio.ts", { spy: true });
 vi.mock("../audio/ffmpeg.ts", { spy: true });
 
-const spoken = syntheticTrack(1, 30);
+const spoken = syntheticTrack(1, 90);
 const spokenEnd = spoken.at(-1)?.end ?? 0;
 const lateSpoken = transform(spoken, (time) => time + 2000);
 const track = syntheticTrack(1, 200);
@@ -47,6 +49,7 @@ const aligned = (cues: Cue[], contrast: number, speedRatio = 1): AudioAlignment 
   offsetScore: 0.9,
   speedRatio,
   contrast,
+  decision: decisionOf({ contrast, windowMs: shortClipMs, thirdOffsetsMs: [0, 0, 0] }),
 });
 
 const crlfWithBOM = (cues: Cue[]) => `﻿${writeSRT(cues).replaceAll("\n", "\r\n")}`;
@@ -204,7 +207,7 @@ describe("with the audio measured", () => {
     expect(posts(requests)).toEqual([]);
   });
 
-  it("leaves the subtitle and shares nothing at a contrast of exactly 1.5", async () => {
+  it("leaves the subtitle and shares nothing at a contrast of exactly 1", async () => {
     const paths = await prepare();
     const original = await readFile(paths.subtitle);
     const { url, requests } = await startTimings();
@@ -213,7 +216,7 @@ describe("with the audio measured", () => {
 
     const { output } = await run(argsFor(paths, "--api", url));
 
-    expect(output).toBe("subsontime: left as it is · not clear enough (contrast 1.5)\n");
+    expect(output).toBe("subsontime: left as it is · not clear enough (contrast 1.0)\n");
     expect(await readFile(paths.subtitle)).toEqual(original);
     expect(posts(requests)).toEqual([]);
   });
@@ -223,13 +226,13 @@ describe("with the audio measured", () => {
     const original = await readFile(paths.subtitle);
     const { url, requests } = await startTimings();
 
-    vi.mocked(alignToAudio).mockResolvedValueOnce(aligned(shiftedBy(30_000), 1.1));
+    vi.mocked(alignToAudio).mockResolvedValueOnce(aligned(shiftedBy(30_000), 0.9));
 
     const { code, output } = await run(argsFor(paths, "--api", url));
 
     expect(code).toBe(0);
     expect(output).toBe(
-      "subsontime: left as it is · made for another video (contrast 1.1) · not shared, audio check not reliable enough yet\n",
+      "subsontime: left as it is · made for another video (contrast 0.9) · not shared, audio check not reliable enough yet\n",
     );
     expect(await readFile(paths.subtitle)).toEqual(original);
     expect(await readdir(work)).not.toContain("Film.2001.en.orig.srt");
