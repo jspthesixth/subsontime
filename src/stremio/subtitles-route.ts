@@ -8,6 +8,7 @@ import { parseStremioId } from "../sources/stremio-addon.ts";
 import { parseRelease, releaseSimilarity } from "../subtitles/release.ts";
 import { pickReferences } from "../timing/references.ts";
 import { hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
+import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 export const bestSlotSize = 4;
@@ -87,10 +88,23 @@ export const subtitlesRoute =
     const extras = readExtras(context);
     const filename = extras.get("filename") ?? undefined;
     const videoSize = Number(extras.get("videoSize") ?? Number.NaN);
+    const q = { t: video.type, i: video.imdbId, s: video.season, e: video.episode };
+    const fileKey =
+      filename === undefined
+        ? undefined
+        : fileKeyOf(context.req.param("config") ?? "", q, filename);
+    const listed = videoKeyOf(
+      extras.get("videoHash") ?? undefined,
+      Number.isFinite(videoSize) ? videoSize : undefined,
+    );
+    const recalled =
+      listed !== undefined || fileKey === undefined
+        ? undefined
+        : await recalledFileHash(state, fileKey);
     const query = {
       ...video,
-      videoHash: extras.get("videoHash") ?? undefined,
-      videoSize: Number.isFinite(videoSize) ? videoSize : undefined,
+      videoHash: extras.get("videoHash") ?? recalled?.w.h,
+      videoSize: Number.isFinite(videoSize) ? videoSize : recalled?.w.z,
       filename,
       languages: config.languages,
     };
@@ -102,14 +116,29 @@ export const subtitlesRoute =
         : hiddenKeyFor(openTimings, state, fingerprint, viewerOf(config, openTimings.installSalt)),
     ]);
     const references = found.references.map(toCandidateRef);
+
+    if (listed !== undefined && fileKey !== undefined) {
+      await recordFileHash(state, fileKey, {
+        w: { h: listed.hash, z: listed.size },
+        x: references,
+        m: config.languages.flatMap((lang) =>
+          found
+            .ranked(lang)
+            .filter(({ hashMatch }) => hashMatch)
+            .map(({ ref }) => ref),
+        ),
+      });
+    }
+
     const subURL = (candidates: Candidate[], t?: SubtitleRef["t"]) => {
       const ref = encodeRef(
         {
           v: 1,
-          q: { t: video.type, i: video.imdbId, s: video.season, e: video.episode },
+          q,
           c: candidates.map(toCandidateRef),
           x: references,
           w: fingerprint === undefined ? undefined : { h: fingerprint.hash, z: fingerprint.size },
+          k: fingerprint === undefined ? fileKey : undefined,
           d: hiddenKey,
           t,
         },

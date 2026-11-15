@@ -29,6 +29,7 @@ import {
   type OpenTimings,
   type Shared,
 } from "./open-timings.ts";
+import { recalledFileHash, withFileHash } from "./file-hashes.ts";
 import { decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 export type Track = { candidate: Candidate; cues: Cue[] };
@@ -310,7 +311,7 @@ export const fileRoute =
   }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
-    const ref = (() => {
+    const decoded = (() => {
       try {
         return decodeRef((context.req.param("file") ?? "").replace(/\.srt$/, ""), refKey);
       } catch {
@@ -318,12 +319,18 @@ export const fileRoute =
       }
     })();
 
-    if (ref === undefined) {
+    if (decoded === undefined) {
       return context.text("Invalid subtitle reference", 400);
     }
 
+    const recalled =
+      decoded.w === undefined && decoded.k !== undefined
+        ? await recalledFileHash(state, decoded.k)
+        : undefined;
+    const ref = recalled === undefined ? decoded : withFileHash(decoded, recalled);
     const id = createHash("sha256")
       .update(`${context.req.param("config") ?? ""}/${context.req.param("file") ?? ""}`)
+      .update(recalled === undefined ? "" : `#${recalled.w.h}`)
       .digest("hex");
     const cached = await subtitles?.get(id);
 

@@ -3,7 +3,7 @@ import * as v from "valibot";
 
 const signatureLength = 16;
 
-const candidateRefSchema = v.object({
+export const candidateRefSchema = v.object({
   n: v.string(),
   r: v.string(),
   l: v.string(),
@@ -22,6 +22,7 @@ const subtitleRefSchema = v.object({
   c: v.array(candidateRefSchema),
   x: v.array(candidateRefSchema),
   w: v.optional(v.object({ h: v.string(), z: v.number() })),
+  k: v.optional(v.string()),
   d: v.optional(v.string()),
   t: v.optional(v.literal("dialogue")),
 });

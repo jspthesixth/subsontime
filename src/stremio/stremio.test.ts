@@ -532,6 +532,69 @@ describe("subtitle file", () => {
   });
 });
 
+const hashAware = (): SourceSet => {
+  const source = fakeSource("Fake", [
+    { ref: "broadcast", cues: shifted },
+    { ref: "disc", cues: track },
+  ]);
+
+  return {
+    listed: [
+      {
+        ...source,
+        search: async (query, signal) =>
+          (await source.search(query, signal)).map((candidate) => ({
+            ...candidate,
+            hashMatch: candidate.ref === "disc" && query.videoHash === "3e0c5471cdc9cb0e",
+          })),
+      },
+    ],
+    references: [],
+  };
+};
+
+describe("a hash from the other listing", () => {
+  const episode = "series/tt1442437:1:23";
+  const name = "Modern Family S01E23 Hawaii  (1080p x265 10bit Joy).mkv";
+  const withoutHash = `${episode}/filename=${encodeURIComponent(name)}.json`;
+  const withHash = `${episode}/filename=${encodeURIComponent(name)}&videoSize=227584187&videoHash=3e0c5471cdc9cb0e.json`;
+
+  it("serves the hash match from a listing that came before the hash", async () => {
+    const app = appWith(hashAware());
+    const token = sealed();
+
+    const first = await list(app, token, withoutHash);
+
+    await list(app, token, withHash);
+    const response = await app.request(first.body.subtitles[0]?.url ?? "");
+
+    expect(response.status).toBe(200);
+    expect(parseSubtitle(await response.text())).toEqual(track);
+    expect(retime).not.toHaveBeenCalled();
+  });
+
+  it("lists the hash match without the hash once the other listing brought it", async () => {
+    const app = appWith(hashAware());
+    const token = sealed();
+
+    await list(app, token, withHash);
+    const { body } = await list(app, token, withoutHash);
+    const ref = refOf(body.subtitles[0]?.url ?? "");
+
+    expect(ref.c[0]).toEqual({ n: "Fake", r: "disc", l: "eng", h: 1 });
+    expect(ref.w).toEqual({ h: "3e0c5471cdc9cb0e", z: 227584187 });
+  });
+
+  it("keeps the hash to the install that listed it", async () => {
+    const app = appWith(hashAware());
+
+    await list(app, sealed(), withHash);
+    const { body } = await list(app, sealed(), withoutHash);
+
+    expect(refOf(body.subtitles[0]?.url ?? "").c[0]?.r).toBe("broadcast");
+  });
+});
+
 describe("refs", () => {
   const key = refKey(secret);
   const ref: SubtitleRef = {
