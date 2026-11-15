@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Cue } from "../subtitles/cue.ts";
-import { alignCues, alignOffset, bestSpeedRatio, speedRatioFromFPS, speedRatios } from "./alass.ts";
+import {
+  alignCues,
+  alignOffset,
+  bestSpeedRatio,
+  scoreOf,
+  speedRatioFromFPS,
+  speedRatios,
+} from "./alass.ts";
 import { resegment, syntheticTrack, transform } from "./test-tracks.ts";
 
 const reference = syntheticTrack(1, 200);
@@ -135,4 +142,27 @@ it("lists every frame rate pairing and its inverse", () => {
     25 / 24,
     24 / 25,
   ]);
+});
+
+const seconds = (start: number, end: number) => ({
+  start: start * 1000,
+  end: end * 1000,
+  text: "",
+});
+
+describe("scoreOf", () => {
+  const speech = Array.from({ length: 26 }, (_, index) => seconds(index * 4, index * 4 + 3));
+  const inside = Array.from({ length: 25 }, (_, index) => seconds(index * 4, index * 4 + 3.75));
+  const hanging = [...inside, seconds(150, 151)];
+
+  it("rewards a cue placed after the reference ends", () => {
+    expect(scoreOf(speech, hanging)).toBeGreaterThan(scoreOf(speech, inside));
+  });
+
+  it("does not reward a cue placed after the reference ends within the reference", () => {
+    const options = { withinReference: true };
+
+    expect(scoreOf(speech, inside, options)).toBeCloseTo(scoreOf(speech, inside), 6);
+    expect(scoreOf(speech, hanging, options)).toBeLessThan(scoreOf(speech, inside, options));
+  });
 });

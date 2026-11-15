@@ -1,7 +1,7 @@
 import { align, align_offset, score } from "../../wasm/alass_wasm.js";
 import type { Cue } from "../subtitles/cue.ts";
 
-type AlignOptions = { speedRatio?: number };
+type AlignOptions = { speedRatio?: number; withinReference?: boolean };
 
 type Alignment = { cues: Cue[]; score: number };
 
@@ -25,11 +25,12 @@ const flatten = (cues: Cue[]) =>
     cues.flatMap((cue) => [cue.start, cue.end]).map((time) => BigInt(Math.round(time))),
   );
 
-export const scoreOf = (reference: Cue[], cues: Cue[]) => score(flatten(reference), flatten(cues));
+export const scoreOf = (reference: Cue[], cues: Cue[], options?: AlignOptions) =>
+  score(flatten(reference), flatten(cues), options?.withinReference === true);
 
-const scored = (reference: BigInt64Array, cues: Cue[]): Alignment => ({
+const scored = (reference: BigInt64Array, cues: Cue[], options?: AlignOptions): Alignment => ({
   cues,
-  score: score(reference, flatten(cues)),
+  score: score(reference, flatten(cues), options?.withinReference === true),
 });
 
 export const alignCues = async (
@@ -48,6 +49,7 @@ export const alignCues = async (
 
       return { ...cue, start, end: Math.round(start + (cue.end - cue.start) / speedRatio) };
     }),
+    options,
   );
 };
 
@@ -67,14 +69,20 @@ export const alignOffset = (
       start: Math.round(cue.start / speedRatio + delta),
       end: Math.round(cue.end / speedRatio + delta),
     })),
+    options,
   );
 };
 
-export const bestSpeedRatio = (reference: Cue[], subtitle: Cue[], ratios: readonly number[]) =>
+export const bestSpeedRatio = (
+  reference: Cue[],
+  subtitle: Cue[],
+  ratios: readonly number[],
+  options?: AlignOptions,
+) =>
   ratios
     .map((speedRatio) => ({
       speedRatio,
-      score: alignOffset(reference, subtitle, { speedRatio }).score,
+      score: alignOffset(reference, subtitle, { ...options, speedRatio }).score,
     }))
     .reduce((best, candidate) => (candidate.score > best.score ? candidate : best), {
       speedRatio: ratios[0] ?? 1,

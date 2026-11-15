@@ -2,11 +2,12 @@ import { chmod, copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import nightOfTheLivingDead from "../../test/fixtures/audio/night-of-the-living-dead.json" with { type: "json" };
 import type { Cue } from "../subtitles/cue.ts";
 import { scoreOf, speedRatioFromFPS } from "../timing/alass.ts";
 import { cutsOf, deltasOf, median, splitWorthScore } from "../timing/retime.ts";
 import { resegment, syntheticTrack, transform } from "../timing/test-tracks.ts";
-import { alignToAudio, audioAcceptContrast, contrastOf } from "./align-audio.ts";
+import { alignToAudio, alignToSpeech, audioAcceptContrast, contrastOf } from "./align-audio.ts";
 import { exitError, pcmFrom, samplesFrom } from "./ffmpeg.ts";
 import {
   ffmpeg,
@@ -69,6 +70,14 @@ const pattern = transform(
 const wrongShiftsSeconds = [-149, -113, -71, -37, 37, 71, 113, 149];
 
 const sortedSpans = (spans: Cue[]) => spans.toSorted((a, b) => a.start - b.start);
+
+const cuesOf = (pairs: number[][]) =>
+  pairs.map(([start = 0, end = 0]) => ({ start, end, text: "" }));
+
+const film = {
+  speech: cuesOf(nightOfTheLivingDead.speech),
+  cues: cuesOf(nightOfTheLivingDead.cues),
+};
 
 const patternWithin = (spans: Cue[]) => sortedSpans([second(0), ...pattern, ...spans, second(400)]);
 
@@ -152,6 +161,21 @@ describe("contrastOf", () => {
     const spans = transform(pattern, (time) => time + 800_000);
 
     expect(contrastOf(spans, cues, scoreOf(spans, cues))).toBeTypeOf("number");
+  });
+});
+
+describe("alignToSpeech on a full-length film", () => {
+  it("keeps the subtitle inside the soundtrack instead of a faster copy hanging past its end", async () => {
+    const result = await alignToSpeech(film.speech, film.cues);
+
+    expect(result).toMatchObject({ kind: "aligned", speedRatio: 1 });
+    expect(
+      median(deltasOf(film.cues, result.kind === "aligned" ? result.cues : [], 1)),
+    ).toBeCloseTo(-5200, -3);
+    expect(result).toHaveProperty(
+      "contrast",
+      expect.toSatisfy((value) => value >= audioAcceptContrast),
+    );
   });
 });
 

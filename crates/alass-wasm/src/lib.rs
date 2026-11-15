@@ -80,13 +80,18 @@ pub fn align_offset(reference: &[i64], subtitle: &[i64], speed_ratio: f64) -> i6
 }
 
 #[wasm_bindgen]
-pub fn score(reference: &[i64], subtitle: &[i64]) -> f64 {
+pub fn score(reference: &[i64], subtitle: &[i64], within_reference: bool) -> f64 {
     let speech = merged(reference);
     let cues = spans(subtitle);
     let total: i64 = cues.iter().map(|cue| cue.len().as_i64()).sum();
     let overlap: i64 = cues.iter().map(|cue| covered(&speech, *cue)).sum();
-    let first = cues.iter().map(|cue| cue.start).min();
-    let last = cues.iter().map(|cue| cue.end).max();
+    let mut first = cues.iter().map(|cue| cue.start).min();
+    let mut last = cues.iter().map(|cue| cue.end).max();
+
+    if within_reference {
+        first = first.max(speech.first().map(|span| span.start));
+        last = last.min(speech.last().map(|span| span.end));
+    }
 
     match (first, last) {
         (Some(first), Some(last)) if first < last && total > 0 => {

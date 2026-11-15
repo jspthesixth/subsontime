@@ -13,4 +13,4 @@ export function align(reference: BigInt64Array | bigint[], subtitle: BigInt64Arr
 
 export function align_offset(reference: BigInt64Array | bigint[], subtitle: BigInt64Array | bigint[], speed_ratio: number): bigint;
 
-export function score(reference: BigInt64Array | bigint[], subtitle: BigInt64Array | bigint[]): number;
+export function score(reference: BigInt64Array | bigint[], subtitle: BigInt64Array | bigint[], within_reference: boolean): number;

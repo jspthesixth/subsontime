@@ -27,6 +27,8 @@ const minimumBaseline = 0.01;
 const shortClipMs = 300_000;
 const minimumShifts = 4;
 
+const withinSpeech = { withinReference: true };
+
 const shifted = (cues: Cue[], ms: number) =>
   cues.map((cue) => ({ ...cue, start: cue.start + ms, end: cue.end + ms }));
 
@@ -62,13 +64,13 @@ export const contrastOf = (spans: Cue[], cues: Cue[], score: number) => {
 };
 
 const bestAlignment = async (speech: Cue[], cues: Cue[], speedRatio: number) => {
-  const offset = alignOffset(speech, cues, { speedRatio });
+  const offset = alignOffset(speech, cues, { ...withinSpeech, speedRatio });
 
   if (offset.score >= splitWorthScore) {
     return { ...offset, offsetScore: offset.score };
   }
 
-  const split = await alignCues(speech, cues, { speedRatio });
+  const split = await alignCues(speech, cues, { ...withinSpeech, speedRatio });
 
   return { ...(split.score > offset.score ? split : offset), offsetScore: offset.score };
 };
@@ -82,9 +84,9 @@ export const alignToSpeech = async (speech: Cue[], cues: Cue[]): Promise<AudioAl
     return { kind: "no-speech" };
   }
 
-  const speedRatio = bestSpeedRatio(speech, cues, speedRatios);
+  const speedRatio = bestSpeedRatio(speech, cues, speedRatios, withinSpeech);
   const best = await bestAlignment(speech, cues, speedRatio);
-  const contrast = contrastOf(speech, best.cues, best.score);
+  const contrast = contrastOf(speech, best.cues, scoreOf(speech, best.cues));
 
   if (contrast === undefined) {
     return { kind: "too-short" };

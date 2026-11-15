@@ -99,9 +99,11 @@ exports.align_offset = align_offset;
 /**
  * @param {BigInt64Array | bigint[]} reference
  * @param {BigInt64Array | bigint[]} subtitle
+ * @param {boolean} within_reference
  * @returns {number}
  */
-function score(reference, subtitle) {
+function score(reference, subtitle, within_reference) {
+    const val3 = +within_reference;
     let ptr0, len0, ptr1, len1;
     try {
         ptr0 = passArray64ToWasm0(reference, wasm.__wbindgen_malloc);
@@ -113,7 +115,7 @@ function score(reference, subtitle) {
         if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 8, 8); }
         throw e;
     }
-    const ret = wasm.score(ptr0, len0, ptr1, len1);
+    const ret = wasm.score(ptr0, len0, ptr1, len1, val3);
     return ret;
 }
 exports.score = score;

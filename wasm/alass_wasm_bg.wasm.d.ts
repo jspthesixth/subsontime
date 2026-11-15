@@ -4,7 +4,7 @@ export const memory: WebAssembly.Memory;
 export const __wbg_speechdetector_free: (a: number, b: number) => void;
 export const align: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
 export const align_offset: (a: number, b: number, c: number, d: number, e: number) => bigint;
-export const score: (a: number, b: number, c: number, d: number) => number;
+export const score: (a: number, b: number, c: number, d: number, e: number) => number;
 export const speechdetector_finish: (a: number) => [number, number];
 export const speechdetector_new: (a: number) => [number, number, number];
 export const speechdetector_push: (a: number, b: number, c: number) => void;
