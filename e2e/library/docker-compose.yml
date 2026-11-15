@@ -1,0 +1,53 @@
+name: subsontime-e2e
+
+services:
+  postgres:
+    extends:
+      file: ../../docker-compose.yml
+      service: postgres
+    ports: !reset []
+    volumes: !reset []
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:6.4.4.10685-ls326
+    environment:
+      TZ: Etc/UTC
+    volumes:
+      - radarr-config:/config
+      - ${MEDIA_DIR:?set MEDIA_DIR to the folder that holds the films}:/movies
+    ports:
+      - "57878:7878"
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:v1.6.2-ls372
+    environment:
+      TZ: Etc/UTC
+    volumes:
+      - bazarr-config:/config
+      - ${MEDIA_DIR:?set MEDIA_DIR to the folder that holds the films}:/movies
+      - ${SUBSONTIME_BINARY:?set SUBSONTIME_BINARY to the linux-musl build}:/usr/local/bin/subsontime:ro
+    ports:
+      - "56767:6767"
+      - "57000:7000"
+
+  subsontime:
+    build: ../..
+    network_mode: service:bazarr
+    environment:
+      SECRET: e2e-secret-e2e-secret-e2e-secret-e2e
+      INSTALL_SALT: e2e-salt-e2e-salt-e2e-salt-e2e-salt
+      DATABASE_URL: postgres://subsontime:subsontime@postgres:5432/subsontime
+    volumes:
+      - ../../migrations:/app/migrations:ro
+      - ../../scripts/migrate.ts:/app/scripts/migrate.ts:ro
+    command:
+      - sh
+      - -c
+      - node --experimental-strip-types scripts/migrate.ts && exec node --experimental-strip-types src/server.ts
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  radarr-config:
+  bazarr-config:
