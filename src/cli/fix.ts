@@ -561,6 +561,15 @@ const shareLines = (sharing: Sharing, sent: ShareOutcome | undefined): Line[] =>
     : [{ label: "not shared", value: sent.reason, tone: "dim" }];
 };
 
+export const shareLinesFor = (
+  fromAudio: boolean,
+  sharing: Sharing,
+  sent: ShareOutcome | undefined,
+): Line[] =>
+  fromAudio && sharing === "on"
+    ? [{ label: "not shared", value: audioNotShared, tone: "dim" }]
+    : shareLines(sharing, sent);
+
 const releaseOf = (found: Found, lang: string, candidate: CandidateRef) =>
   found.ranked(lang).find((each) => each.sourceName === candidate.n && each.ref === candidate.r)
     ?.releaseName;
@@ -607,10 +616,7 @@ const fixLanguage = async (
       ? [{ label: "not written", value: outcome.problem }]
       : [
           { label: `wrote ${outcome.file}` },
-          ...(chosen.fromAudio === true && context.sharing === "on"
-            ? [{ label: "not shared", value: audioNotShared, tone: "dim" } as const]
-            : []),
-          ...shareLines(context.sharing, sent),
+          ...shareLinesFor(chosen.fromAudio === true, context.sharing, sent),
         ];
 
   return {

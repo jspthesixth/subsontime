@@ -23,7 +23,7 @@ import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { memoryStore } from "../timings/db.ts";
-import { abandonWrites, findVideos } from "./fix.ts";
+import { abandonWrites, findVideos, shareLinesFor } from "./fix.ts";
 import { cleanName, identify } from "./identify.ts";
 import { configDirOf, fallbackConfigDir, installIdFrom, installIdIn } from "./install-id.ts";
 import { main, type CLIDeps } from "./main.ts";
@@ -764,6 +764,20 @@ describe("exit codes", () => {
       errors: "",
     });
     expect(await run(["--version"])).toEqual({ code: 0, output: "0.0.0\n", errors: "" });
+  });
+});
+
+describe("shareLinesFor", () => {
+  it("says only that an audio pick is not shared when other fixes were", () => {
+    expect(shareLinesFor(true, "on", { shared: true })).toEqual([
+      { label: "not shared", value: "audio check not reliable enough yet", tone: "dim" },
+    ]);
+  });
+
+  it("says that the other fixes were shared for a pick that is not from the audio", () => {
+    expect(shareLinesFor(false, "on", { shared: true })).toEqual([
+      { label: "shared with Open Timings", value: "numbers and fingerprints only", tone: "dim" },
+    ]);
   });
 });
 
