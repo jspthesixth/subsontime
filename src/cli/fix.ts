@@ -7,9 +7,13 @@ import {
   audioAcceptContrast,
   audioMismatchContrast,
   contrastOf,
+  hear,
+  isPlausibleSpeech,
+  speechShareOf,
   type AudioAlignment,
+  type Heard,
 } from "../audio/align-audio.ts";
-import { pcmFrom, pcmSampleRate } from "../audio/ffmpeg.ts";
+import { pcmFrom } from "../audio/ffmpeg.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { toISO6391 } from "../languages.ts";
 import type { SourceSet } from "../sources/from-config.ts";
@@ -31,7 +35,6 @@ import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { scoreOf, speedRatios } from "../timing/alass.ts";
 import { shiftOf, type RetimeResult } from "../timing/retime.ts";
-import { detectSpeech } from "../timing/speech.ts";
 import type { FixWithCues } from "../timings/confirm.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { reasonOf } from "../web/check-route.ts";
@@ -333,6 +336,8 @@ export const unusedReason = (audio: AudioResult) => {
       return `not clear enough (contrast ${audio.contrast.toFixed(1)})`;
     case "no-speech":
       return "no speech found";
+    case "implausible-speech":
+      return `not clear enough (speech in ${Math.round(audio.share * 100)} % of the soundtrack)`;
     case "too-short":
       return "clip too short";
     case "empty-subtitle":
@@ -348,14 +353,14 @@ const unused = (audio: AudioResult): Line => ({
 });
 
 const listenTo = (path: string): Listen => {
-  let spans: Promise<Cue[] | Error> | undefined;
+  let listened: Promise<Heard | Error> | undefined;
 
   const speech = () => {
-    spans ??= detectSpeech(pcmFrom(path, new AbortController().signal), pcmSampleRate).catch(
-      (error: unknown) => (error instanceof Error ? error : new Error("ffmpeg failed")),
+    listened ??= hear(pcmFrom(path, new AbortController().signal)).catch((error: unknown) =>
+      error instanceof Error ? error : new Error("ffmpeg failed"),
     );
 
-    return spans;
+    return listened;
   };
 
   return {
@@ -373,11 +378,19 @@ const listenTo = (path: string): Listen => {
         return unused({ kind: "failed", reason: heard.message });
       }
 
-      if (heard.length === 0) {
+      const { spans } = heard;
+
+      if (spans.length === 0) {
         return unused({ kind: "no-speech" });
       }
 
-      const contrast = contrastOf(heard, cues, scoreOf(heard, cues));
+      const share = speechShareOf(heard);
+
+      if (!isPlausibleSpeech(share)) {
+        return unused({ kind: "implausible-speech", share });
+      }
+
+      const contrast = contrastOf(spans, cues, scoreOf(spans, cues));
 
       return contrast === undefined
         ? unused({ kind: "too-short" })

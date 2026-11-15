@@ -7,12 +7,19 @@ import type { Cue } from "../subtitles/cue.ts";
 import { scoreOf, speedRatioFromFPS } from "../timing/alass.ts";
 import { cutsOf, deltasOf, median, splitWorthScore } from "../timing/retime.ts";
 import { resegment, syntheticTrack, transform } from "../timing/test-tracks.ts";
-import { alignToAudio, alignToSpeech, audioAcceptContrast, contrastOf } from "./align-audio.ts";
+import {
+  alignToAudio,
+  alignToSpeech,
+  audioAcceptContrast,
+  contrastOf,
+  plausibleSpeechShare,
+} from "./align-audio.ts";
 import { exitError, pcmFrom, samplesFrom } from "./ffmpeg.ts";
 import {
   ffmpeg,
   hasFFmpeg,
   writeBursts,
+  writeBrownNoise,
   writeSilentAudio,
   writeSilentPicture,
 } from "./test-video.ts";
@@ -27,6 +34,7 @@ const bursts = join(directory, "bursts.mkv");
 const intro = join(directory, "intro.mkv");
 const pictureOnly = join(directory, "picture-only.mkv");
 const silent = join(directory, "silent.mkv");
+const noise = join(directory, "noise.mkv");
 const shortClip = join(directory, "short.mkv");
 const pidFile = join(directory, "ffmpeg.pid");
 const wrapper = join(directory, "ffmpeg-wrapper.sh");
@@ -75,6 +83,7 @@ const cuesOf = (pairs: number[][]) =>
   pairs.map(([start = 0, end = 0]) => ({ start, end, text: "" }));
 
 const film = {
+  audioMs: nightOfTheLivingDead.audioMs,
   speech: cuesOf(nightOfTheLivingDead.speech),
   cues: cuesOf(nightOfTheLivingDead.cues),
 };
@@ -166,7 +175,7 @@ describe("contrastOf", () => {
 
 describe("alignToSpeech on a full-length film", () => {
   it("keeps the subtitle inside the soundtrack instead of a faster copy hanging past its end", async () => {
-    const result = await alignToSpeech(film.speech, film.cues);
+    const result = await alignToSpeech({ spans: film.speech, audioMs: film.audioMs }, film.cues);
 
     expect(result).toMatchObject({ kind: "aligned", speedRatio: 1 });
     expect(
@@ -177,6 +186,28 @@ describe("alignToSpeech on a full-length film", () => {
       expect.toSatisfy((value) => value >= audioAcceptContrast),
     );
   });
+});
+
+describe("alignToSpeech", () => {
+  const speechMs = track.reduce((sum, cue) => sum + cue.end - cue.start, 0);
+  const heardAt = (share: number) => ({ spans: track, audioMs: speechMs / share });
+
+  it.each([0.1, 0.95])("calls speech in %f of the soundtrack implausible", async (share) => {
+    expect(await alignToSpeech(heardAt(share), track)).toEqual({
+      kind: "implausible-speech",
+      share: expect.closeTo(share, 6),
+    });
+  });
+
+  it.each([plausibleSpeechShare.min, plausibleSpeechShare.max])(
+    "aligns with speech in %f of the soundtrack",
+    async (share) => {
+      expect(await alignToSpeech(heardAt(share), track)).not.toHaveProperty(
+        "kind",
+        "implausible-speech",
+      );
+    },
+  );
 });
 
 describe("alignToAudio without ffmpeg", () => {
@@ -227,6 +258,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
       ),
       writeSilentPicture(pictureOnly, 2000),
       writeSilentAudio(silent, 5000),
+      writeBrownNoise(noise, 600_000),
       writeBursts(shortClip, shortTrack, (shortTrack.at(-1)?.end ?? 0) + 2000),
     ]);
   }, 60_000);
@@ -264,6 +296,16 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     expect(result.offsetScore).toBeLessThan(splitWorthScore);
     expect(cutsOf(deltas)).toBe(0);
     expect(Math.abs(median(deltas) - (introMs - 2000))).toBeLessThanOrEqual(100);
+  });
+
+  it("calls a soundtrack of brown noise implausible speech", async () => {
+    const result = await alignToAudio(noise, track);
+
+    expect(result).toEqual({ kind: "implausible-speech", share: expect.any(Number) });
+    expect(result).toHaveProperty(
+      "share",
+      expect.toSatisfy((share) => share > plausibleSpeechShare.max),
+    );
   });
 
   it("reports a clip too short to judge", async () => {

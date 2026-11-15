@@ -258,6 +258,11 @@ describe("with the audio measured", () => {
       "not clear enough (contrast 2.1)",
     ],
     ["no speech", { kind: "no-speech" }, "no speech found"],
+    [
+      "speech in 95 % of the soundtrack",
+      { kind: "implausible-speech", share: 0.95 },
+      "not clear enough (speech in 95 % of the soundtrack)",
+    ],
     ["a short clip", { kind: "too-short" }, "clip too short"],
     ["an empty subtitle", { kind: "empty-subtitle" }, "empty subtitle"],
   ])("leaves the subtitle and shares nothing after %s", async (_, alignment, reason) => {

@@ -6,6 +6,8 @@ import { pcmFrom, pcmSampleRate } from "./ffmpeg.ts";
 
 type AudioOptions = { signal?: AbortSignal };
 
+export type Heard = { spans: Cue[]; audioMs: number };
+
 export type AudioAlignment =
   | {
       kind: "aligned";
@@ -16,11 +18,13 @@ export type AudioAlignment =
       contrast: number;
     }
   | { kind: "no-speech" }
+  | { kind: "implausible-speech"; share: number }
   | { kind: "too-short" }
   | { kind: "empty-subtitle" };
 
 export const audioAcceptContrast = 3.5;
 export const audioMismatchContrast = 1.5;
+export const plausibleSpeechShare = { min: 0.15, max: 0.9 };
 
 const wrongShiftsMs = [37, 71, 113, 149].flatMap((seconds) => [-seconds * 1000, seconds * 1000]);
 const minimumBaseline = 0.01;
@@ -75,13 +79,41 @@ const bestAlignment = async (speech: Cue[], cues: Cue[], speedRatio: number) => 
   return { ...(split.score > offset.score ? split : offset), offsetScore: offset.score };
 };
 
-export const alignToSpeech = async (speech: Cue[], cues: Cue[]): Promise<AudioAlignment> => {
+export const speechShareOf = ({ spans, audioMs }: Heard) =>
+  spans.reduce((sum, span) => sum + span.end - span.start, 0) / Math.max(audioMs, 1);
+
+export const isPlausibleSpeech = (share: number) =>
+  share >= plausibleSpeechShare.min && share <= plausibleSpeechShare.max;
+
+export const hear = async (pcm: AsyncIterable<Int16Array>): Promise<Heard> => {
+  let samples = 0;
+
+  const counted = async function* () {
+    for await (const chunk of pcm) {
+      samples += chunk.length;
+      yield chunk;
+    }
+  };
+  const spans = await detectSpeech(counted(), pcmSampleRate);
+
+  return { spans, audioMs: (samples * 1000) / pcmSampleRate };
+};
+
+export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAlignment> => {
+  const { spans: speech } = heard;
+
   if (cues.length === 0) {
     return { kind: "empty-subtitle" };
   }
 
   if (speech.length === 0) {
     return { kind: "no-speech" };
+  }
+
+  const share = speechShareOf(heard);
+
+  if (!isPlausibleSpeech(share)) {
+    return { kind: "implausible-speech", share };
   }
 
   const speedRatio = bestSpeedRatio(speech, cues, speedRatios, withinSpeech);
@@ -104,10 +136,7 @@ export const alignToAudio = async (
     return { kind: "empty-subtitle" };
   }
 
-  const speech = await detectSpeech(
-    pcmFrom(videoPath, options?.signal ?? new AbortController().signal),
-    pcmSampleRate,
-  );
+  const heard = await hear(pcmFrom(videoPath, options?.signal ?? new AbortController().signal));
 
-  return alignToSpeech(speech, cues);
+  return alignToSpeech(heard, cues);
 };

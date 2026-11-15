@@ -510,8 +510,28 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     ]);
   });
 
+  it("reports no mismatch when the speech detection is implausible", async () => {
+    const video = await copyBursts(`${movieName}.mkv`);
+    const { url, requests } = await startTimings();
+
+    vi.mocked(alignToSpeech).mockResolvedValueOnce({ kind: "implausible-speech", share: 0.95 });
+
+    const { code } = await run(
+      ["fix", video, "--lang", "en", "--imdb", "tt0111161", "--audio", "--api", url],
+      { sources: retimedSources() },
+    );
+
+    expect(code).toBe(0);
+    expect(posts(requests).map((request) => request.path)).not.toContain("/api/v1/mismatches");
+  });
+
   it.each<[string, AudioAlignment, string]>([
     ["no speech", { kind: "no-speech" }, "no speech found"],
+    [
+      "speech in 95 % of the soundtrack",
+      { kind: "implausible-speech", share: 0.95 },
+      "not clear enough (speech in 95 % of the soundtrack)",
+    ],
     ["a short clip", { kind: "too-short" }, "clip too short"],
     ["an empty subtitle", { kind: "empty-subtitle" }, "empty subtitle"],
     [

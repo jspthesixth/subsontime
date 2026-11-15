@@ -27,7 +27,13 @@ const SubtitlesResponse = v.object({
 
 type Subtitle = { id: string; name: string; fps: string; cues: Cue[] };
 
-type Film = { name: string; speech: Cue[]; decodeSeconds: number; subtitles: Subtitle[] };
+type Film = {
+  name: string;
+  speech: Cue[];
+  decodeSeconds: number;
+  audioMs: number;
+  subtitles: Subtitle[];
+};
 
 type Aligned = Subtitle & {
   film: string;
@@ -103,17 +109,28 @@ const subtitlesFor = async (imdbId: string) => {
 
 const speechOf = async (imdbId: string, videoPath: string) => {
   const started = performance.now();
-  const stored = await cached(join(outputDirectory, `${imdbId}.speech.json`), async () =>
-    JSON.stringify({
-      speech: await detectSpeech(pcmFrom(videoPath, new AbortController().signal), pcmSampleRate),
+  const stored = await cached(join(outputDirectory, `${imdbId}.speech.json`), async () => {
+    let samples = 0;
+    const counted = async function* () {
+      for await (const chunk of pcmFrom(videoPath, new AbortController().signal)) {
+        samples += chunk.length;
+        yield chunk;
+      }
+    };
+    const speech = await detectSpeech(counted(), pcmSampleRate);
+
+    return JSON.stringify({
+      speech,
       decodeSeconds: (performance.now() - started) / 1000,
-    }),
-  );
+      audioMs: (samples * 1000) / pcmSampleRate,
+    });
+  });
 
   return v.parse(
     v.object({
       speech: v.array(v.object({ start: v.number(), end: v.number(), text: v.string() })),
       decodeSeconds: v.number(),
+      audioMs: v.number(),
     }),
     JSON.parse(stored),
   );
@@ -136,7 +153,7 @@ const filmFrom = async (argument: string): Promise<Film> => {
 };
 
 const alignedTo = async (film: Film, subtitle: Subtitle): Promise<Aligned> => {
-  const result = await alignToSpeech(film.speech, subtitle.cues);
+  const result = await alignToSpeech({ spans: film.speech, audioMs: film.audioMs }, subtitle.cues);
 
   if (result.kind !== "aligned") {
     throw new Error(`${film.name}: ${result.kind}`);
@@ -253,11 +270,24 @@ for (const audio of films) {
 }
 
 table(
-  ["film", "speech spans", "speech min", "subtitle min", "decode + detect s"],
+  [
+    "film",
+    "runtime min",
+    "speech spans",
+    "speech min",
+    "speech %",
+    "subtitle min",
+    "decode + detect s",
+  ],
   films.map((film) => [
     film.name,
+    seconds(film.audioMs / 60),
     String(film.speech.length),
     seconds(film.speech.reduce((sum, span) => sum + span.end - span.start, 0) / 60),
+    (
+      (100 * film.speech.reduce((sum, span) => sum + span.end - span.start, 0)) /
+      film.audioMs
+    ).toFixed(1),
     seconds(
       median(
         film.subtitles.map((subtitle) =>

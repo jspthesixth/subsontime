@@ -63,5 +63,19 @@ export const writeSilentAudio = (path: string, durationMs: number) =>
     path,
   ]);
 
+export const writeBrownNoise = (path: string, durationMs: number) =>
+  run([
+    ...picture(durationMs),
+    "-f",
+    "lavfi",
+    "-i",
+    `anoisesrc=c=brown:a=0.5:r=${sampleRate}:d=${seconds(durationMs)}`,
+    "-c:v",
+    "ffv1",
+    "-c:a",
+    "flac",
+    path,
+  ]);
+
 export const writeSilentPicture = (path: string, durationMs: number) =>
   run([...picture(durationMs), "-c:v", "ffv1", path]);
