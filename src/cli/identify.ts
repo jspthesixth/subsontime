@@ -4,6 +4,10 @@ import { searchCatalog } from "../web/check-route.ts";
 
 export type Title = Pick<VideoQuery, "type" | "imdbId" | "season" | "episode">;
 
+export type Identified =
+  | { kind: "found"; title: Title; name?: string; year?: string }
+  | { kind: "skipped"; reason: string };
+
 const episodePattern = /\bs(\d{1,2})e(\d{1,3})\b/i;
 const yearPattern = /\b(?:19|20)\d{2}\b/g;
 const releasePattern =
@@ -20,14 +24,16 @@ const folded = (text: string) =>
 export const cleanName = (fileName: string) => {
   const words = basename(fileName, extname(fileName)).replace(/[._]+/g, " ");
   const episode = episodePattern.exec(words);
-  const year = [...words.matchAll(yearPattern)].find((match) => match.index > 0);
-  const end = Math.min(
-    ...[episode, year, releasePattern.exec(words)].map((match) => match?.index ?? words.length),
+  const cut = Math.min(
+    ...[episode, releasePattern.exec(words)].map((match) => match?.index ?? words.length),
   );
+  const year = [...words.matchAll(yearPattern)]
+    .filter((match) => match.index > 0 && match.index < cut)
+    .at(-1);
 
   return {
     title: words
-      .slice(0, end)
+      .slice(0, year?.index ?? cut)
       .replace(/[\s([-]+$/, "")
       .trim(),
     year: year?.[0],
@@ -41,23 +47,38 @@ const titleOf = (imdbId: string, season?: number, episode?: number): Title =>
     ? { type: "movie", imdbId }
     : { type: "series", imdbId, season, episode };
 
-export const identify = async (fileName: string, imdbId?: string): Promise<Title | undefined> => {
+const unreachableReason = "Could not reach Stremio's catalog to identify this title";
+const unknownReason = "Could not identify this title";
+const severalReason = "Several titles match; use --imdb";
+
+export const identify = async (fileName: string, imdbId?: string): Promise<Identified> => {
   const { title, year, season, episode } = cleanName(fileName);
 
   if (imdbId !== undefined) {
-    return titleOf(imdbId, season, episode);
+    return { kind: "found", title: titleOf(imdbId, season, episode) };
   }
 
   if (title === "") {
-    return undefined;
+    return { kind: "skipped", reason: unknownReason };
   }
 
-  const named = (await searchCatalog(season === undefined ? "movie" : "series", title)).filter(
-    (meta) => folded(meta.name) === folded(title),
+  const metas = await searchCatalog(season === undefined ? "movie" : "series", title).catch(
+    () => undefined,
   );
-  const best =
-    named.find((meta) => meta.year === year) ??
-    (year === undefined || named.length === 1 ? named[0] : undefined);
 
-  return best === undefined ? undefined : titleOf(best.id, season, episode);
+  if (metas === undefined) {
+    return { kind: "skipped", reason: unreachableReason };
+  }
+
+  const named = metas.filter((meta) => folded(meta.name) === folded(title));
+  const matching = year === undefined ? named : named.filter((meta) => meta.year === year);
+  const [best] = matching;
+
+  if (matching.length > 1 && year === undefined) {
+    return { kind: "skipped", reason: severalReason };
+  }
+
+  return best === undefined
+    ? { kind: "skipped", reason: unknownReason }
+    : { kind: "found", title: titleOf(best.id, season, episode), name: best.name, year: best.year };
 };

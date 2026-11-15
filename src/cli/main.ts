@@ -13,14 +13,24 @@ import { memorySharedState } from "../jobs/shared-state.ts";
 import { fromLocales, toISO6391, toISO6392 } from "../languages.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
 import { tokenCacheFor } from "../sources/token-cache.ts";
-import { findVideos, fixVideo, row, type Sharing } from "./fix.ts";
+import {
+  abandonWrites,
+  ansiPaint,
+  field,
+  findVideos,
+  fixVideo,
+  plainPaint,
+  type Sharing,
+} from "./fix.ts";
 import { configDirOf, installIdIn } from "./install-id.ts";
 import { defaultAPIURL, timingsClient } from "./timings-client.ts";
 
 type Env = Record<string, string | undefined>;
 
-export type CliDeps = {
+export type CLIDeps = {
   print: (text: string) => void;
+  printError: (text: string) => void;
+  color: boolean;
   env: Env;
   configDir: string;
   locales: readonly string[];
@@ -156,7 +166,9 @@ const parse = (argv: string[]) => {
   }
 };
 
-const run = async (argv: string[], deps: CliDeps) => {
+const isFolder = async (path: string) => (await stat(path)).isDirectory();
+
+const run = async (argv: string[], deps: CLIDeps) => {
   const { values, positionals } = parse(argv);
 
   if (values.help === true) {
@@ -195,6 +207,10 @@ const run = async (argv: string[], deps: CliDeps) => {
     throw new UsageError("Give --api as a full address");
   }
 
+  if (values.out !== undefined && values.recursive === true) {
+    throw new UsageError("--out cannot be used with --recursive");
+  }
+
   const sources = deps.sources ?? sourcesOf(deps.env, values.sources);
 
   for (const each of [path, values.subtitle, values.out]) {
@@ -203,13 +219,18 @@ const run = async (argv: string[], deps: CliDeps) => {
     }
   }
 
+  if ((values.imdb !== undefined || values.subtitle !== undefined) && (await isFolder(path))) {
+    throw new UsageError("--imdb and --subtitle need one video, not a folder");
+  }
+
   if (values.audio === true && spawnSync(ffmpegCommand(), ["-version"]).error !== undefined) {
-    deps.print(`${missingFFmpeg}\n`);
+    deps.printError(`${missingFFmpeg}\n`);
 
     return 3;
   }
 
-  const videos = await findVideos(path, values.recursive === true);
+  const { videos, links } = await findVideos(path, values.recursive === true);
+  const paint = deps.color ? ansiPaint : plainPaint;
   const context = {
     languages,
     audio: values.audio === true,
@@ -217,46 +238,72 @@ const run = async (argv: string[], deps: CliDeps) => {
     sources,
     timings: sharing === "on" ? timingsClient(values.api ?? defaultAPIURL) : undefined,
     installId: () => installIdIn(deps.configDir),
+    paint,
+    named: videos.length > 1,
     imdbId: values.imdb,
     subtitle: values.subtitle,
     out: values.out,
   };
   let written = 0;
 
+  if (links.length > 0) {
+    deps.print(
+      `${links.map((link) => field(paint, "skipped", `${basename(link)} · a symbolic link`)).join("\n")}\n\n`,
+    );
+  }
+
   if (videos.length === 0) {
-    deps.print("No videos found. A folder's videos must be 50 MB or more and not samples.\n");
+    deps.printError("No videos found. A folder's videos must be 50 MB or more and not samples.\n");
   }
 
   for (const video of videos) {
     const result = await fixVideo(video, context).catch((error: unknown) => ({
-      lines: [basename(video), row("Skipped", error instanceof Error ? error.message : "Failed")],
+      text: [
+        basename(video),
+        field(paint, "skipped", error instanceof Error ? error.message : "Failed"),
+      ].join("\n"),
       written: 0,
     }));
 
-    deps.print(`${result.lines.join("\n")}\n\n`);
+    deps.print(`${result.text}\n\n`);
     written += result.written;
   }
 
   return written > 0 ? 0 : 1;
 };
 
-export const defaultDeps = (): CliDeps => ({
+export const defaultDeps = (): CLIDeps => ({
   print: (text) => process.stdout.write(text),
+  printError: (text) => process.stderr.write(text),
+  color: process.stdout.isTTY === true && !process.env["NO_COLOR"],
   env: process.env,
   configDir: configDirOf(process.platform, process.env, homedir()),
   locales: [Intl.DateTimeFormat().resolvedOptions().locale],
 });
 
-export const main = async (argv: string[], deps: CliDeps = defaultDeps()) => {
+export const main = async (argv: string[], deps: CLIDeps = defaultDeps()) => {
   try {
     return await run(argv, deps);
   } catch (error) {
     if (error instanceof UsageError) {
-      deps.print(`${error.message}\n\n${usage}`);
+      deps.printError(`${error.message}\n\n${usage}`);
 
       return 2;
     }
 
-    throw error;
+    deps.printError(`subsontime: ${error instanceof Error ? error.message : "failed"}\n`);
+
+    return 1;
   }
+};
+
+const stopAfter = (code: number) => () => {
+  abandonWrites();
+  process.exit(code);
+};
+
+export const runFromShell = async () => {
+  process.once("SIGINT", stopAfter(130));
+  process.once("SIGTERM", stopAfter(143));
+  process.exitCode = await main(process.argv.slice(2));
 };

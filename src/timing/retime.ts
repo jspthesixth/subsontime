@@ -52,9 +52,25 @@ export const deltasOf = (original: Cue[], aligned: Cue[], speedRatio: number) =>
     (cue, index) => cue.start - (original[index]?.start ?? cue.start * speedRatio) / speedRatio,
   );
 
-export const cutsOf = (deltas: number[]) =>
-  deltas.slice(1).filter((delta, index) => Math.abs(delta - (deltas[index] ?? delta)) > cutMs)
-    .length;
+const cutIndexes = (deltas: number[]) =>
+  deltas
+    .slice(1)
+    .flatMap((delta, index) =>
+      Math.abs(delta - (deltas[index] ?? delta)) > cutMs ? [index + 1] : [],
+    );
+
+export const cutsOf = (deltas: number[]) => cutIndexes(deltas).length;
+
+export const shiftOf = (original: Cue[], aligned: Cue[], speedRatio: number) => {
+  const deltas = deltasOf(original, aligned, speedRatio);
+  const cuts = cutIndexes(deltas);
+
+  return {
+    offsetMs: Math.round(median(deltas)),
+    cuts: cuts.length,
+    cutsAt: cuts.map((index) => aligned[index]?.start ?? 0),
+  };
+};
 
 const speedRatioFor = (subtitle: Track, reference: Track) =>
   subtitle.candidate.fps !== undefined && reference.candidate.fps !== undefined
@@ -77,17 +93,9 @@ const bestAlignment = async (subtitle: Track, reference: Track, speedRatio: numb
 const alignTo = async (subtitle: Track, reference: Track): Promise<Aligned> => {
   const speedRatio = speedRatioFor(subtitle, reference);
   const { cues, score, offsetScore } = await bestAlignment(subtitle, reference, speedRatio);
-  const deltas = deltasOf(subtitle.cues, cues, speedRatio);
+  const { offsetMs, cuts } = shiftOf(subtitle.cues, cues, speedRatio);
 
-  return {
-    reference,
-    cues,
-    score,
-    offsetScore,
-    speedRatio,
-    offsetMs: Math.round(median(deltas)),
-    cuts: cutsOf(deltas),
-  };
+  return { reference, cues, score, offsetScore, speedRatio, offsetMs, cuts };
 };
 
 const alignAll = async (subtitle: Track, references: Track[]) => {

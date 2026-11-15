@@ -86,7 +86,7 @@ const settledTracks = async (tracks: Promise<Track>[]) =>
 
 const timeTrack = async (
   track: Track,
-  references: Promise<Track[]>,
+  references: () => Promise<Track[]>,
   config: Config,
   signal: AbortSignal | undefined,
   shared: Shared | undefined,
@@ -105,7 +105,7 @@ const timeTrack = async (
     return fixed;
   }
 
-  const ready = await references;
+  const ready = await references();
 
   signal?.throwIfAborted();
 
@@ -146,9 +146,20 @@ export async function* resolveAttempts(
   download: Download,
   signal?: AbortSignal,
   shared?: Shared,
+  { lazyReferences = false }: { lazyReferences?: boolean } = {},
 ): AsyncGenerator<Attempt> {
-  const references =
-    config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
+  let downloaded: Promise<Track[]> | undefined;
+
+  const references = () => {
+    downloaded ??=
+      config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
+
+    return downloaded;
+  };
+
+  if (!lazyReferences) {
+    references();
+  }
 
   for (const candidate of ref.c) {
     const attempt: Attempt = await download(candidate)

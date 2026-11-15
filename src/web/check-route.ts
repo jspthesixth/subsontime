@@ -111,7 +111,7 @@ const seriesSchema = v.object({
 
 const languageNames = new Map(languageOptions.map(({ code, name }) => [code, name]));
 
-export const nameOf = (code: string) => languageNames.get(code) ?? code;
+const nameOf = (code: string) => languageNames.get(code) ?? code;
 
 const seconds = (ms: number) => `${ms < 0 ? "-" : "+"}${Math.abs(ms / 1000).toFixed(2)} s`;
 
@@ -122,10 +122,7 @@ const speedText = (ratio: number, fps: number | undefined) =>
     ? `speed ×${ratio.toFixed(4)}`
     : `speed ${fpsText(fps)} to ${fpsText(fps / ratio)}`;
 
-export const retimedDetail = (
-  { offsetMs, speedRatio, cuts }: Pick<Retimed, "offsetMs" | "speedRatio" | "cuts">,
-  fps: number | undefined,
-) =>
+const retimedDetail = ({ offsetMs, speedRatio, cuts }: Retimed, fps: number | undefined) =>
   [
     seconds(offsetMs),
     ...(speedRatio === 1 ? [] : [speedText(speedRatio, fps)]),
@@ -135,7 +132,7 @@ export const retimedDetail = (
 const sharedFixDetail = ({ agreeing, fromAudio }: SharedFix) =>
   [`${agreeing} agree`, ...(fromAudio ? ["from audio"] : [])].join(" · ");
 
-export const timingOf = ({ result }: Attempt, fps: number | undefined) => {
+const timingOf = ({ result }: Attempt, fps: number | undefined) => {
   switch (result?.kind) {
     case "made-for-file":
       return { label: "Made for this file", detail: "fingerprint match" };

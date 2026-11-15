@@ -25,7 +25,7 @@ For video files on disk, the `subsontime` command finds subtitles, times them to
 node bin/subsontime.js fix "Example.Movie.2024.1080p.WEB-DL-GROUP.mkv" --lang hr,en --audio
 ```
 
-It takes a file or a folder (one level deep, or every level with `--recursive`; samples and files under 50 MB are left out). `--audio` aligns to the soundtrack and needs `ffmpeg` (or `SUBSONTIME_FFMPEG` pointing at one). Fixes it times are shared with Open Timings under a random install id kept in your config folder; `--private` shares nothing and `--offline` makes no network call, with `--subtitle <path>` for the subtitle to align. `OPENSUBTITLES_APP_KEY`, `TITLOVI_USERNAME` and `TITLOVI_PASSWORD`, `SUBDL_API_KEY` and `SUBSOURCE_API_KEY` add sources. Run `node bin/subsontime.js --help` for every option.
+It takes a file or a folder (one level deep, or every level with `--recursive`; samples and files under 50 MB are left out). `--audio` aligns to the soundtrack and needs `ffmpeg` (or `SUBSONTIME_FFMPEG` pointing at one). Fixes it times are shared with Open Timings under a random install id kept in your config folder; `--private` makes no contact with Open Timings at all. `--offline` makes no network call and needs both `--subtitle <path>` (the subtitle to align) and `--audio`. `OPENSUBTITLES_APP_KEY`, `TITLOVI_USERNAME` and `TITLOVI_PASSWORD`, `SUBDL_API_KEY` and `SUBSOURCE_API_KEY` add sources. Run `node bin/subsontime.js --help` for every option.
 
 It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on a usage error and 3 when `--audio` was given without ffmpeg.
 

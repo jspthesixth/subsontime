@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import { readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import {
   alignToSpeech,
   audioAcceptContrast,
   audioMismatchContrast,
+  contrastOf,
   type AudioAlignment,
 } from "../audio/align-audio.ts";
 import { pcmFrom, pcmSampleRate } from "../audio/ffmpeg.ts";
@@ -19,26 +21,28 @@ import {
   resolveAttempts,
   servedCues,
   sharesOf,
-  type Attempt,
-  type Download,
   type Share,
+  type Track,
 } from "../stremio/file-route.ts";
-import { hashesOf, hiddenMatch, sharedFix, type Shared } from "../stremio/open-timings.ts";
+import { hashesOf, type Shared } from "../stremio/open-timings.ts";
 import type { CandidateRef } from "../stremio/refs.ts";
 import { bestSlotSize, searchVideo, toCandidateRef } from "../stremio/subtitles-route.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
-import { cutsOf, deltasOf, median } from "../timing/retime.ts";
+import { scoreOf, speedRatios } from "../timing/alass.ts";
+import { shiftOf, type RetimeResult } from "../timing/retime.ts";
 import { detectSpeech } from "../timing/speech.ts";
 import type { FixWithCues } from "../timings/confirm.ts";
 import type { VideoKey } from "../timings/db.ts";
-import { nameOf, reasonOf, retimedDetail, timingOf } from "../web/check-route.ts";
-import { identify } from "./identify.ts";
+import { reasonOf } from "../web/check-route.ts";
+import { identify, type Identified } from "./identify.ts";
 import type { TimingsClient } from "./timings-client.ts";
 import { fileFingerprint } from "./video-hash.ts";
 
 export type Sharing = "on" | "private" | "offline";
+
+export type Paint = { value: (text: string) => string; dim: (text: string) => string };
 
 export type FixContext = {
   languages: string[];
@@ -47,68 +51,145 @@ export type FixContext = {
   sources: SourceSet;
   timings?: TimingsClient;
   installId: () => Promise<string>;
+  paint: Paint;
+  named: boolean;
   imdbId?: string;
   subtitle?: string;
   out?: string;
 };
 
-type Aligned = Extract<AudioAlignment, { kind: "aligned" }>;
+type AudioResult = AudioAlignment | { kind: "failed"; reason: string };
+type Line = { label: string; value?: string; tone?: "value" | "dim" };
 type Skip = { lang: string; candidate: CandidateRef; reason: string };
 type Found = { references: Candidate[]; ranked: (lang: string) => Candidate[] };
-type AudioResult = AudioAlignment | { kind: "failed"; reason: string };
-type Chosen = { candidate: CandidateRef; cues: Cue[]; timing: string; note?: string };
-type Pick = { chosen?: Chosen; skipped: Skip[]; shares: Share[] };
+type Chosen = { candidate: CandidateRef; cues: Cue[]; timing: Line; audio?: Line };
+type Picked = { chosen?: Chosen; skipped: Skip[]; shares: Share[] };
 type Language = { lines: string[]; skipped: Skip[]; written: boolean };
+type Listen = {
+  align: (cues: Cue[]) => Promise<AudioResult>;
+  check: (cues: Cue[]) => Promise<Line>;
+};
 type Steps = {
-  download: Download;
+  download: ReturnType<typeof downloader>;
   shared: Shared | undefined;
-  align: ((cues: Cue[]) => Promise<AudioResult>) | undefined;
+  listen: Listen | undefined;
   local: boolean;
 };
 
 const videoExtensions = new Set([".mkv", ".mp4", ".avi", ".m4v", ".mov", ".webm", ".ts"]);
 const minimumVideoBytes = 50 * 1024 * 1024;
-const labelWidth = 13;
+const fieldWidth = 12;
+const detailWidth = 28;
+const maximumCutTimes = 3;
 const localSourceName = "Local file";
-const audioMismatchReason =
-  "Made for another video. Its dialogue does not line up with the soundtrack.";
-const untimedReason = "Could not be timed to this file";
-const unidentifiedReason = "Could not identify this title";
+const anotherVideoReason = "made for another video";
+const untimedReason = "could not be timed";
+const inFlight = new Set<string>();
 
-export const row = (label: string, text: string) => `  ${label.padEnd(labelWidth)}${text}`;
+export const plainPaint: Paint = { value: (text) => text, dim: (text) => text };
 
-const continued = (text: string) => row("", text);
+export const ansiPaint: Paint = {
+  value: (text) => `\u001B[33m${text}\u001B[39m`,
+  dim: (text) => `\u001B[90m${text}\u001B[39m`,
+};
+
+export const field = (paint: Paint, label: string, text: string) =>
+  `${paint.dim(`  ${label.padEnd(fieldWidth)}`)}${text}`;
+
+const detail = (paint: Paint, { label, value, tone = "value" }: Line) =>
+  value === undefined
+    ? `      ${label}`
+    : `      ${label.padEnd(detailWidth)}${paint[tone](value)}`;
+
+const codeOf = (lang: string) => toISO6391(lang) ?? lang;
 
 const sizeText = (size: number) =>
   size >= 1e9 ? `${(size / 1e9).toFixed(2)} GB` : `${(size / 1e6).toFixed(2)} MB`;
 
+const seconds = (ms: number) => `${ms < 0 ? "-" : "+"}${Math.abs(ms / 1000).toFixed(2)} s`;
+
+const fpsText = (fps: number) => String(Number(fps.toFixed(3)));
+
+const speedText = (ratio: number, fps: number | undefined) =>
+  fps === undefined ? `×${ratio.toFixed(4)}` : `${fpsText(fps)} to ${fpsText(fps / ratio)}`;
+
+const clock = (ms: number) =>
+  [ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60]
+    .map((part) => String(Math.floor(part)).padStart(2, "0"))
+    .join(":");
+
+const shiftText = (original: Cue[], timed: Cue[], speedRatio: number, fps?: number) => {
+  const { offsetMs, cutsAt } = shiftOf(original, timed, speedRatio);
+
+  return [
+    seconds(offsetMs),
+    ...(speedRatio === 1 ? [] : [speedText(speedRatio, fps)]),
+    ...(cutsAt.length === 0
+      ? []
+      : [`cuts at ${cutsAt.slice(0, maximumCutTimes).map(clock).join(", ")}`]),
+  ].join(" · ");
+};
+
+const spanOf = (cues: Cue[]) => (cues.at(-1)?.start ?? 0) - (cues[0]?.start ?? 0);
+
+const ratioOf = (original: Cue[], applied: Cue[]) => {
+  const ratio = spanOf(applied) === 0 ? 1 : spanOf(original) / spanOf(applied);
+
+  return speedRatios.reduce((best, each) =>
+    Math.abs(each - ratio) < Math.abs(best - ratio) ? each : best,
+  );
+};
+
 const errorCode = (error: unknown) =>
   error instanceof Error && "code" in error ? String(error.code) : "";
 
-export const findVideos = async (path: string, recursive: boolean): Promise<string[]> => {
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : "Failed");
+
+const shortReason = (reason: string) => {
+  const [first = reason] = reason.split(". ");
+  const trimmed = first.replace(/\.$/, "");
+
+  return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
+};
+
+export const abandonWrites = () => {
+  inFlight.forEach((path) => rmSync(path, { force: true }));
+  inFlight.clear();
+};
+
+export const findVideos = async (
+  path: string,
+  recursive: boolean,
+): Promise<{ videos: string[]; links: string[] }> => {
   if (!(await stat(path)).isDirectory()) {
-    return [path];
+    return { videos: [path], links: [] };
   }
 
   const entries = await readdir(path, { withFileTypes: true });
   const found = await Promise.all(
     entries.map(async (entry) => {
       const full = join(path, entry.name);
+      const video =
+        videoExtensions.has(extname(entry.name).toLowerCase()) && !/\bsample\b/i.test(entry.name);
 
       if (entry.isDirectory()) {
-        return recursive ? findVideos(full, true) : [];
+        return recursive ? findVideos(full, true) : { videos: [], links: [] };
       }
 
-      const video =
-        entry.isFile() &&
-        videoExtensions.has(extname(entry.name).toLowerCase()) &&
-        !/\bsample\b/i.test(entry.name);
+      if (entry.isSymbolicLink()) {
+        return { videos: [], links: video ? [full] : [] };
+      }
 
-      return video && (await stat(full)).size >= minimumVideoBytes ? [full] : [];
+      const big = video && entry.isFile() && (await stat(full)).size >= minimumVideoBytes;
+
+      return { videos: big ? [full] : [], links: [] };
     }),
   );
 
-  return found.flat().toSorted();
+  return {
+    videos: found.flatMap((each) => each.videos).toSorted(),
+    links: found.flatMap((each) => each.links).toSorted(),
+  };
 };
 
 const writeSubtitle = async (
@@ -116,12 +197,12 @@ const writeSubtitle = async (
   name: string,
   lang: string,
   cues: Cue[],
-): Promise<{ file?: string; taken: string[] }> => {
-  const code = toISO6391(lang) ?? lang;
-  const names = [`${name}.${code}.srt`, `${name}.${code}.subsontime.srt`];
+): Promise<{ file?: string; problem?: string }> => {
+  const names = [`${name}.${codeOf(lang)}.srt`, `${name}.${codeOf(lang)}.subsontime.srt`];
 
   for (const file of names) {
     const target = join(directory, file);
+    const temp = join(directory, `.${file}.${randomUUID()}.tmp`);
     const reserved = await writeFile(target, "", { flag: "wx" }).then(
       () => true,
       (error: unknown) => {
@@ -137,7 +218,7 @@ const writeSubtitle = async (
       continue;
     }
 
-    const temp = join(directory, `.${file}.${randomUUID()}.tmp`);
+    inFlight.add(target).add(temp);
 
     try {
       await writeFile(temp, writeSRT(cues));
@@ -145,13 +226,16 @@ const writeSubtitle = async (
     } catch (error) {
       await Promise.all([rm(temp, { force: true }), rm(target, { force: true })]);
 
-      throw error;
+      return { problem: messageOf(error) };
+    } finally {
+      inFlight.delete(target);
+      inFlight.delete(temp);
     }
 
-    return { file, taken: names };
+    return { file };
   }
 
-  return { taken: names };
+  return { problem: `${names.join(" and ")} already exist` };
 };
 
 const sharedOf = async (
@@ -183,57 +267,30 @@ const sharedOf = async (
   };
 };
 
-const timingText = (attempt: Attempt) => {
-  const { label, detail } = timingOf(attempt, attempt.candidate.p);
-
-  return detail === undefined ? label : `${label} · ${detail}`;
-};
-
-const sharedFirst = async (
-  candidates: CandidateRef[],
-  download: Download,
-  shared: Shared | undefined,
-): Promise<Chosen | undefined> => {
-  if (shared === undefined || (await shared.confirmed()).length === 0) {
-    return undefined;
+const timingOf = (result: RetimeResult | undefined, track: Track, fps?: number): Line => {
+  switch (result?.kind) {
+    case "made-for-file":
+      return { label: "made for this file", value: "fingerprint match" };
+    case "retimed":
+      return {
+        label: result.byReleaseName ? "retimed by release name" : "retimed",
+        value: shiftText(track.cues, result.cues, result.speedRatio, fps),
+      };
+    case "shared-fix":
+      return {
+        label: "shared fix, confirmed",
+        value: [
+          shiftText(track.cues, result.cues, ratioOf(track.cues, result.cues), fps),
+          `${result.agreeing} agree`,
+          ...(result.fromAudio ? ["from audio"] : []),
+        ].join(" · "),
+      };
+    default:
+      return { label: "not retimed" };
   }
-
-  for (const candidate of candidates) {
-    const track = await download(candidate).catch(() => undefined);
-    const usable = track !== undefined && hiddenMatch(track.cues, shared) === undefined;
-    const result = usable ? await sharedFix(track.cues, shared) : undefined;
-
-    if (result?.kind === "shared-fix") {
-      return { candidate, cues: result.cues, timing: timingText({ candidate, result }) };
-    }
-  }
-
-  return undefined;
 };
 
-const audioTiming = ({ candidate, track }: Attempt, audio: Aligned) => {
-  const deltas = deltasOf(track?.cues ?? [], audio.cues, audio.speedRatio);
-  const detail = retimedDetail(
-    { offsetMs: Math.round(median(deltas)), speedRatio: audio.speedRatio, cuts: cutsOf(deltas) },
-    candidate.p,
-  );
-
-  return `Aligned to the soundtrack · ${detail} · contrast ${audio.contrast.toFixed(1)}`;
-};
-
-const speechOnce = (path: string) => {
-  let spans: Promise<Cue[] | Error> | undefined;
-
-  return () => {
-    spans ??= detectSpeech(pcmFrom(path, new AbortController().signal), pcmSampleRate).catch(
-      (error: unknown) => (error instanceof Error ? error : new Error("ffmpeg failed")),
-    );
-
-    return spans;
-  };
-};
-
-const unusedReason = (audio: AudioResult): string => {
+const unusedReason = (audio: AudioResult) => {
   switch (audio.kind) {
     case "aligned":
       return `not clear enough (contrast ${audio.contrast.toFixed(1)})`;
@@ -248,12 +305,48 @@ const unusedReason = (audio: AudioResult): string => {
   }
 };
 
-const audioNote = (steps: Steps, audio: AudioResult | undefined) => {
-  if (steps.align === undefined) {
-    return undefined;
-  }
+const unused = (audio: AudioResult): Line => ({
+  label: "audio not used",
+  value: unusedReason(audio),
+});
 
-  return `audio not used: ${audio === undefined ? "confirmed shared fix" : unusedReason(audio)}`;
+const listenTo = (path: string): Listen => {
+  let spans: Promise<Cue[] | Error> | undefined;
+
+  const speech = () => {
+    spans ??= detectSpeech(pcmFrom(path, new AbortController().signal), pcmSampleRate).catch(
+      (error: unknown) => (error instanceof Error ? error : new Error("ffmpeg failed")),
+    );
+
+    return spans;
+  };
+
+  return {
+    async align(cues) {
+      const heard = await speech();
+
+      return heard instanceof Error
+        ? { kind: "failed", reason: heard.message }
+        : alignToSpeech(heard, cues);
+    },
+    async check(cues) {
+      const heard = await speech();
+
+      if (heard instanceof Error) {
+        return unused({ kind: "failed", reason: heard.message });
+      }
+
+      if (heard.length === 0) {
+        return unused({ kind: "no-speech" });
+      }
+
+      const contrast = contrastOf(heard, cues, scoreOf(heard, cues));
+
+      return contrast === undefined
+        ? unused({ kind: "too-short" })
+        : { label: "checked against the audio", value: `contrast ${contrast.toFixed(1)}` };
+    },
+  };
 };
 
 const localFound = (path: string, lang: string) => {
@@ -283,7 +376,7 @@ const pickTimed = async (
   references: CandidateRef[],
   video: VideoKey,
   steps: Steps,
-): Promise<Pick> => {
+): Promise<Picked> => {
   const config = defaultConfig([lang]);
   const skipped: Skip[] = [];
   const shares: Share[] = [];
@@ -297,6 +390,7 @@ const pickTimed = async (
         steps.download,
         undefined,
         steps.shared,
+        { lazyReferences: true },
       ),
     );
     const served = attempts.find((attempt) => servedCues(attempt, config) !== undefined);
@@ -307,7 +401,7 @@ const pickTimed = async (
       ...passed.map((attempt) => ({
         lang,
         candidate: attempt.candidate,
-        reason: reasonOf(attempt),
+        reason: shortReason(reasonOf(attempt)),
       })),
     );
     shares.push(...sharesOf(passed, video));
@@ -317,28 +411,35 @@ const pickTimed = async (
       return { skipped, shares };
     }
 
-    const audio =
-      steps.align === undefined || served.result?.kind === "shared-fix"
-        ? undefined
-        : await steps.align(served.track.cues);
+    const { candidate, track, result } = served;
+    const timing = timingOf(result, track, candidate.p);
+
+    if (result?.kind === "shared-fix") {
+      return {
+        chosen: { candidate, cues, timing, audio: await steps.listen?.check(cues) },
+        skipped,
+        shares,
+      };
+    }
+
+    const audio = await steps.listen?.align(track.cues);
     const aligned = audio?.kind === "aligned" ? audio : undefined;
-    const note = audioNote(steps, audio);
 
     if (aligned !== undefined && aligned.contrast < audioMismatchContrast) {
-      skipped.push({ lang, candidate: served.candidate, reason: audioMismatchReason });
-      shares.push({
-        kind: "mismatch",
-        input: { video, subtitleHashes: hashesOf(served.track.cues) },
-      });
+      skipped.push({ lang, candidate, reason: anotherVideoReason });
+      shares.push({ kind: "mismatch", input: { video, subtitleHashes: hashesOf(track.cues) } });
       continue;
     }
 
     if (aligned !== undefined && aligned.contrast >= audioAcceptContrast) {
       return {
         chosen: {
-          candidate: served.candidate,
+          candidate,
           cues: aligned.cues,
-          timing: audioTiming(served, aligned),
+          timing: {
+            label: "synced against the audio",
+            value: shiftText(track.cues, aligned.cues, aligned.speedRatio, candidate.p),
+          },
         },
         skipped,
         shares: [
@@ -348,22 +449,19 @@ const pickTimed = async (
       };
     }
 
-    if (steps.local && served.result?.kind === "not-retimed") {
+    const audioLine = audio === undefined ? undefined : unused(audio);
+
+    if (steps.local && result?.kind === "not-retimed") {
+      const why = audioLine?.value === undefined ? "" : `, audio not used: ${audioLine.value}`;
+
       return {
-        skipped: [
-          ...skipped,
-          {
-            lang,
-            candidate: served.candidate,
-            reason: note === undefined ? `${untimedReason}.` : `${untimedReason} (${note}).`,
-          },
-        ],
+        skipped: [...skipped, { lang, candidate, reason: `${untimedReason}${why}` }],
         shares,
       };
     }
 
     return {
-      chosen: { candidate: served.candidate, cues, timing: timingText(served), note },
+      chosen: { candidate, cues, timing, audio: audioLine },
       skipped,
       shares: [...shares, ...sharesOf([served], video)],
     };
@@ -392,17 +490,23 @@ const shareAll = async (shares: Share[], context: FixContext) => {
   }
 };
 
-const shareLine = (sharing: Sharing, sent: boolean | undefined) => {
+const shareLines = (sharing: Sharing, sent: boolean | undefined): Line[] => {
   if (sharing !== "on") {
-    return `Not shared (--${sharing})`;
+    return [{ label: "not shared", value: `--${sharing}`, tone: "dim" }];
   }
 
   if (sent === undefined) {
-    return "Nothing to share";
+    return [];
   }
 
-  return sent ? "Shared with Open Timings" : "Not shared, Open Timings did not answer";
+  return sent
+    ? [{ label: "shared with Open Timings", value: "numbers and fingerprints only", tone: "dim" }]
+    : [{ label: "not shared", value: "Open Timings did not answer", tone: "dim" }];
 };
+
+const releaseOf = (found: Found, lang: string, candidate: CandidateRef) =>
+  found.ranked(lang).find((each) => each.sourceName === candidate.n && each.ref === candidate.r)
+    ?.releaseName;
 
 const fixLanguage = async (
   lang: string,
@@ -412,171 +516,167 @@ const fixLanguage = async (
   context: FixContext,
   steps: Steps,
 ): Promise<Language> => {
+  const { paint } = context;
   const candidates = found.ranked(lang).slice(0, bestSlotSize).map(toCandidateRef);
-  const language = nameOf(lang);
+  const header = (text: string) => `${paint.value(`  ${codeOf(lang)}`)}  ${text}`;
 
   if (candidates.length === 0) {
-    return { lines: [row(language, "No subtitles found")], skipped: [], written: false };
+    return { lines: [header("no subtitles found")], skipped: [], written: false };
   }
 
-  const fromShared = await sharedFirst(candidates, steps.download, steps.shared);
-  const picked: Pick =
-    fromShared === undefined
-      ? await pickTimed(lang, candidates, found.references.map(toCandidateRef), video, steps)
-      : { chosen: { ...fromShared, note: audioNote(steps, undefined) }, skipped: [], shares: [] };
+  const picked = await pickTimed(
+    lang,
+    candidates,
+    found.references.map(toCandidateRef),
+    video,
+    steps,
+  );
   const sent = await shareAll(picked.shares, context);
   const { chosen, skipped } = picked;
 
   if (chosen === undefined) {
-    return { lines: [row(language, "No subtitle fits this file")], skipped, written: false };
+    return { lines: [header("no subtitle fits this file")], skipped, written: false };
   }
 
-  const releaseName = found
-    .ranked(lang)
-    .find(
-      (each) => each.sourceName === chosen.candidate.n && each.ref === chosen.candidate.r,
-    )?.releaseName;
+  const release = releaseOf(found, lang, chosen.candidate);
   const outcome = await writeSubtitle(
     context.out ?? dirname(path),
     basename(path, extname(path)),
     lang,
     chosen.cues,
-  ).catch((error: unknown) => ({
-    file: undefined,
-    taken: [],
-    error: error instanceof Error ? error.message : "Failed",
-  }));
-  const lines = [
-    row(
-      language,
-      [chosen.candidate.n, ...(releaseName === undefined ? [] : [releaseName])].join(" · "),
-    ),
-    continued(chosen.timing),
-    ...(chosen.note === undefined ? [] : [continued(chosen.note)]),
-  ];
-
-  if (outcome.file === undefined) {
-    return {
-      lines: [
-        ...lines,
-        continued(
-          `Not written: ${"error" in outcome ? outcome.error : `${outcome.taken.join(" and ")} already exist`}`,
-        ),
-      ],
-      skipped,
-      written: false,
-    };
-  }
+  );
+  const written: Line[] =
+    outcome.file === undefined
+      ? [{ label: "not written", value: outcome.problem }]
+      : [{ label: `wrote ${outcome.file}` }, ...shareLines(context.sharing, sent)];
 
   return {
     lines: [
-      ...lines,
-      continued(`Wrote ${outcome.file}`),
-      continued(shareLine(context.sharing, sent)),
+      header([chosen.candidate.n, ...(release === undefined ? [] : [release])].join(" · ")),
+      ...[chosen.timing, ...(chosen.audio === undefined ? [] : [chosen.audio]), ...written].map(
+        (line) => detail(paint, line),
+      ),
     ],
     skipped,
-    written: true,
+    written: outcome.file !== undefined,
   };
 };
 
-const skippedLines = (skipped: Skip[], found: Found) =>
-  skipped.flatMap(({ lang, candidate, reason }) => {
-    const releaseName = found
-      .ranked(lang)
-      .find((each) => each.sourceName === candidate.n && each.ref === candidate.r)?.releaseName;
+const answering = (sources: SourceSet, answered: Set<string>): SourceSet => {
+  const wrap = (source: Source): Source => ({
+    ...source,
+    search: async (query, signal) => {
+      const candidates = await source.search(query, signal);
 
-    return [
-      row(
-        "Skipped",
-        [nameOf(lang), candidate.n, ...(releaseName === undefined ? [] : [releaseName])].join(
-          " · ",
-        ),
-      ),
-      continued(reason),
-    ];
+      answered.add(source.name);
+
+      return candidates;
+    },
   });
 
+  return { listed: sources.listed.map(wrap), references: sources.references.map(wrap) };
+};
+
+const titleText = (identified: Extract<Identified, { kind: "found" }>) => {
+  const { title, name, year } = identified;
+  const episode =
+    title.season === undefined || title.episode === undefined
+      ? undefined
+      : `S${String(title.season).padStart(2, "0")}E${String(title.episode).padStart(2, "0")}`;
+
+  return [name, year, episode, title.imdbId].filter((part) => part !== undefined).join(" · ");
+};
+
 const searchFor = async (path: string, video: VideoKey, context: FixContext) => {
+  const { paint, sources } = context;
   const [lang = ""] = context.languages;
 
   if (context.subtitle !== undefined) {
     return {
       ...localFound(context.subtitle, lang),
       local: true,
-      searched: row("Subtitle", basename(context.subtitle)),
+      rows: [field(paint, "subtitle", basename(context.subtitle))],
     };
   }
 
-  const title = await identify(basename(path), context.imdbId).catch(() => undefined);
+  const identified = await identify(basename(path), context.imdbId);
 
-  if (title === undefined) {
-    return undefined;
+  if (identified.kind === "skipped") {
+    return identified.reason;
   }
 
-  const { sources } = context;
+  const answered = new Set<string>();
   const started = performance.now();
-  const found = await searchVideo(sources, {
-    ...title,
+  const found = await searchVideo(answering(sources, answered), {
+    ...identified.title,
     videoHash: video.hash,
     videoSize: video.size,
     filename: basename(path),
     languages: context.languages,
   });
-  const count = sources.listed.length + sources.references.length;
-  const seconds = ((performance.now() - started) / 1000).toFixed(1);
+  const names = [
+    ...new Set(
+      [...sources.listed, ...sources.references]
+        .map((source) => source.name)
+        .filter((name) => answered.has(name)),
+    ),
+  ];
+  const time = paint.dim(`· ${((performance.now() - started) / 1000).toFixed(1)} s`);
 
   return {
     sources,
     found,
     local: false,
-    searched: row("Searched", `${count} ${count === 1 ? "source" : "sources"} in ${seconds} s`),
+    rows: [
+      field(paint, "title", titleText(identified)),
+      field(paint, "searching", `${names.join(", ") || "no source answered"} ${time}`),
+    ],
   };
 };
 
 export const fixVideo = async (path: string, context: FixContext) => {
+  const { paint } = context;
   const video = await fileFingerprint(path);
-  const head = [basename(path), row("Fingerprint", `${video.hash} · ${sizeText(video.size)}`)];
+  const head = [
+    ...(context.named ? [basename(path)] : []),
+    field(paint, "file", `${video.hash} · ${sizeText(video.size)}`),
+  ];
   const [search, shared] = await Promise.all([
     searchFor(path, video, context),
     sharedOf(context.timings, video),
   ]);
 
-  if (search === undefined) {
-    return { lines: [...head, row("Skipped", unidentifiedReason)], written: 0 };
+  if (typeof search === "string") {
+    return { text: [...head, field(paint, "skipped", search)].join("\n"), written: 0 };
   }
 
-  const { sources, found, local, searched } = search;
-  const speech = speechOnce(path);
+  const { sources, found, local, rows } = search;
   const steps: Steps = {
     download: downloader(sources),
     shared,
     local,
-    align: context.audio
-      ? async (cues: Cue[]) => {
-          const spans = await speech();
-
-          return spans instanceof Error
-            ? { kind: "failed", reason: spans.message }
-            : alignToSpeech(spans, cues);
-        }
-      : undefined,
+    listen: context.audio ? listenTo(path) : undefined,
   };
   const languages: Language[] = [];
 
-  for (const each of context.languages) {
-    languages.push(await fixLanguage(each, path, video, found, context, steps));
+  for (const lang of context.languages) {
+    languages.push(await fixLanguage(lang, path, video, found, context, steps));
   }
 
+  const skipped = languages
+    .flatMap((language) => language.skipped)
+    .map(({ lang, candidate, reason }) =>
+      field(paint, "skipped", [codeOf(lang), candidate.n, reason].join(" · ")),
+    );
+
   return {
-    lines: [
-      ...head,
-      searched,
-      ...languages.flatMap((language) => language.lines),
-      ...skippedLines(
-        languages.flatMap((language) => language.skipped),
-        found,
-      ),
-    ],
+    text: [
+      [...head, ...rows],
+      ...languages.map((language) => language.lines),
+      ...(skipped.length === 0 ? [] : [skipped]),
+    ]
+      .map((block) => block.join("\n"))
+      .join("\n\n"),
     written: languages.filter((language) => language.written).length,
   };
 };
