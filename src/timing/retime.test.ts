@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Candidate } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
@@ -30,6 +31,17 @@ const withSilence = [
   ...track.slice(0, 100),
   ...transform(track.slice(100), (time) => time + 60_000),
 ];
+
+const cuesOf = (spans: number[][]) =>
+  spans.map(([start = 0, end = 0]) => ({ start, end, text: "" }));
+
+const actBreaks = (() => {
+  const { subtitle, reference, pairs } = JSON.parse(
+    readFileSync(new URL("../../test/fixtures/subtitles/act-breaks.json", import.meta.url), "utf8"),
+  ) as { subtitle: number[][]; reference: number[][]; pairs: number[][] };
+
+  return { subtitle: cuesOf(subtitle), reference: cuesOf(reference), pairs };
+})();
 
 const largestStartError = (cues: Cue[]) =>
   Math.max(...cues.map((cue, index) => Math.abs(cue.start - (track[index]?.start ?? Infinity))));
@@ -198,6 +210,22 @@ describe("retime", () => {
       kind: "not-retimed",
       cues: partlyUnrelated,
     });
+  });
+
+  it("follows act-break steps instead of a slope", async () => {
+    const { subtitle, reference, pairs } = actBreaks;
+
+    const result = await retime(subtitleOf(subtitle), [byHash(reference)]);
+
+    const cues = result.kind === "retimed" ? result.cues : [];
+    const close = pairs.filter(
+      ([subtitleIndex = 0, referenceIndex = 0]) =>
+        Math.abs((cues[subtitleIndex]?.start ?? 0) - (reference[referenceIndex]?.start ?? 0)) <=
+        100,
+    );
+
+    expect(result).toMatchObject({ kind: "retimed", speedRatio: 1 });
+    expect(close.length / pairs.length).toBeGreaterThan(0.75);
   });
 
   it("does not retime without references", async () => {

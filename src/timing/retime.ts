@@ -100,9 +100,21 @@ const bestAlignment = async (subtitle: Track, reference: Track, speedRatio: numb
   return { ...best, offsetScore: offset.score };
 };
 
+const alignAt = async (subtitle: Track, reference: Track, speedRatio: number) => ({
+  speedRatio,
+  ...(await bestAlignment(subtitle, reference, speedRatio)),
+});
+
+const nearOne = (speedRatio: number) => speedRatio !== 1 && Math.abs(speedRatio - 1) < 0.002;
+
 const alignTo = async (subtitle: Track, reference: Track): Promise<Aligned> => {
-  const speedRatio = speedRatioFor(subtitle, reference);
-  const { cues, score, offsetScore } = await bestAlignment(subtitle, reference, speedRatio);
+  const searched = await alignAt(subtitle, reference, speedRatioFor(subtitle, reference));
+  const unsped =
+    searched.offsetScore < splitWorthScore && nearOne(searched.speedRatio)
+      ? await alignAt(subtitle, reference, 1)
+      : undefined;
+  const { speedRatio, cues, score, offsetScore } =
+    unsped !== undefined && unsped.score > searched.score ? unsped : searched;
   const { offsetMs, cuts } = shiftOf(subtitle.cues, cues, speedRatio);
 
   return { reference, cues, score, offsetScore, speedRatio, offsetMs, cuts };
