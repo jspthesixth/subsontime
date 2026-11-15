@@ -1,6 +1,7 @@
 import { lookup, type LookupAddress, type LookupAllOptions } from "node:dns";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { Agent, type Dispatcher } from "undici";
+import { readGroup, serverSchema } from "./config/env.ts";
 
 type Resolve = (
   hostname: string,
@@ -112,7 +113,9 @@ export const createGuard = ({
   dispatcher: new Agent({ connect: { lookup: guardedLookup(allowLocal, resolve) } }),
 });
 
-const defaultGuard = createGuard({ allowLocal: process.env["ALLOW_LOCAL_ADDONS"] === "1" });
+const defaultGuard = createGuard({
+  allowLocal: readGroup(serverSchema, process.env).allowLocalAddons,
+});
 
 const blockedCause = (error: unknown) =>
   error instanceof Error && error.cause instanceof BlockedAddressError ? error.cause : error;

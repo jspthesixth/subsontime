@@ -1,29 +1,9 @@
 import { expect, test } from "vitest";
 import { TimingsInputError } from "./api.ts";
-import { groupingKeyOf, readInstallSalt, submitterOf } from "./submitter.ts";
+import { groupingKeyOf, submitterOf } from "./submitter.ts";
 
 const salt = "s".repeat(32);
 const installId = "6f1c2b9e-4d3a-4f5e-9a8b-7c6d5e4f3a2b";
-
-test("readInstallSalt throws when INSTALL_SALT is missing", () => {
-  expect(() => readInstallSalt({})).toThrow("INSTALL_SALT must be set to at least 32 characters");
-});
-
-test("readInstallSalt throws when INSTALL_SALT is 31 characters", () => {
-  expect(() => readInstallSalt({ INSTALL_SALT: "a".repeat(31) })).toThrow(
-    "INSTALL_SALT must be set to at least 32 characters",
-  );
-});
-
-test("readInstallSalt returns INSTALL_SALT when it is 32 characters", () => {
-  expect(readInstallSalt({ INSTALL_SALT: salt })).toBe(salt);
-});
-
-test("readInstallSalt throws when INSTALL_SALT equals SECRET", () => {
-  expect(() => readInstallSalt({ INSTALL_SALT: salt, SECRET: salt })).toThrow(
-    "INSTALL_SALT must differ from SECRET",
-  );
-});
 
 test("submitterOf is 32 hex characters and stable", () => {
   const submitter = submitterOf(installId, salt);

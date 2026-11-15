@@ -1,22 +1,26 @@
-FROM node:24-alpine AS build
+FROM node:24-alpine AS base
 RUN corepack enable && corepack prepare pnpm@11.18.0 --activate
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+FROM base AS install
+RUN pnpm install --prod --frozen-lockfile
+
+FROM base AS build
 RUN pnpm install --frozen-lockfile
 COPY scripts scripts
 COPY src src
 RUN pnpm build
 
-FROM node:24-alpine
-RUN corepack enable && corepack prepare pnpm@11.18.0 --activate
-WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --prod --frozen-lockfile
+FROM install AS runtime
 COPY src src
 COPY wasm wasm
 COPY --from=build /app/public public
-USER node
-ENV NODE_ENV=production PORT=7000
+
+ENV NODE_ENV=production
+ENV PORT=7000
 EXPOSE 7000
+
+USER node
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -q -O /dev/null http://localhost:7000/health || exit 1
 CMD ["node", "--experimental-strip-types", "src/server.ts"]

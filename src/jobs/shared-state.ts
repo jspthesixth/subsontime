@@ -1,4 +1,5 @@
 import { Redis } from "@upstash/redis";
+import type { Environment } from "../config/env.ts";
 
 export interface SharedState {
   get(key: string): Promise<string | undefined>;
@@ -206,16 +207,12 @@ export const pausedAfterFailure = (state: SharedState, now = () => Date.now()): 
   };
 };
 
-export const sharedStateFrom = (env: NodeJS.ProcessEnv) => {
-  const url = env["UPSTASH_REDIS_REST_URL"] || env["KV_REST_API_URL"];
-  const token = env["UPSTASH_REDIS_REST_TOKEN"] || env["KV_REST_API_TOKEN"];
-
-  return url && token
+export const sharedStateFrom = (settings: Environment["sharedState"]) =>
+  settings
     ? pausedAfterFailure(
         upstashSharedState(
           new Redis({
-            url,
-            token,
+            ...settings,
             automaticDeserialization: false,
             enableTelemetry: false,
             retry: false,
@@ -224,4 +221,3 @@ export const sharedStateFrom = (env: NodeJS.ProcessEnv) => {
         ),
       )
     : undefined;
-};

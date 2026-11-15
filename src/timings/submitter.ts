@@ -1,29 +1,14 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
+import { installSaltMessage, minimumSecretLength } from "../config/env.ts";
 import { TimingsInputError } from "./api.ts";
 
-const minimumSaltLength = 32;
-const saltMessage = `INSTALL_SALT must be set to at least ${minimumSaltLength} characters`;
 const installIdMessage = "Send installId as a UUID";
 const uuidSchema = v.pipe(v.string(), v.uuid());
 
-export const readInstallSalt = (env: NodeJS.ProcessEnv): string => {
-  const salt = env["INSTALL_SALT"];
-
-  if (salt === undefined || salt.length < minimumSaltLength) {
-    throw new Error(saltMessage);
-  }
-
-  if (salt === env["SECRET"]) {
-    throw new Error("INSTALL_SALT must differ from SECRET");
-  }
-
-  return salt;
-};
-
 export const submitterOf = (installId: string, salt: string): string => {
-  if (salt.length < minimumSaltLength) {
-    throw new Error(saltMessage);
+  if (salt.length < minimumSecretLength) {
+    throw new Error(installSaltMessage);
   }
 
   if (!v.is(uuidSchema, installId)) {

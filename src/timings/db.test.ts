@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import postgres from "postgres";
+import { readGroup, testsSchema } from "../config/env.ts";
 import { memoryStore, postgresStore, subtitleKey } from "./db.ts";
 import type { NewFix, NewMismatch, NewReport, TimingsStore } from "./db.ts";
 
@@ -242,7 +243,7 @@ describe("memoryStore", () => {
   contract(memoryStore);
 });
 
-const databaseURL = process.env.DATABASE_URL_TEST;
+const { databaseURL } = readGroup(testsSchema, process.env);
 
 describe.skipIf(databaseURL === undefined)(
   "postgresStore (needs DATABASE_URL_TEST, skipped when unset)",

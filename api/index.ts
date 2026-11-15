@@ -1,20 +1,19 @@
 import { waitUntil } from "@vercel/functions";
 import { createApp } from "../src/app.ts";
 import { addressKey } from "../src/client-key.ts";
-import { readSecret } from "../src/config/secret.ts";
+import { readEnvironment } from "../src/config/env.ts";
 import { sharedStateFrom } from "../src/jobs/shared-state.ts";
 import { memoryStore, postgresStore } from "../src/timings/db.ts";
-import { readInstallSalt } from "../src/timings/submitter.ts";
 
-const databaseURL = process.env["DATABASE_URL"];
+const { server, secrets, sources, database, sharedState } = readEnvironment(process.env);
 
 export default createApp({
-  secret: readSecret(process.env),
-  state: sharedStateFrom(process.env),
-  openSubtitlesAppKey: process.env["OPENSUBTITLES_APP_KEY"] || undefined,
-  publicURL: process.env["PUBLIC_URL"] || undefined,
+  secret: secrets.secret,
+  state: sharedStateFrom(sharedState),
+  openSubtitlesAppKey: sources.openSubtitlesAppKey,
+  publicURL: server.publicURL,
   clientKey: (context) => addressKey(context.req.header("x-real-ip") ?? "unknown"),
-  installSalt: readInstallSalt(process.env),
-  timings: databaseURL ? postgresStore(databaseURL) : memoryStore(),
+  installSalt: secrets.installSalt,
+  timings: database.url ? postgresStore(database.url) : memoryStore(),
   defer: waitUntil,
 });

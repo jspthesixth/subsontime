@@ -4,29 +4,26 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
 import { createApp, detached } from "./app.ts";
 import { addressKey } from "./client-key.ts";
-import { readSecret } from "./config/secret.ts";
+import { readEnvironment } from "./config/env.ts";
 import { sharedStateFrom } from "./jobs/shared-state.ts";
 import { memoryStore, postgresStore } from "./timings/db.ts";
-import { readInstallSalt } from "./timings/submitter.ts";
 
-const port = Number(process.env["PORT"] ?? 7000);
-const trustProxy = process.env["TRUST_PROXY"] === "1";
-const databaseURL = process.env["DATABASE_URL"];
+const { server, secrets, sources, database, sharedState } = readEnvironment(process.env);
 
 const proxiedClient = (context: Context) =>
-  trustProxy ? context.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() : undefined;
+  server.trustProxy ? context.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() : undefined;
 
 const app = createApp({
-  secret: readSecret(process.env),
-  state: sharedStateFrom(process.env),
-  openSubtitlesAppKey: process.env["OPENSUBTITLES_APP_KEY"] || undefined,
-  publicURL: process.env["PUBLIC_URL"] || undefined,
+  secret: secrets.secret,
+  state: sharedStateFrom(sharedState),
+  openSubtitlesAppKey: sources.openSubtitlesAppKey,
+  publicURL: server.publicURL,
   staticFiles: serveStatic({ root: "./public" }),
-  installSalt: readInstallSalt(process.env),
-  timings: databaseURL ? postgresStore(databaseURL) : memoryStore(),
+  installSalt: secrets.installSalt,
+  timings: database.url ? postgresStore(database.url) : memoryStore(),
   defer: detached,
   clientKey: (context) =>
     addressKey(proxiedClient(context) || getConnInfo(context).remote.address || "unknown"),
 });
 
-serve({ fetch: app.fetch, port });
+serve({ fetch: app.fetch, port: server.port });

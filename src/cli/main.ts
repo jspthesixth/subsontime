@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 import packageJSON from "../../package.json" with { type: "json" };
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import type { SourceSettings } from "../config/config.ts";
+import { readGroup, sourcesSchema } from "../config/env.ts";
 import { defaultConfig, openSubtitlesAddonURL } from "../config/default-config.ts";
 import { memorySharedState } from "../jobs/shared-state.ts";
 import { fromLocales, toISO6391, toISO6392 } from "../languages.ts";
@@ -135,7 +136,7 @@ const sourcesOf = (env: Env, text: string | undefined): SourceSet => {
   return sourcesFromConfig(config, {
     tokens: tokenCacheFor(memorySharedState(), randomUUID(), randomBytes(32)),
     openSubtitlesAppKey: chosen.includes("opensubtitles")
-      ? env["OPENSUBTITLES_APP_KEY"] || undefined
+      ? readGroup(sourcesSchema, env).openSubtitlesAppKey
       : undefined,
   });
 };

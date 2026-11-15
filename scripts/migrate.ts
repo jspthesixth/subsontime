@@ -1,9 +1,12 @@
 import { readdir, readFile } from "node:fs/promises";
 import postgres from "postgres";
+import { readGroup, databaseSchema } from "../src/config/env.ts";
 
-const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+const { url: pooledURL, unpooledURL } = readGroup(databaseSchema, process.env);
 
-if (url === undefined || url === "") {
+const url = unpooledURL ?? pooledURL;
+
+if (url === undefined) {
   console.error("DATABASE_URL is not set");
   process.exit(1);
 }

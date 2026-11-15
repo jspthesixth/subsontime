@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Redis } from "@upstash/redis";
 import { describe, expect, it, vi } from "vitest";
+import { readGroup, sharedStateSchema } from "../config/env.ts";
 import {
   memorySharedState,
   orMiss,
@@ -12,8 +13,7 @@ import {
 
 type Subject = { state: SharedState; pass: (seconds: number) => Promise<void> };
 
-const upstashURL = process.env["UPSTASH_REDIS_REST_URL"];
-const upstashToken = process.env["UPSTASH_REDIS_REST_TOKEN"];
+const upstash = readGroup(sharedStateSchema, process.env);
 
 const memorySubject = (): Subject => {
   let now = 0;
@@ -27,7 +27,7 @@ const memorySubject = (): Subject => {
 };
 
 const upstashSubject = (): Subject => {
-  const state = sharedStateFrom(process.env);
+  const state = sharedStateFrom(upstash);
 
   if (state === undefined) {
     throw new Error("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set");
@@ -212,7 +212,7 @@ describe("memorySharedState", () => {
   });
 });
 
-describe.skipIf(upstashURL === undefined || upstashToken === undefined)(
+describe.skipIf(upstash === undefined)(
   "upstashSharedState (needs UPSTASH_REDIS_REST_URL, skipped when unset)",
   () => {
     contract(upstashSubject);
@@ -220,8 +220,8 @@ describe.skipIf(upstashURL === undefined || upstashToken === undefined)(
     it("prefixes every key with sot:v1:", async () => {
       const key = `test:${randomUUID()}:prefixed`;
       const raw = new Redis({
-        url: upstashURL,
-        token: upstashToken,
+        url: upstash?.url,
+        token: upstash?.token,
         automaticDeserialization: false,
       });
 
@@ -284,25 +284,12 @@ describe("pausedAfterFailure on each kind of failure", () => {
 });
 
 describe("sharedStateFrom", () => {
-  it("is undefined without both Upstash variables", () => {
-    expect(sharedStateFrom({})).toBeUndefined();
-    expect(sharedStateFrom({ UPSTASH_REDIS_REST_URL: "http://localhost:8079" })).toBeUndefined();
-    expect(sharedStateFrom({ UPSTASH_REDIS_REST_TOKEN: "token" })).toBeUndefined();
+  it("is undefined without settings", () => {
+    expect(sharedStateFrom(undefined)).toBeUndefined();
   });
 
-  it("connects with the Upstash variables", () => {
-    expect(
-      sharedStateFrom({
-        UPSTASH_REDIS_REST_URL: "http://localhost:8079",
-        UPSTASH_REDIS_REST_TOKEN: "token",
-      }),
-    ).toBeDefined();
-  });
-
-  it("connects with the Vercel KV variables", () => {
-    expect(
-      sharedStateFrom({ KV_REST_API_URL: "http://localhost:8079", KV_REST_API_TOKEN: "token" }),
-    ).toBeDefined();
+  it("connects with a URL and a token", () => {
+    expect(sharedStateFrom({ url: "http://localhost:8079", token: "token" })).toBeDefined();
   });
 });
 
