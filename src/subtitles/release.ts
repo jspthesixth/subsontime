@@ -107,3 +107,26 @@ export const releaseSimilarity = (a: Release, b: Release) =>
     a.resolution !== undefined && a.resolution === b.resolution,
     sameGroup(a, b),
   ].filter(Boolean).length;
+
+export type ReleaseFamily = { source?: Release["source"]; group: string };
+
+const codecs: [RegExp, string][] = [
+  [/(^|[^a-z0-9])([xh]\.?265|hevc)([^a-z0-9]|$)/i, "h265"],
+  [/(^|[^a-z0-9])([xh]\.?264|avc)([^a-z0-9]|$)/i, "h264"],
+  [/(^|[^a-z0-9])av1([^a-z0-9]|$)/i, "av1"],
+];
+
+export const releaseSignatureOf = (filename: string) => {
+  const { group, resolution } = parseRelease(filename);
+  const codec = codecs.find(([pattern]) => pattern.test(filename))?.[1];
+
+  return group === undefined
+    ? undefined
+    : [group.toLowerCase(), resolution ?? "", codec ?? ""].join("|");
+};
+
+export const releaseFamilyOf = ({ source, group }: Release): ReleaseFamily | undefined =>
+  group === undefined ? undefined : { source, group: group.toLowerCase() };
+
+export const inReleaseFamily = (release: Release, family: ReleaseFamily) =>
+  release.group?.toLowerCase() === family.group && release.source === family.source;

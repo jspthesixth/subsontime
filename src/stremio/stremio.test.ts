@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJSON from "../../package.json" with { type: "json" };
+import familyFixture from "../../test/fixtures/subtitles/act-breaks-s01e24.json" with { type: "json" };
 import restHashFixture from "../../test/fixtures/sources/opensubtitles-rest-hash-search.json" with { type: "json" };
 import v3HashFixture from "../../test/fixtures/sources/opensubtitles-v3-hash-movie.json" with { type: "json" };
 import { createApp, type AppDeps } from "../app.ts";
@@ -9,8 +10,8 @@ import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
-import type { VideoQuery } from "../sources/source.ts";
-import { fakeSource, memoryTokenCache } from "../sources/test-sources.ts";
+import type { Source, VideoQuery } from "../sources/source.ts";
+import { fakeSource, memoryTokenCache, type Entry } from "../sources/test-sources.ts";
 import { memorySharedState } from "../jobs/shared-state.ts";
 import { memorySingleFlight } from "../jobs/single-flight.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
@@ -615,6 +616,147 @@ describe("a hash from the other listing", () => {
     const { body } = await list(app, sealed(), withoutHash);
 
     expect(refOf(body.subtitles[0]?.url ?? "").c[0]?.r).toBe("broadcast");
+  });
+});
+
+const timed = (spans: number[][]) =>
+  spans.map(([start = 0, end = 0], index) => ({ start, end, text: `Line ${index}` }));
+
+const broadcast = timed(familyFixture.subtitle);
+const disc = timed(familyFixture.reference);
+
+const byQuery = (entriesFor: (query: VideoQuery) => Entry[]): SourceSet => {
+  const search: Source["search"] = async (query, signal) =>
+    fakeSource("Fake", entriesFor(query)).search(query, signal);
+  const download: Source["download"] = async (ref, signal) => {
+    const episodes = [1, 23, 24].flatMap((episode) =>
+      entriesFor({ type: "series", imdbId: "tt1442437", season: 1, episode, languages: [] }),
+    );
+
+    return fakeSource("Fake", episodes).download(ref, signal);
+  };
+
+  return { listed: [{ name: "Fake", search, download }], references: [] };
+};
+
+const joy = (episode: number, title: string, group = "Joy") =>
+  `filename=${encodeURIComponent(`Modern Family S01E${episode} ${title}  (1080p x265 10bit ${group}).mkv`)}`;
+
+const hashOf = (episode: number) => `${episode}`.padStart(16, "0");
+
+const withHashOf = (episode: number) =>
+  `&videoSize=${200_000_000 + episode}&videoHash=${hashOf(episode)}`;
+
+const familyEntries =
+  ({ discLang = "hrv", matched = "dvd" } = {}) =>
+  (query: VideoQuery): Entry[] => [
+    {
+      ref: `e${query.episode ?? 0}-hdtv`,
+      lang: "hrv",
+      releaseName: `Modern.Family.S01E${query.episode ?? 0}.HDTV.XviD-LOL`,
+      hashMatch: query.videoHash === hashOf(query.episode ?? 0) && matched === "hdtv",
+      cues: broadcast,
+    },
+    {
+      ref: `e${query.episode ?? 0}-dvd`,
+      lang: discLang,
+      releaseName: `modern.family.s01e${query.episode ?? 0}.dvdrip.xvid-clerks`,
+      hashMatch:
+        query.videoHash === hashOf(query.episode ?? 0) && matched === "dvd" && query.episode !== 24,
+      cues: disc,
+    },
+  ];
+
+const firstRefAt = async (app: ReturnType<typeof appWith>, token: string, path: string) => {
+  const { body } = await list(app, token, path);
+
+  return { url: body.subtitles[0]?.url ?? "", ref: refOf(body.subtitles[0]?.url ?? "") };
+};
+
+const film = (hash: string) =>
+  `movie/tt0111161/${joy(1, "Film")}&videoSize=1&videoHash=${hash}.json`;
+
+describe("release families", () => {
+  it("serves the release family an earlier episode of the same release matched", async () => {
+    const app = appWith(byQuery(familyEntries()));
+    const token = sealed({ languages: ["hrv"] });
+
+    await list(app, token, `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`);
+    const { url, ref } = await firstRefAt(
+      app,
+      token,
+      `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
+    );
+    const served = parseSubtitle(await (await app.request(url)).text());
+
+    expect(ref.c.map(({ r }) => r)).toEqual(["e24-dvd", "e24-hdtv"]);
+    expect(served.map(({ start }) => start)).toEqual(disc.map(({ start }) => start));
+  });
+
+  it("retimes against the release family in another language", async () => {
+    const app = appWith(byQuery(familyEntries({ discLang: "eng" })));
+    const token = sealed({ languages: ["hrv"] });
+
+    await list(app, token, `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`);
+    const { url, ref } = await firstRefAt(
+      app,
+      token,
+      `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
+    );
+    const served = parseSubtitle(await (await app.request(url)).text());
+    const close = disc
+      .slice(0, -1)
+      .filter((cue, index) => Math.abs((served[index]?.start ?? 0) - cue.start) <= 300);
+
+    expect(ref.c[0]?.r).toBe("e24-hdtv");
+    expect(ref.x.map(({ r }) => r)).toEqual(["e24-dvd"]);
+    expect(close.length / disc.length).toBeGreaterThan(0.8);
+  });
+
+  it("leaves a release with another signature alone", async () => {
+    const app = appWith(byQuery(familyEntries()));
+    const token = sealed({ languages: ["hrv"] });
+
+    await list(app, token, `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`);
+    const { ref } = await firstRefAt(
+      app,
+      token,
+      `series/tt1442437:1:24/${joy(24, "Family Portrait", "Other")}${withHashOf(24)}.json`,
+    );
+
+    expect(ref.c[0]?.r).toBe("e24-hdtv");
+    expect(ref.x).toEqual([]);
+  });
+
+  it("keeps the newest observation of a release family", async () => {
+    const token = sealed({ languages: ["hrv"] });
+    const shared = memorySharedState();
+    const observe = (matched: string) =>
+      list(
+        appWith(byQuery(familyEntries({ matched })), { state: shared }),
+        token,
+        `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`,
+      );
+
+    await observe("dvd");
+    await observe("hdtv");
+    const { ref } = await firstRefAt(
+      appWith(byQuery(familyEntries()), { state: shared }),
+      token,
+      `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
+    );
+
+    expect(ref.c[0]?.r).toBe("e24-hdtv");
+  });
+
+  it("leaves films alone", async () => {
+    const app = appWith(byQuery(familyEntries()));
+    const token = sealed({ languages: ["hrv"] });
+
+    await list(app, token, film(hashOf(0)));
+    const { ref } = await firstRefAt(app, token, film("ffffffffffffffff"));
+
+    expect(ref.c[0]?.r).toBe("e0-hdtv");
   });
 });
 

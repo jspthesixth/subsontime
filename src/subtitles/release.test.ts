@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseRelease, releaseSimilarity, sameRelease } from "./release.ts";
+import {
+  inReleaseFamily,
+  parseRelease,
+  releaseFamilyOf,
+  releaseSignatureOf,
+  releaseSimilarity,
+  sameRelease,
+} from "./release.ts";
 
 describe("parseRelease", () => {
   it("reads source, resolution and group from a web release", () => {
@@ -172,5 +179,43 @@ describe("parseRelease with language codes and glued groups", () => {
     const video = parseRelease("Movie.2021.1080p.WEB-DL.x264-GROUP.mkv");
 
     expect(sameRelease(video, parseRelease("Movie.2021.1080p.BluRay.x264-GROUP.srt"))).toBe(false);
+  });
+});
+
+describe("releaseSignatureOf", () => {
+  it("reads group, resolution and codec from a video file name", () => {
+    expect(
+      releaseSignatureOf("Modern Family S01E24 Family Portrait  (1080p x265 10bit Joy).mkv"),
+    ).toBe("joy|1080p|h265");
+  });
+
+  it("treats x265, H.265 and HEVC as one codec", () => {
+    expect(releaseSignatureOf("Show.S01E01.1080p.WEB-DL.H.265-GROUP.mkv")).toBe(
+      releaseSignatureOf("Show.S01E02.1080p.WEB-DL.HEVC-group.mkv"),
+    );
+  });
+
+  it("has no signature without a group", () => {
+    expect(releaseSignatureOf("Show S01E01 1080p x265.mkv")).toBeUndefined();
+  });
+});
+
+describe("releaseFamilyOf", () => {
+  it("is the source and group a subtitle was made for", () => {
+    expect(
+      releaseFamilyOf(parseRelease("modern.family.s01e24.family.portrait.dvdrip.xvid-clerks.srt")),
+    ).toEqual({ source: "dvdrip", group: "clerks" });
+  });
+
+  it("has no family without a group", () => {
+    expect(releaseFamilyOf(parseRelease("Modern Family S01E24.DVDRip.srt"))).toBeUndefined();
+  });
+
+  it("matches a release of the same family whatever the case", () => {
+    const family = { source: "dvdrip" as const, group: "clerks" };
+
+    expect(inReleaseFamily(parseRelease("Show.S01E02.DVDRip.XviD-CLERKS.srt"), family)).toBe(true);
+    expect(inReleaseFamily(parseRelease("Show.S01E02.HDTV.XviD-CLERKS.srt"), family)).toBe(false);
+    expect(inReleaseFamily(parseRelease("Show.S01E02.DVDRip.XviD-LOL.srt"), family)).toBe(false);
   });
 });

@@ -307,4 +307,25 @@ describe("pickReferences", () => {
   it("picks nothing when no candidate matches", () => {
     expect(pickReferences([otherRelease("a")], fileRelease)).toEqual([]);
   });
+
+  it("falls back to the release family in any language without a hash match", () => {
+    const family = { source: "dvdrip" as const, group: "clerks" };
+    const candidates = [
+      otherRelease("a"),
+      candidate({ ref: "b", lang: "hrv", release: parseRelease("Show.S01E24.DVDRip.XviD-clerks") }),
+      candidate({ ref: "c", release: parseRelease("Show.S01E24.DVDRip.XviD-CLERKS") }),
+    ];
+
+    expect(refs(pickReferences(candidates, fileRelease, family))).toEqual(["b", "c"]);
+  });
+
+  it("prefers a hash match over the release family", () => {
+    const family = { source: "dvdrip" as const, group: "clerks" };
+    const candidates = [
+      candidate({ ref: "b", release: parseRelease("Show.S01E24.DVDRip.XviD-clerks") }),
+      hashMatch("h", "eng"),
+    ];
+
+    expect(refs(pickReferences(candidates, fileRelease, family))).toEqual(["h"]);
+  });
 });

@@ -5,11 +5,22 @@ import { searchAll } from "../sources/search-all.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
-import { parseRelease, releaseSimilarity } from "../subtitles/release.ts";
+import {
+  inReleaseFamily,
+  parseRelease,
+  releaseFamilyOf,
+  releaseSimilarity,
+  type ReleaseFamily,
+} from "../subtitles/release.ts";
 import { pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
+import {
+  recalledReleaseFamily,
+  recordReleaseFamily,
+  releaseFamilyKeyOf,
+} from "./release-families.ts";
 
 export const bestSlotSize = 4;
 const perLanguageLimit = 10;
@@ -36,21 +47,33 @@ export const toCandidateRef = (candidate: Candidate): CandidateRef => ({
   p: candidate.fps,
 });
 
-export const searchVideo = async (sources: SourceSet, query: VideoQuery) => {
+export const searchVideo = async (
+  sources: SourceSet,
+  query: VideoQuery,
+  family?: ReleaseFamily,
+) => {
   const [listed, referenceOnly] = await Promise.all([
     searchAll(sources.listed, query),
     searchAll(sources.references, query),
   ]);
   const fileRelease = parseRelease(query.filename ?? "");
+  const all = [...listed, ...referenceOnly];
+  const inFamily = ({ release }: Candidate) =>
+    family !== undefined && inReleaseFamily(release, family);
 
   return {
-    references: pickReferences([...listed, ...referenceOnly], fileRelease),
+    references: pickReferences(all, fileRelease, family),
+    observedFamily: all
+      .filter(({ hashMatch }) => hashMatch)
+      .map(({ release }) => releaseFamilyOf(release))
+      .find((observed) => observed !== undefined),
     ranked: (lang: string) =>
       listed
         .filter((candidate) => candidate.lang === lang)
         .toSorted(
           (a, b) =>
             Number(b.hashMatch) - Number(a.hashMatch) ||
+            Number(inFamily(b)) - Number(inFamily(a)) ||
             releaseSimilarity(b.release, fileRelease) - releaseSimilarity(a.release, fileRelease),
         ),
   };
@@ -97,10 +120,14 @@ export const subtitlesRoute =
       extras.get("videoHash") ?? undefined,
       Number.isFinite(videoSize) ? videoSize : undefined,
     );
-    const recalled =
-      listed !== undefined || fileKey === undefined
-        ? undefined
-        : await recalledFileHash(state, fileKey);
+    const familyKey =
+      video.type === "series" && filename !== undefined
+        ? releaseFamilyKeyOf(video.imdbId, filename)
+        : undefined;
+    const [recalled, family] = await Promise.all([
+      listed !== undefined || fileKey === undefined ? undefined : recalledFileHash(state, fileKey),
+      familyKey === undefined ? undefined : recalledReleaseFamily(state, familyKey),
+    ]);
     const fingerprint =
       listed ?? (recalled === undefined ? undefined : { hash: recalled.w.h, size: recalled.w.z });
     const query = {
@@ -111,7 +138,7 @@ export const subtitlesRoute =
       languages: config.languages,
     };
     const [found, hiddenKey] = await Promise.all([
-      searchVideo(sourcesFor(config, context.get("tokens")), query),
+      searchVideo(sourcesFor(config, context.get("tokens")), query, family),
       openTimings === undefined || listed === undefined || !config.useShared
         ? undefined
         : hiddenKeyFor(openTimings, state, listed, viewerOf(config, openTimings.installSalt)),
@@ -120,23 +147,32 @@ export const subtitlesRoute =
       recalled === undefined ? ref : { ...ref, h: undefined };
     const references = found.references.map(toCandidateRef);
 
-    if (listed !== undefined && fileKey !== undefined) {
+    const recording = [
+      ...(listed === undefined || fileKey === undefined
+        ? []
+        : [
+            recordFileHash(state, fileKey, {
+              w: { h: listed.hash, z: listed.size },
+              x: references,
+              m: config.languages.flatMap((lang) =>
+                found
+                  .ranked(lang)
+                  .filter(({ hashMatch }) => hashMatch)
+                  .map(({ sourceName, ref }): [string, string] => [sourceName, ref]),
+              ),
+              d: hiddenKey,
+            }),
+          ]),
+      ...(listed === undefined || familyKey === undefined || found.observedFamily === undefined
+        ? []
+        : [recordReleaseFamily(state, familyKey, found.observedFamily)]),
+    ];
+
+    if (recording.length > 0) {
       try {
-        defer(
-          recordFileHash(state, fileKey, {
-            w: { h: listed.hash, z: listed.size },
-            x: references,
-            m: config.languages.flatMap((lang) =>
-              found
-                .ranked(lang)
-                .filter(({ hashMatch }) => hashMatch)
-                .map(({ sourceName, ref }): [string, string] => [sourceName, ref]),
-            ),
-            d: hiddenKey,
-          }),
-        );
+        defer(Promise.all(recording));
       } catch (error) {
-        console.error(`File hash record failed: ${errorName(error)}`);
+        console.error(`Listing record failed: ${errorName(error)}`);
       }
     }
 
