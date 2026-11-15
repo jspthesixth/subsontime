@@ -29,6 +29,8 @@ const post = (path: string, body: unknown) =>
 
 type Created = { installURL: string; stremioURL: string; webURL: string };
 
+const sealedOf = (installURL: string) => new URL(installURL).pathname.split("/")[1] ?? "";
+
 const create = async (body: unknown) => (await (await post("/api/config", body)).json()) as Created;
 
 describe("toStremioURL", () => {
@@ -159,9 +161,37 @@ describe("POST /api/config", () => {
 
   it("ignores an install id sent by the client", async () => {
     const { installURL } = await create({ ...form, installId: "chosen" });
-    const sealed = new URL(installURL).pathname.split("/")[1] ?? "";
 
-    expect(unseal(sealed, secret).installId).not.toBe("chosen");
+    expect(unseal(sealedOf(installURL), secret).installId).not.toBe("chosen");
+  });
+
+  it("keeps the install id of the install it edits", async () => {
+    const { installURL } = await create(form);
+    const edited = await create({ ...form, languages: ["hrv", "eng"], installURL });
+
+    expect(unseal(sealedOf(edited.installURL), secret)).toMatchObject({
+      installId: unseal(sealedOf(installURL), secret).installId,
+      languages: ["hrv", "eng"],
+    });
+  });
+
+  it("ignores an install id sent next to the install it edits", async () => {
+    const { installURL } = await create(form);
+    const edited = await create({ ...form, installURL, installId: "chosen" });
+
+    expect(unseal(sealedOf(edited.installURL), secret).installId).toBe(
+      unseal(sealedOf(installURL), secret).installId,
+    );
+  });
+
+  it("gives a new install id when the edited install link is not valid", async () => {
+    const { installURL } = await create(form);
+    const forged = "https://subs.example.com/" + "A".repeat(60) + "/manifest.json";
+    const edited = await create({ ...form, installURL: forged });
+
+    expect(unseal(sealedOf(edited.installURL), secret).installId).not.toBe(
+      unseal(sealedOf(installURL), secret).installId,
+    );
   });
 
   it("takes only JSON", async () => {
@@ -225,11 +255,16 @@ describe("POST /api/config", () => {
 });
 
 describe("GET /:config/configure", () => {
-  it("sends Stremio's configure button to the setup page", async () => {
+  it("opens the setup page on the install's settings", async () => {
     const { installURL } = await create(form);
-    const response = await app.request(
-      new URL(installURL).pathname.replace("manifest.json", "configure"),
-    );
+    const response = await app.request(`/${sealedOf(installURL)}/configure`);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(`/stremio#config=${sealedOf(installURL)}`);
+  });
+
+  it("opens an empty setup page for a config that is not a sealed one", async () => {
+    const response = await app.request("/not-a-sealed-config/configure");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/stremio");

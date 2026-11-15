@@ -214,6 +214,13 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     app.post("/api/v1/reports", writeRoute(submitReport, timingsDeps));
   }
 
+  app.get("/:config/configure", (context) => {
+    const sealed = context.req.param("config");
+
+    return context.redirect(
+      sealedConfigPattern.test(sealed) ? `/stremio#config=${sealed}` : "/stremio",
+    );
+  });
   app.use("/:config/*", cors(), async (context, next) => {
     const token = context.req.param("config") ?? "";
 
@@ -236,7 +243,6 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.get("/:config/manifest.json", (context) =>
     context.json({ ...manifest, logo: `${baseURL(context, deps.publicURL)}/logo.png` }),
   );
-  app.get("/:config/configure", (context) => context.redirect("/stremio"));
   app.get("/:config/subtitles/:type/:id", subtitlesRoute(routeDeps));
   app.get("/:config/subtitles/:type/:id/:extra", subtitlesRoute(routeDeps));
   app.get("/:config/sub/:file", fileRoute(routeDeps));

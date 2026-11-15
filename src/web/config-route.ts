@@ -10,6 +10,7 @@ type ConfigRouteDeps = { secret: string; publicURL?: string };
 const invalidSettingsMessage = "These settings are not valid";
 const unbuildableMessage = "Could not build the install link";
 const openSchema = v.object({ installURL: v.string() });
+const editSchema = v.object({ installURL: v.optional(v.string()) });
 
 export const toStremioURL = (installURL: string) => {
   const { host, pathname } = new URL(installURL);
@@ -48,12 +49,19 @@ export const unsealSafely = (sealed: string, secret: string) => {
   }
 };
 
+const installIdOf = (body: unknown, secret: string) => {
+  const edit = v.safeParse(editSchema, body);
+  const installURL = edit.success ? edit.output.installURL : undefined;
+  const sealed = installURL === undefined ? undefined : sealedConfigOf(installURL);
+
+  return sealed === undefined ? undefined : unsealSafely(sealed, secret)?.installId;
+};
+
 export const createConfigRoute =
   ({ secret, publicURL }: ConfigRouteDeps) =>
   async (context: Context) => {
-    const form = v.safeParse(formSchema, await readJSON(context), {
-      message: invalidSettingsMessage,
-    });
+    const body = await readJSON(context);
+    const form = v.safeParse(formSchema, body, { message: invalidSettingsMessage });
 
     context.header("Cache-Control", "no-store");
 
@@ -62,7 +70,7 @@ export const createConfigRoute =
     }
 
     const sealed = sealSafely(
-      { ...form.output, version: 1, installId: crypto.randomUUID() },
+      { ...form.output, version: 1, installId: installIdOf(body, secret) ?? crypto.randomUUID() },
       secret,
     );
 

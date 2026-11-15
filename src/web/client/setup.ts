@@ -5,6 +5,7 @@ import { fromLocales } from "../../languages.ts";
 import { searchKey } from "../search-key.ts";
 import { combobox } from "./lib/combobox.ts";
 import { clone, find } from "./lib/dom.ts";
+import { installLinkOf } from "./lib/install-link.ts";
 import { errorOf, postJSON } from "./lib/post-json.ts";
 
 type Account = Exclude<SourceSettings, { kind: "stremio-addon" }>;
@@ -27,6 +28,7 @@ const accountRows = [...sourceList.querySelectorAll<HTMLElement>(".source")];
 const addonForm = find<HTMLFormElement>(document, "#addon-form");
 const addonInput = find<HTMLInputElement>(document, "#addon-url");
 const summary = find(document, "#install-summary");
+const editNote = find(document, "#edit-note");
 const installError = find(document, "#install-error");
 const installButton = find<HTMLButtonElement>(document, "#install");
 const editButton = find(document, "#edit-install");
@@ -47,6 +49,7 @@ const withOpenSubtitles = (form: ConfigForm): ConfigForm => ({
 });
 
 let state = defaultForm(fromLocales(navigator.languages));
+let openedInstall: string | undefined;
 
 const nameOf = (code: string) =>
   options.find((option) => option.dataset["code"] === code)?.textContent?.trim() ?? code;
@@ -151,6 +154,25 @@ const render = () => {
   sourceList.querySelectorAll(".addon-row").forEach((row) => row.remove());
   sourceList.append(...addonURLs().map(addonRowFor));
   summary.textContent = summaryOf(state);
+  editNote.hidden = openedInstall === undefined;
+};
+
+const openInstall = async (installURL: string) => {
+  installError.textContent = "";
+
+  const outcome = await postJSON("/api/config/open", { installURL });
+
+  if ("error" in outcome) {
+    installError.textContent = outcome.error;
+
+    return false;
+  }
+
+  state = withOpenSubtitles(outcome.result as ConfigForm);
+  openedInstall = installURL;
+  render();
+
+  return true;
 };
 
 const showInstalled = ({ installURL, stremioURL, webURL }: Installed) => {
@@ -292,7 +314,7 @@ installButton.addEventListener("click", async () => {
   installError.textContent = "";
   installButton.disabled = true;
 
-  const outcome = await postJSON("/api/config", state);
+  const outcome = await postJSON("/api/config", { ...state, installURL: openedInstall });
 
   installButton.disabled = false;
   installButton.focus();
@@ -317,22 +339,22 @@ editButton.addEventListener("click", () => {
 
 editForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  installError.textContent = "";
 
-  const outcome = await postJSON("/api/config/open", { installURL: editLink.value });
-
-  if ("error" in outcome) {
-    installError.textContent = outcome.error;
-
+  if (!(await openInstall(editLink.value))) {
     return;
   }
 
-  state = withOpenSubtitles(outcome.result as ConfigForm);
-  render();
   editForm.reset();
   editForm.hidden = true;
   editButton.setAttribute("aria-expanded", "false");
   editButton.focus();
 });
+
+const configureLink = installLinkOf(location.hash, location.origin);
+
+if (configureLink !== undefined) {
+  history.replaceState(null, "", location.pathname + location.search);
+  void openInstall(configureLink);
+}
 
 render();
