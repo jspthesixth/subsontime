@@ -130,7 +130,7 @@ const seconds = (ms: number) => `${ms < 0 ? "-" : "+"}${Math.abs(ms / 1000).toFi
 const fpsText = (fps: number) => String(Number(fps.toFixed(3)));
 
 const speedText = (ratio: number, fps: number | undefined) =>
-  fps === undefined ? `×${ratio.toFixed(4)}` : `${fpsText(fps)} to ${fpsText(fps / ratio)}`;
+  fps === undefined ? `×${ratio.toFixed(4)}` : `${fpsText(fps)} to ${fpsText(fps * ratio)}`;
 
 const clock = (ms: number) =>
   [ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60]

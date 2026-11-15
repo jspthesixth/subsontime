@@ -120,7 +120,7 @@ const fpsText = (fps: number) => String(Number(fps.toFixed(3)));
 const speedText = (ratio: number, fps: number | undefined) =>
   fps === undefined
     ? `speed ×${ratio.toFixed(4)}`
-    : `speed ${fpsText(fps)} to ${fpsText(fps / ratio)}`;
+    : `speed ${fpsText(fps)} to ${fpsText(fps * ratio)}`;
 
 const retimedDetail = ({ offsetMs, speedRatio, cuts }: Retimed, fps: number | undefined) =>
   [

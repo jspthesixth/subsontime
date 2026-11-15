@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Candidate } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import { alignCues, alignOffset, speedRatioFromFPS } from "./alass.ts";
+import { alignCues, alignOffset } from "./alass.ts";
 import { pickReferences } from "./references.ts";
 import { mismatchMaximumScore, retime, retimedMinimumScore } from "./retime.ts";
 import { byHash, candidate, fileRelease, subtitleOf } from "./test-candidates.ts";
@@ -31,6 +31,9 @@ const withSilence = [
   ...transform(track.slice(100), (time) => time + 60_000),
 ];
 
+const largestStartError = (cues: Cue[]) =>
+  Math.max(...cues.map((cue, index) => Math.abs(cue.start - (track[index]?.start ?? Infinity))));
+
 const partlyUnrelated = (() => {
   const kept = Math.round(track.length / 2);
   const head = resegment(resegment(track.slice(0, kept), 7), 8);
@@ -52,22 +55,30 @@ describe("retime", () => {
     expect(result.kind === "made-for-file" && result.cues).toBe(shifted);
   });
 
-  it("uses the frame rate ratio when both sides carry an fps", async () => {
-    const speedRatio = speedRatioFromFPS(25, 23.976);
-    const scaled = transform(resegment(track, 7), (time) => time * speedRatio + 2000);
+  it("slows a 25 fps subtitle down to a 23.976 fps reference", async () => {
+    const pal = transform(track, (time) => (time * 23.976) / 25 + 2000);
 
-    const result = await retime(subtitleOf(scaled, 25), [byHash(track, 23.976)]);
+    const result = await retime(subtitleOf(pal, 25), [byHash(track, 23.976)]);
 
-    expect(result).toMatchObject({ kind: "retimed", speedRatio });
+    expect(result).toMatchObject({ kind: "retimed", speedRatio: 23.976 / 25 });
+    expect(result.kind === "retimed" && largestStartError(result.cues)).toBeLessThanOrEqual(10);
+  });
+
+  it("speeds a 23.976 fps subtitle up to a 25 fps reference", async () => {
+    const film = transform(track, (time) => (time * 25) / 23.976 + 2000);
+
+    const result = await retime(subtitleOf(film, 23.976), [byHash(track, 25)]);
+
+    expect(result).toMatchObject({ kind: "retimed", speedRatio: 25 / 23.976 });
+    expect(result.kind === "retimed" && largestStartError(result.cues)).toBeLessThanOrEqual(10);
   });
 
   it("uses a frame rate ratio that no speed search would try", async () => {
-    const speedRatio = speedRatioFromFPS(30, 25);
-    const scaled = transform(resegment(track, 7), (time) => time * speedRatio + 2000);
+    const scaled = transform(resegment(track, 7), (time) => (time * 25) / 30 + 2000);
 
     const result = await retime(subtitleOf(scaled, 30), [byHash(track, 25)]);
 
-    expect(result).toMatchObject({ kind: "retimed", speedRatio: 1.2 });
+    expect(result).toMatchObject({ kind: "retimed", speedRatio: 25 / 30 });
   });
 
   it("retimes against two hash references that agree", async () => {
@@ -96,8 +107,7 @@ describe("retime", () => {
   });
 
   it("measures offset and cuts on the speed-scaled times", async () => {
-    const speedRatio = speedRatioFromFPS(25, 23.976);
-    const scaled = transform(resegment(withSilence, 7), (time) => (time + 2000) * speedRatio);
+    const scaled = transform(resegment(withSilence, 7), (time) => ((time + 2000) * 23.976) / 25);
 
     const result = await retime(subtitleOf(scaled, 25), [byHash(withSilence, 23.976)]);
 

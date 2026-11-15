@@ -16,7 +16,7 @@ export const speedRatios: readonly number[] = [
 ];
 
 export const speedRatioFromFPS = (subtitleFPS: number, referenceFPS: number) =>
-  subtitleFPS / referenceFPS;
+  referenceFPS / subtitleFPS;
 
 const splitPenalty = 7;
 

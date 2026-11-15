@@ -23,7 +23,7 @@ import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { memoryStore } from "../timings/db.ts";
-import { abandonWrites, findVideos, shareLinesFor } from "./fix.ts";
+import { abandonWrites, findVideos, shareLinesFor, shiftText } from "./fix.ts";
 import { cleanName, identify } from "./identify.ts";
 import { configDirOf, fallbackConfigDir, installIdFrom, installIdIn } from "./install-id.ts";
 import { main, type CLIDeps } from "./main.ts";
@@ -965,5 +965,13 @@ describe("summary", () => {
 
     expect(output).toMatch(/^First\.Film\.2001\.mkv\n {2}file {8}/);
     expect(output).toContain("\n\nSecond.Film.2002.mkv\n  file        ");
+  });
+});
+
+describe("shiftText", () => {
+  it("names the frame rates a 25 fps subtitle moves between", () => {
+    const pal = transform(track, (time) => (time * 23.976) / 25);
+
+    expect(shiftText(pal, track, 23.976 / 25, 25)).toBe("+0.00 s · 25 to 23.976");
   });
 });

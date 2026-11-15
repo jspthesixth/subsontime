@@ -56,11 +56,11 @@ describe("alignCues", () => {
     const speedRatio = speedRatioFromFPS(25, 23.976);
     const { cues, score } = await alignCues(
       reference,
-      transform(related, (time) => (time * 25) / 23.976),
+      transform(related, (time) => (time * 23.976) / 25),
       { speedRatio },
     );
 
-    expect(speedRatio).toBeCloseTo(1.042709, 6);
+    expect(speedRatio).toBeCloseTo(0.95904, 5);
     expect(unchangedError(cues)).toBeLessThanOrEqual(300);
     expect(relatedError(cues)).toBeLessThanOrEqual(60);
     expect(score).toBeGreaterThanOrEqual(0.6);
@@ -105,7 +105,7 @@ describe("alignOffset", () => {
   it("aligns a 25 fps subtitle to a 23.976 fps reference with one delta", () => {
     const { cues, score } = alignOffset(
       reference,
-      transform(related, (time) => (time * 25) / 23.976 - 3000),
+      transform(related, (time) => (time * 23.976) / 25 - 3000),
       { speedRatio: speedRatioFromFPS(25, 23.976) },
     );
 

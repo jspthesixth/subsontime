@@ -192,7 +192,7 @@ describe("POST /api/check", () => {
   });
 
   it("shows the offset and speed of a retimed subtitle", async () => {
-    const faster = transform(track, (time) => (time * 25) / 23.976 + 1000);
+    const faster = transform(track, (time) => (time * 23.976) / 25 + 1000);
 
     const { result } = await checked({
       listed: [fakeSource("Fake", [{ ref: "a", fps: 25, cues: faster }])],
@@ -202,7 +202,7 @@ describe("POST /api/check", () => {
     });
 
     expect(result.shown.map((row) => [row.label, row.detail])).toEqual([
-      ["Retimed", "-0.96 s · speed 25 to 23.976"],
+      ["Retimed", "-1.04 s · speed 25 to 23.976"],
     ]);
   });
 
