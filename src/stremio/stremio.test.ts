@@ -2,12 +2,15 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJSON from "../../package.json" with { type: "json" };
+import restHashFixture from "../../test/fixtures/sources/opensubtitles-rest-hash-search.json" with { type: "json" };
+import v3HashFixture from "../../test/fixtures/sources/opensubtitles-v3-hash-movie.json" with { type: "json" };
 import { createApp, type AppDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
 import { fakeSource, memoryTokenCache } from "../sources/test-sources.ts";
+import { memorySharedState } from "../jobs/shared-state.ts";
 import { memorySingleFlight } from "../jobs/single-flight.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
@@ -409,6 +412,18 @@ describe("subtitle file", () => {
     expect(await response.text()).toBe(writeSRT(shifted));
   });
 
+  it("leaves the references alone when a hash match comes first", async () => {
+    const sources = {
+      listed: [fakeSource("Fake", [{ ref: "a", hashMatch: true, cues: shifted }])],
+      references: [fakeSource("Reference", [{ ref: "r", hashMatch: true, cues: track }])],
+    };
+    const { app, url } = await firstSlot(sources);
+
+    await app.request(url);
+
+    expect(sources.references[0]?.download).not.toHaveBeenCalled();
+  });
+
   it("downloads a candidate that is also a reference once", async () => {
     const source = fakeSource("Fake", [{ ref: "a", hashMatch: true, cues: track }]);
     const { app, url } = await firstSlot({ listed: [source], references: [] });
@@ -552,9 +567,10 @@ describe("sourcesFromConfig", () => {
     ],
   };
 
-  it("lists every configured source and adds the OpenSubtitles API as a reference", () => {
+  it("lists every configured source and needs no reference next to the v3 addon", () => {
     const sources = sourcesFromConfig(config, {
       tokens: memoryTokenCache(),
+      state: memorySharedState(),
       openSubtitlesAppKey: "app-key",
     });
 
@@ -565,6 +581,15 @@ describe("sourcesFromConfig", () => {
       "SubDL",
       "SubSource",
     ]);
+    expect(sources.references).toEqual([]);
+  });
+
+  it("adds the OpenSubtitles API as a reference when the v3 addon is not listed", () => {
+    const sources = sourcesFromConfig(
+      { ...config, sources: [{ kind: "subdl", apiKey: "key" }] },
+      { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
+    );
+
     expect(names(sources.references)).toEqual(["OpenSubtitles API"]);
   });
 
@@ -577,7 +602,7 @@ describe("sourcesFromConfig", () => {
           { kind: "opensubtitles", username: "user", password: "pass" },
         ],
       },
-      { tokens: memoryTokenCache(), openSubtitlesAppKey: "app-key" },
+      { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
     );
 
     expect(names(sources.listed)).toEqual(["OpenSubtitles", "OpenSubtitles API"]);
@@ -587,10 +612,67 @@ describe("sourcesFromConfig", () => {
   it("skips the OpenSubtitles API without an app key", () => {
     const sources = sourcesFromConfig(
       { ...config, sources: [{ kind: "opensubtitles", username: "user", password: "pass" }] },
-      { tokens: memoryTokenCache() },
+      { tokens: memoryTokenCache(), state: memorySharedState() },
     );
 
     expect(sources).toEqual({ listed: [], references: [] });
+  });
+
+  it("asks only the v3 addon for a hashed file without an app key", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ subtitles: [] })),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [openSubtitles] = sourcesFromConfig(defaultConfig(["eng"]), {
+      tokens: memoryTokenCache(),
+      state: memorySharedState(),
+    }).listed;
+
+    await openSubtitles?.search(
+      { type: "movie", imdbId: "tt0046183", videoHash: "466d8f728dbe2142", languages: ["eng"] },
+      AbortSignal.timeout(1000),
+    );
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://opensubtitles-v3.strem.io/subtitles/movie/tt0046183/videoHash=466d8f728dbe2142.json",
+    ]);
+  });
+
+  it("leaves the matches v3 does not list to an OpenSubtitles login", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      String(input).startsWith("https://api.opensubtitles.com")
+        ? new Response(JSON.stringify(restHashFixture))
+        : new Response(JSON.stringify(v3HashFixture)),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [openSubtitles] = sourcesFromConfig(
+      {
+        ...defaultConfig(["eng", "hrv"]),
+        sources: [
+          { kind: "stremio-addon", url: "https://opensubtitles-v3.strem.io/manifest.json" },
+          { kind: "opensubtitles", username: "user", password: "pass" },
+        ],
+      },
+      { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
+    ).listed;
+    const candidates = await openSubtitles?.search(
+      {
+        type: "movie",
+        imdbId: "tt0046183",
+        videoHash: "466d8f728dbe2142",
+        languages: ["eng", "hrv"],
+      },
+      AbortSignal.timeout(1000),
+    );
+
+    expect(candidates?.filter(({ hashMatch }) => hashMatch).map(({ lang }) => lang)).toEqual([
+      "eng",
+    ]);
+    expect(candidates?.map(({ ref }) => ref)).not.toContain("735363");
   });
 
   it("names the OpenSubtitles API candidates after the wrapped source", async () => {
@@ -605,10 +687,10 @@ describe("sourcesFromConfig", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const [reference] = sourcesFromConfig(defaultConfig(["eng"]), {
-      tokens: memoryTokenCache(),
-      openSubtitlesAppKey: "app-key",
-    }).references;
+    const [reference] = sourcesFromConfig(
+      { ...defaultConfig(["eng"]), sources: [] },
+      { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
+    ).references;
     const candidates = await reference?.search(
       { type: "movie", imdbId: "tt0111161", languages: ["eng"] },
       AbortSignal.timeout(1000),

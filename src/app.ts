@@ -37,6 +37,7 @@ export type AppDeps = {
   secret: string;
   state?: SharedState;
   openSubtitlesAppKey?: string;
+  openSubtitlesDailyDownloads?: number;
   publicURL?: string;
   sourcesFor?: (config: Config, tokens: TokenCache) => SourceSet;
   staticFiles?: MiddlewareHandler;
@@ -108,7 +109,12 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     sourcesFor:
       deps.sourcesFor ??
       ((config, tokens) =>
-        sourcesFromConfig(config, { tokens, openSubtitlesAppKey: deps.openSubtitlesAppKey })),
+        sourcesFromConfig(config, {
+          tokens,
+          state,
+          openSubtitlesAppKey: deps.openSubtitlesAppKey,
+          openSubtitlesDailyDownloads: deps.openSubtitlesDailyDownloads,
+        })),
     refKey: refKey(deps.secret),
     publicURL: deps.publicURL,
     state,

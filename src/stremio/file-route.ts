@@ -158,7 +158,7 @@ export async function* resolveAttempts(
     return downloaded;
   };
 
-  if (!lazyReferences) {
+  if (!lazyReferences && ref.c[0]?.h !== 1) {
     references();
   }
 

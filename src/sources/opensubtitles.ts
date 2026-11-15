@@ -19,12 +19,13 @@ const searchTimeoutMs = 4000;
 const requestTimeoutMs = 8000;
 const tokenTtlSeconds = 12 * 60 * 60;
 
-const entrySchema = v.object({
+export const restEntrySchema = v.object({
   attributes: v.object({
     language: v.string(),
     release: v.optional(v.string()),
     fps: v.optional(v.unknown()),
     moviehash_match: v.optional(v.unknown()),
+    legacy_subtitle_id: v.nullish(v.number()),
     files: v.array(v.object({ file_id: v.number() })),
   }),
 });
@@ -34,6 +35,7 @@ const loginSchema = v.object({ token: v.string(), base_url: v.optional(v.string(
 const sessionSchema = v.object({ token: v.string(), baseURL: v.string() });
 const downloadSchema = v.object({ link: v.string() });
 
+export type RESTEntry = v.InferOutput<typeof restEntrySchema>;
 type Credentials = { username: string; password: string };
 type Session = v.InferOutput<typeof sessionSchema>;
 
@@ -45,14 +47,20 @@ const baseHeaders = (appKey: string) => ({
 
 const imdbDigits = (imdbId: string) => imdbId.replace(/^tt0*/, "");
 
-const searchParams = (query: VideoQuery) => {
+export const movieHashOf = (query: VideoQuery) => {
+  const hash = query.videoHash?.toLowerCase();
+
+  return hash !== undefined && /^[0-9a-f]{16}$/.test(hash) ? hash : undefined;
+};
+
+export const restQueryString = (query: VideoQuery) => {
   const languages = [
     ...new Set(query.languages.flatMap((lang) => toISO6391(lang) ?? [])),
   ].toSorted();
-  const hash = query.videoHash?.toLowerCase();
+  const hash = movieHashOf(query);
   const params = {
     languages: languages.join(","),
-    ...(hash !== undefined && /^[0-9a-f]{16}$/.test(hash) ? { moviehash: hash } : {}),
+    ...(hash === undefined ? {} : { moviehash: hash }),
     ...(query.type === "series"
       ? {
           parent_imdb_id: imdbDigits(query.imdbId),
@@ -62,10 +70,47 @@ const searchParams = (query: VideoQuery) => {
       : { imdb_id: imdbDigits(query.imdbId) }),
   };
 
-  return { languages, params: Object.entries(params).toSorted(([a], [b]) => a.localeCompare(b)) };
+  if (languages.length === 0) {
+    return undefined;
+  }
+
+  return Object.entries(params)
+    .toSorted(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
 };
 
-const toCandidate = (entry: v.InferOutput<typeof entrySchema>): Candidate[] => {
+export const searchRESTEntries = async (
+  appKey: string,
+  query: VideoQuery,
+  signal: AbortSignal,
+  timeoutMs = searchTimeoutMs,
+): Promise<RESTEntry[] | undefined> => {
+  const queryString = restQueryString(query);
+
+  if (queryString === undefined) {
+    return [];
+  }
+
+  const response = await fetchWithTimeout(
+    `${defaultBaseURL}/subtitles?${queryString}`,
+    { headers: baseHeaders(appKey), signal, maxBytes: maximumSearchBytes },
+    timeoutMs,
+  );
+  const parsed = v.safeParse(searchSchema, await response.json().catch(() => undefined));
+
+  if (!response.ok || !parsed.success) {
+    return undefined;
+  }
+
+  return parsed.output.data.flatMap((entry) => {
+    const result = v.safeParse(restEntrySchema, entry);
+
+    return result.success ? [result.output] : [];
+  });
+};
+
+export const restCandidate = (entry: RESTEntry): Candidate[] => {
   const { attributes } = entry;
   const file = attributes.files[0];
   const lang = toISO6392(attributes.language);
@@ -139,27 +184,7 @@ export const openSubtitlesSource = (
   return {
     name: sourceName,
     async search(query, signal) {
-      const { languages, params } = searchParams(query);
-
-      if (languages.length === 0) {
-        return [];
-      }
-
-      const queryString = params.map(([key, value]) => `${key}=${value}`).join("&");
-      const response = await fetchWithTimeout(
-        `${defaultBaseURL}/subtitles?${queryString}`,
-        { headers: baseHeaders(appKey), signal, maxBytes: maximumSearchBytes },
-        searchTimeoutMs,
-      );
-      const parsed = v.safeParse(searchSchema, await response.json().catch(() => undefined));
-
-      if (!response.ok || !parsed.success) {
-        return [];
-      }
-
-      return parsed.output.data
-        .map((entry) => v.safeParse(entrySchema, entry))
-        .flatMap((entry) => (entry.success ? toCandidate(entry.output) : []));
+      return (await searchRESTEntries(appKey, query, signal))?.flatMap(restCandidate) ?? [];
     },
     async download(ref, signal) {
       const session = credentials === undefined ? undefined : await login(credentials, signal);

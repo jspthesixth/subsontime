@@ -13,6 +13,7 @@ const searchTimeoutMs = 4000;
 const downloadTimeoutMs = 8000;
 
 const entrySchema = v.object({
+  id: v.optional(v.string()),
   url: v.string(),
   lang: v.string(),
   m: v.optional(v.unknown()),
@@ -87,25 +88,38 @@ const toCandidate = (name: string, entry: v.InferOutput<typeof entrySchema>): Ca
   };
 };
 
+export type AddonEntry = { id?: string; candidate: Candidate };
+
+export const addonEntries = async (
+  manifestURL: string,
+  name: string,
+  query: VideoQuery,
+  signal: AbortSignal,
+): Promise<AddonEntry[]> => {
+  const response = await fetchWithTimeout(
+    requestURL(manifestURL, query),
+    { signal, maxBytes: maximumSearchBytes },
+    searchTimeoutMs,
+  );
+  const body = await response.json().catch(() => undefined);
+  const parsed = v.safeParse(responseSchema, body);
+
+  if (!response.ok || !parsed.success) {
+    return [];
+  }
+
+  return parsed.output.subtitles
+    .map((entry) => v.safeParse(entrySchema, entry))
+    .flatMap((entry) =>
+      entry.success ? [{ id: entry.output.id, candidate: toCandidate(name, entry.output) }] : [],
+    )
+    .filter(({ candidate }) => query.languages.includes(candidate.lang));
+};
+
 export const stremioAddonSource = (manifestURL: string, name: string): Source => ({
   name,
   async search(query, signal) {
-    const response = await fetchWithTimeout(
-      requestURL(manifestURL, query),
-      { signal, maxBytes: maximumSearchBytes },
-      searchTimeoutMs,
-    );
-    const body = await response.json().catch(() => undefined);
-    const parsed = v.safeParse(responseSchema, body);
-
-    if (!response.ok || !parsed.success) {
-      return [];
-    }
-
-    return parsed.output.subtitles
-      .map((entry) => v.safeParse(entrySchema, entry))
-      .flatMap((entry) => (entry.success ? [toCandidate(name, entry.output)] : []))
-      .filter((candidate) => query.languages.includes(candidate.lang));
+    return (await addonEntries(manifestURL, name, query, signal)).map(({ candidate }) => candidate);
   },
   async download(ref, signal) {
     const response = await fetchWithTimeout(

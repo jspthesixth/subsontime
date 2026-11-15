@@ -51,9 +51,10 @@ It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on 
 
 ### Sources
 
-| Variable                | Required | Purpose                               |
-| ----------------------- | -------- | ------------------------------------- |
-| `OPENSUBTITLES_APP_KEY` | no       | App key for the OpenSubtitles source. |
+| Variable                        | Required | Purpose                                                                                                    |
+| ------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `OPENSUBTITLES_APP_KEY`         | no       | App key for the OpenSubtitles source. With it, a file's hash finds the subtitles made for it.              |
+| `OPENSUBTITLES_DAILY_DOWNLOADS` | no       | OpenSubtitles API downloads allowed per UTC day across the server. Defaults to 4, below the free plan's 5. |
 
 ### Database
 

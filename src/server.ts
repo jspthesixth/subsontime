@@ -17,6 +17,7 @@ const app = createApp({
   secret: secrets.secret,
   state: sharedStateFrom(sharedState),
   openSubtitlesAppKey: sources.openSubtitlesAppKey,
+  openSubtitlesDailyDownloads: sources.openSubtitlesDailyDownloads,
   publicURL: server.publicURL,
   staticFiles: serveStatic({ root: "./public" }),
   installSalt: secrets.installSalt,

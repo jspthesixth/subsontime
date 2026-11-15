@@ -17,7 +17,7 @@ describe("readEnvironment", () => {
     expect(readEnvironment(secrets)).toEqual({
       server: { port: 7000, publicURL: undefined, trustProxy: false, allowLocalAddons: false },
       secrets: { secret, installSalt },
-      sources: { openSubtitlesAppKey: undefined },
+      sources: { openSubtitlesAppKey: undefined, openSubtitlesDailyDownloads: 4 },
       database: { url: undefined, unpooledURL: undefined },
       sharedState: undefined,
     });
@@ -32,6 +32,7 @@ describe("readEnvironment", () => {
         TRUST_PROXY: "1",
         ALLOW_LOCAL_ADDONS: "1",
         OPENSUBTITLES_APP_KEY: "app-key",
+        OPENSUBTITLES_DAILY_DOWNLOADS: "95",
         DATABASE_URL: "postgres://pooled",
         DATABASE_URL_UNPOOLED: "postgres://direct",
         UPSTASH_REDIS_REST_URL: "http://localhost:8079",
@@ -45,7 +46,7 @@ describe("readEnvironment", () => {
         allowLocalAddons: true,
       },
       secrets: { secret, installSalt },
-      sources: { openSubtitlesAppKey: "app-key" },
+      sources: { openSubtitlesAppKey: "app-key", openSubtitlesDailyDownloads: 95 },
       database: { url: "postgres://pooled", unpooledURL: "postgres://direct" },
       sharedState: { url: "http://localhost:8079", token: "token" },
     });
@@ -101,6 +102,12 @@ describe("readEnvironment", () => {
   it("throws when INSTALL_SALT equals SECRET", () => {
     expect(() => readEnvironment({ SECRET: secret, INSTALL_SALT: secret })).toThrow(
       "INSTALL_SALT must differ from SECRET",
+    );
+  });
+
+  it("rejects a daily download limit that is not a whole number", () => {
+    expect(() => readEnvironment({ ...secrets, OPENSUBTITLES_DAILY_DOWNLOADS: "four" })).toThrow(
+      "OPENSUBTITLES_DAILY_DOWNLOADS must be a whole number",
     );
   });
 });

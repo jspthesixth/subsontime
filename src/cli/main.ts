@@ -133,11 +133,14 @@ const sourcesOf = (env: Env, text: string | undefined): SourceSet => {
     ),
   };
 
+  const state = memorySharedState();
+  const { openSubtitlesAppKey, openSubtitlesDailyDownloads } = readGroup(sourcesSchema, env);
+
   return sourcesFromConfig(config, {
-    tokens: tokenCacheFor(memorySharedState(), randomUUID(), randomBytes(32)),
-    openSubtitlesAppKey: chosen.includes("opensubtitles")
-      ? readGroup(sourcesSchema, env).openSubtitlesAppKey
-      : undefined,
+    tokens: tokenCacheFor(state, randomUUID(), randomBytes(32)),
+    state,
+    openSubtitlesAppKey: chosen.includes("opensubtitles") ? openSubtitlesAppKey : undefined,
+    openSubtitlesDailyDownloads,
   });
 };
 

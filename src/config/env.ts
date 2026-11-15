@@ -1,6 +1,7 @@
 import * as v from "valibot";
 
 export const minimumSecretLength = 32;
+export const defaultDailyDownloads = 4;
 export const installSaltMessage = `INSTALL_SALT must be set to at least ${minimumSecretLength} characters`;
 
 const text = v.pipe(
@@ -38,9 +39,19 @@ export const secretsSchema = v.pipe(
   v.transform(({ SECRET, INSTALL_SALT }) => ({ secret: SECRET, installSalt: INSTALL_SALT })),
 );
 
+const dailyDownloads = v.pipe(
+  v.optional(v.string(), ""),
+  v.transform((value) => value || String(defaultDailyDownloads)),
+  v.digits("OPENSUBTITLES_DAILY_DOWNLOADS must be a whole number"),
+  v.transform(Number),
+);
+
 export const sourcesSchema = v.pipe(
-  v.object({ OPENSUBTITLES_APP_KEY: text }),
-  v.transform(({ OPENSUBTITLES_APP_KEY }) => ({ openSubtitlesAppKey: OPENSUBTITLES_APP_KEY })),
+  v.object({ OPENSUBTITLES_APP_KEY: text, OPENSUBTITLES_DAILY_DOWNLOADS: dailyDownloads }),
+  v.transform(({ OPENSUBTITLES_APP_KEY, OPENSUBTITLES_DAILY_DOWNLOADS }) => ({
+    openSubtitlesAppKey: OPENSUBTITLES_APP_KEY,
+    openSubtitlesDailyDownloads: OPENSUBTITLES_DAILY_DOWNLOADS,
+  })),
 );
 
 export const databaseSchema = v.pipe(

@@ -1,0 +1,165 @@
+import { createHash } from "node:crypto";
+import { setTimeout } from "node:timers/promises";
+import * as v from "valibot";
+import { orMiss, type SharedState } from "../jobs/shared-state.ts";
+import { parseJSON } from "../json.ts";
+import { rateLimit } from "../web/rate-limit.ts";
+import {
+  movieHashOf,
+  restCandidate,
+  restEntrySchema,
+  restQueryString,
+  searchRESTEntries,
+  type RESTEntry,
+} from "./opensubtitles.ts";
+import type { Candidate, Source, VideoQuery } from "./source.ts";
+import { addonEntries, stremioAddonSource } from "./stremio-addon.ts";
+
+export type DownloadBudget = { left(): Promise<boolean>; spend(): Promise<boolean> };
+
+const counterSeconds = 26 * 60 * 60;
+const cacheSeconds = 24 * 60 * 60;
+const restTimeoutMs = 3000;
+const searchesPerSecond = 5;
+const cachedEntriesSchema = v.array(restEntrySchema);
+
+export const downloadBudget = (
+  state: SharedState,
+  limit: number,
+  now = () => Date.now(),
+): DownloadBudget => {
+  const key = () => `os:downloads:${new Date(now()).toISOString().slice(0, 10)}`;
+
+  return {
+    left: () => orMiss(async () => Number((await state.get(key())) ?? 0) < limit, false),
+    spend: () => orMiss(async () => (await state.increment(key(), counterSeconds)) <= limit, false),
+  };
+};
+
+export const budgetedDownloads = (
+  source: Source,
+  budget: DownloadBudget,
+  state: SharedState,
+): Source => ({
+  ...source,
+  async download(ref, signal) {
+    const key = `os:file:${ref}`;
+    const cached = await orMiss(() => state.get(key), undefined);
+
+    if (cached !== undefined) {
+      return new Uint8Array(Buffer.from(cached, "base64"));
+    }
+
+    if (!(await budget.spend())) {
+      throw new Error("The OpenSubtitles download budget is spent");
+    }
+
+    const bytes = await source.download(ref, signal);
+
+    await orMiss(
+      () => state.set(key, Buffer.from(bytes).toString("base64"), cacheSeconds),
+      undefined,
+    );
+
+    return bytes;
+  },
+});
+
+const firstPerLanguage = (candidates: Candidate[]) =>
+  candidates.filter(
+    (candidate, index) => candidates.findIndex(({ lang }) => lang === candidate.lang) === index,
+  );
+
+const legacyIdOf = (entry: RESTEntry) => String(entry.attributes.legacy_subtitle_id);
+
+export const openSubtitlesHashSource = ({
+  manifestURL,
+  name,
+  appKey,
+  state,
+  budget,
+  restDownload,
+}: {
+  manifestURL: string;
+  name: string;
+  appKey: string;
+  state: SharedState;
+  budget: DownloadBudget;
+  restDownload: Source["download"];
+}): Source => {
+  const addon = stremioAddonSource(manifestURL, name);
+  const allowSearch = rateLimit(state, (key) => key, "opensubtitles", searchesPerSecond, 1000);
+
+  const searchMatches = async (query: VideoQuery, signal: AbortSignal) => {
+    const key = `os:search:${createHash("sha256")
+      .update(restQueryString(query) ?? "")
+      .digest("hex")}`;
+    const cached = v.safeParse(
+      cachedEntriesSchema,
+      parseJSON((await orMiss(() => state.get(key), undefined)) ?? ""),
+    );
+
+    if (cached.success) {
+      return cached.output;
+    }
+
+    if (!(await orMiss(() => allowSearch("search"), true))) {
+      return [];
+    }
+
+    const entries = await searchRESTEntries(appKey, query, signal, restTimeoutMs);
+
+    if (entries === undefined) {
+      return [];
+    }
+
+    const matches = entries.filter((entry) => entry.attributes.moviehash_match === true);
+
+    await orMiss(() => state.set(key, JSON.stringify(matches), cacheSeconds), undefined);
+
+    return matches;
+  };
+
+  const hashMatches = (query: VideoQuery, signal: AbortSignal) =>
+    Promise.race([
+      searchMatches(query, signal).catch((): RESTEntry[] => []),
+      setTimeout(restTimeoutMs, [], { ref: false }),
+    ]);
+
+  return {
+    name,
+    async search(query, signal) {
+      if (movieHashOf(query) === undefined) {
+        return addon.search(query, signal);
+      }
+
+      const [entries, matches] = await Promise.all([
+        addonEntries(manifestURL, name, query, signal),
+        hashMatches(query, signal),
+      ]);
+
+      const listedIds = new Set(entries.flatMap(({ id }) => id ?? []));
+      const matchedIds = new Set(matches.map(legacyIdOf));
+      const listed = entries.map(({ id, candidate }) => ({
+        ...candidate,
+        hashMatch: candidate.hashMatch || (id !== undefined && matchedIds.has(id)),
+      }));
+      const covered = new Set(listed.filter(({ hashMatch }) => hashMatch).map(({ lang }) => lang));
+      const missing = firstPerLanguage(
+        matches
+          .filter((entry) => !listedIds.has(legacyIdOf(entry)))
+          .flatMap(restCandidate)
+          .filter(({ lang }) => query.languages.includes(lang) && !covered.has(lang))
+          .map((candidate) => ({ ...candidate, sourceName: name })),
+      );
+
+      if (missing.length === 0 || !(await budget.left())) {
+        return listed;
+      }
+
+      return [...listed, ...missing];
+    },
+    download: (ref, signal) =>
+      /^\d+$/.test(ref) ? restDownload(ref, signal) : addon.download(ref, signal),
+  };
+};

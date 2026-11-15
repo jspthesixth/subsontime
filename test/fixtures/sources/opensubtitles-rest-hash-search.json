@@ -1,0 +1,104 @@
+{
+  "total_pages": 1,
+  "total_count": 32,
+  "per_page": 50,
+  "page": 1,
+  "data": [
+    {
+      "id": "665812",
+      "type": "subtitle",
+      "attributes": {
+        "language": "hr",
+        "release": "Peter.Pan.1953.1080p.BluRay.x264.YIFY-srp",
+        "fps": 25,
+        "moviehash_match": true,
+        "legacy_subtitle_id": 5128416,
+        "hearing_impaired": false,
+        "foreign_parts_only": false,
+        "feature_details": {
+          "imdb_id": 46183,
+          "title": "Peter Pan",
+          "year": 1953
+        },
+        "files": [
+          {
+            "file_id": 735363,
+            "file_name": "Peter.Pan.1953.1080p.BluRay.x264.YIFY-srp"
+          }
+        ]
+      }
+    },
+    {
+      "id": "665334",
+      "type": "subtitle",
+      "attributes": {
+        "language": "en",
+        "release": "Peter.Pan.1953.720p.BluRay.x264.YIFY",
+        "fps": 47.952,
+        "moviehash_match": true,
+        "legacy_subtitle_id": 4770753,
+        "hearing_impaired": false,
+        "foreign_parts_only": false,
+        "feature_details": {
+          "imdb_id": 46183,
+          "title": "Peter Pan",
+          "year": 1953
+        },
+        "files": [
+          {
+            "file_id": 734841,
+            "file_name": "Peter.Pan.1953.720p.BluRay.x264.YIFY"
+          }
+        ]
+      }
+    },
+    {
+      "id": "11142442",
+      "type": "subtitle",
+      "attributes": {
+        "language": "en",
+        "release": "Peter.Pan.1953.1080p.BluRay.x265-RARBG.en",
+        "fps": 0,
+        "moviehash_match": false,
+        "legacy_subtitle_id": 13605764,
+        "hearing_impaired": false,
+        "foreign_parts_only": false,
+        "feature_details": {
+          "imdb_id": 46183,
+          "title": "Peter Pan",
+          "year": 1953
+        },
+        "files": [
+          {
+            "file_id": 12038440,
+            "file_name": "Peter.Pan.1953.1080p.BluRay.x265-RARBG.en"
+          }
+        ]
+      }
+    },
+    {
+      "id": "665265",
+      "type": "subtitle",
+      "attributes": {
+        "language": "en",
+        "release": "Peter.Pan.1953.1080p.BluRay.X264-AMIABLE",
+        "fps": 23.976,
+        "moviehash_match": false,
+        "legacy_subtitle_id": 4749227,
+        "hearing_impaired": false,
+        "foreign_parts_only": false,
+        "feature_details": {
+          "imdb_id": 46183,
+          "title": "Peter Pan",
+          "year": 1953
+        },
+        "files": [
+          {
+            "file_id": 734767,
+            "file_name": "Peter.Pan.1953.1080p.BluRay.X264-AMIABLE"
+          }
+        ]
+      }
+    }
+  ]
+}
