@@ -22,7 +22,6 @@ import {
   servedCues,
   sharesOf,
   type Share,
-  type Track,
 } from "../stremio/file-route.ts";
 import { hashesOf, type Shared } from "../stremio/open-timings.ts";
 import type { CandidateRef } from "../stremio/refs.ts";
@@ -82,9 +81,10 @@ const fieldWidth = 12;
 const detailWidth = 28;
 const maximumCutTimes = 3;
 const localSourceName = "Local file";
-const anotherVideoReason = "made for another video";
 const untimedReason = "could not be timed";
 const inFlight = new Set<string>();
+
+export const anotherVideoReason = "made for another video";
 
 export const plainPaint: Paint = { value: (text) => text, dim: (text) => text };
 
@@ -118,7 +118,7 @@ const clock = (ms: number) =>
     .map((part) => String(Math.floor(part)).padStart(2, "0"))
     .join(":");
 
-const shiftText = (original: Cue[], timed: Cue[], speedRatio: number, fps?: number) => {
+export const shiftText = (original: Cue[], timed: Cue[], speedRatio: number, fps?: number) => {
   const { offsetMs, cutsAt } = shiftOf(original, timed, speedRatio);
 
   return [
@@ -151,6 +151,22 @@ const shortReason = (reason: string) => {
 
   return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
 };
+
+export const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
+
+export const audioShare = (video: VideoKey, cues: Cue[]): Share => ({
+  kind: "fix",
+  input: { video, subtitle: fixCuesOf(cues), method: "audio" },
+});
+
+export const mismatchShare = (video: VideoKey, cues: Cue[]): Share => ({
+  kind: "mismatch",
+  input: { video, subtitleHashes: hashesOf(cues) },
+});
 
 export const abandonWrites = () => {
   inFlight.forEach((path) => rmSync(path, { force: true }));
@@ -192,6 +208,23 @@ export const findVideos = async (
   };
 };
 
+export const replaceFile = async (target: string, write: (temp: string) => Promise<void>) => {
+  const temp = join(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`);
+
+  inFlight.add(temp);
+
+  try {
+    await write(temp);
+    await rename(temp, target);
+  } catch (error) {
+    await rm(temp, { force: true });
+
+    throw error;
+  } finally {
+    inFlight.delete(temp);
+  }
+};
+
 const writeSubtitle = async (
   directory: string,
   name: string,
@@ -202,7 +235,6 @@ const writeSubtitle = async (
 
   for (const file of names) {
     const target = join(directory, file);
-    const temp = join(directory, `.${file}.${randomUUID()}.tmp`);
     const reserved = await writeFile(target, "", { flag: "wx" }).then(
       () => true,
       (error: unknown) => {
@@ -218,18 +250,16 @@ const writeSubtitle = async (
       continue;
     }
 
-    inFlight.add(target).add(temp);
+    inFlight.add(target);
 
     try {
-      await writeFile(temp, writeSRT(cues));
-      await rename(temp, target);
+      await replaceFile(target, (temp) => writeFile(temp, writeSRT(cues)));
     } catch (error) {
-      await Promise.all([rm(temp, { force: true }), rm(target, { force: true })]);
+      await rm(target, { force: true });
 
       return { problem: messageOf(error) };
     } finally {
       inFlight.delete(target);
-      inFlight.delete(temp);
     }
 
     return { file };
@@ -238,7 +268,7 @@ const writeSubtitle = async (
   return { problem: `${names.join(" and ")} already exist` };
 };
 
-const sharedOf = async (
+export const sharedOf = async (
   timings: TimingsClient | undefined,
   video: VideoKey,
 ): Promise<Shared | undefined> => {
@@ -267,20 +297,20 @@ const sharedOf = async (
   };
 };
 
-const timingOf = (result: RetimeResult | undefined, track: Track, fps?: number): Line => {
+export const timingOf = (result: RetimeResult | undefined, original: Cue[], fps?: number): Line => {
   switch (result?.kind) {
     case "made-for-file":
       return { label: "made for this file", value: "fingerprint match" };
     case "retimed":
       return {
         label: result.byReleaseName ? "retimed by release name" : "retimed",
-        value: shiftText(track.cues, result.cues, result.speedRatio, fps),
+        value: shiftText(original, result.cues, result.speedRatio, fps),
       };
     case "shared-fix":
       return {
         label: "shared fix, confirmed",
         value: [
-          shiftText(track.cues, result.cues, ratioOf(track.cues, result.cues), fps),
+          shiftText(original, result.cues, ratioOf(original, result.cues), fps),
           `${result.agreeing} agree`,
           ...(result.fromAudio ? ["from audio"] : []),
         ].join(" · "),
@@ -290,7 +320,7 @@ const timingOf = (result: RetimeResult | undefined, track: Track, fps?: number):
   }
 };
 
-const unusedReason = (audio: AudioResult) => {
+export const unusedReason = (audio: AudioResult) => {
   switch (audio.kind) {
     case "aligned":
       return `not clear enough (contrast ${audio.contrast.toFixed(1)})`;
@@ -412,7 +442,7 @@ const pickTimed = async (
     }
 
     const { candidate, track, result } = served;
-    const timing = timingOf(result, track, candidate.p);
+    const timing = timingOf(result, track.cues, candidate.p);
 
     if (result?.kind === "shared-fix") {
       return {
@@ -427,7 +457,7 @@ const pickTimed = async (
 
     if (aligned !== undefined && aligned.contrast < audioMismatchContrast) {
       skipped.push({ lang, candidate, reason: anotherVideoReason });
-      shares.push({ kind: "mismatch", input: { video, subtitleHashes: hashesOf(track.cues) } });
+      shares.push(mismatchShare(video, track.cues));
       continue;
     }
 
@@ -442,10 +472,7 @@ const pickTimed = async (
           },
         },
         skipped,
-        shares: [
-          ...shares,
-          { kind: "fix", input: { video, subtitle: fixCuesOf(aligned.cues), method: "audio" } },
-        ],
+        shares: [...shares, audioShare(video, aligned.cues)],
       };
     }
 
@@ -470,7 +497,10 @@ const pickTimed = async (
   return { skipped, shares };
 };
 
-const shareAll = async (shares: Share[], context: FixContext) => {
+export const shareAll = async (
+  shares: Share[],
+  context: Pick<FixContext, "timings" | "sharing" | "installId">,
+) => {
   const { timings } = context;
 
   if (timings === undefined || context.sharing !== "on" || shares.length === 0) {

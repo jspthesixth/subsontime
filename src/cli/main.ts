@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -6,16 +5,18 @@ import { homedir } from "node:os";
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
 import * as v from "valibot";
-import { ffmpegCommand } from "../audio/ffmpeg.ts";
+import { ffmpegFound } from "../audio/ffmpeg.ts";
 import type { SourceSettings } from "../config/config.ts";
 import { defaultConfig, openSubtitlesAddonURL } from "../config/default-config.ts";
 import { memorySharedState } from "../jobs/shared-state.ts";
 import { fromLocales, toISO6391, toISO6392 } from "../languages.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
 import { tokenCacheFor } from "../sources/token-cache.ts";
+import { bazarr } from "./bazarr.ts";
 import {
   abandonWrites,
   ansiPaint,
+  exists,
   field,
   findVideos,
   fixVideo,
@@ -45,6 +46,9 @@ const usage = `Usage: subsontime fix <file-or-folder> [options]
 
 Finds subtitles for each video, times them to the exact file and writes
 <video name>.<language>.srt next to it.
+
+As Bazarr's post-processing command, syncs the subtitle Bazarr wrote:
+  subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}}
 
 Options:
   --lang <codes>      Languages, ISO 639-1 or 639-2, comma separated (default: yours and English)
@@ -152,12 +156,6 @@ const sharingOf = (values: { offline?: boolean; private?: boolean }): Sharing =>
   return values.private === true ? "private" : "on";
 };
 
-const exists = (path: string) =>
-  stat(path).then(
-    () => true,
-    () => false,
-  );
-
 const parse = (argv: string[]) => {
   try {
     return parseArgs({ args: argv, options, allowPositionals: true });
@@ -223,7 +221,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
     throw new UsageError("--imdb and --subtitle need one video, not a folder");
   }
 
-  if (values.audio === true && spawnSync(ffmpegCommand(), ["-version"]).error !== undefined) {
+  if (values.audio === true && !ffmpegFound()) {
     deps.printError(`${missingFFmpeg}\n`);
 
     return 3;
@@ -282,6 +280,10 @@ export const defaultDeps = (): CLIDeps => ({
 });
 
 export const main = async (argv: string[], deps: CLIDeps = defaultDeps()) => {
+  if (argv[0] === "bazarr") {
+    return bazarr(argv.slice(1), deps);
+  }
+
   try {
     return await run(argv, deps);
   } catch (error) {

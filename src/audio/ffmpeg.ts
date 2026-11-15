@@ -1,8 +1,10 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 export const pcmSampleRate = 16000;
 
 export const ffmpegCommand = () => process.env.SUBSONTIME_FFMPEG || "ffmpeg";
+
+export const ffmpegFound = () => spawnSync(ffmpegCommand(), ["-version"]).error === undefined;
 
 const stderrTailLength = 4096;
 

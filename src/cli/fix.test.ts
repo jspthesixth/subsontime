@@ -1,4 +1,3 @@
-import { once } from "node:events";
 import {
   chmod,
   mkdir,
@@ -12,32 +11,33 @@ import {
   truncate,
   writeFile,
 } from "node:fs/promises";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serve } from "@hono/node-server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { alignToSpeech, type AudioAlignment } from "../audio/align-audio.ts";
 import { hasFFmpeg, writeBursts } from "../audio/test-video.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource } from "../sources/test-sources.ts";
-import { appWith } from "../stremio/test-app.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
-import { memoryStore, type TimingsStore } from "../timings/db.ts";
-import { toFixCues } from "../timings/fingerprint.ts";
-import { openSubtitlesHash } from "../video-hash.ts";
+import { memoryStore } from "../timings/db.ts";
 import { abandonWrites, findVideos } from "./fix.ts";
 import { cleanName, identify } from "./identify.ts";
 import { configDirOf, installIdIn } from "./install-id.ts";
 import { main, type CLIDeps } from "./main.ts";
+import {
+  confirmFix,
+  noNetwork,
+  posts,
+  startTimings,
+  stopTimings,
+  videoKeyOf,
+} from "./test-timings.ts";
 
 vi.mock("../audio/align-audio.ts", { spy: true });
 vi.mock("node:fs/promises", { spy: true });
-
-type Recorded = { method: string; path: string; body: unknown };
 
 const track = syntheticTrack(1, 200);
 const shifted = transform(track, (time) => time + 2000);
@@ -54,36 +54,8 @@ const missingFFmpeg = "ffmpeg is needed for --audio. Install it and try again.";
 
 const directory = await mkdtemp(join(tmpdir(), "subsontime-cli-"));
 const burstsVideo = join(directory, "bursts.mkv");
-const servers: { close: () => void }[] = [];
 let work = "";
 let configDir = "";
-
-const startTimings = async (store: TimingsStore = memoryStore()) => {
-  const app = appWith({ listed: [], references: [] }, store);
-  const requests: Recorded[] = [];
-  const server = serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch: async (request: Request) => {
-      requests.push({
-        method: request.method,
-        path: new URL(request.url).pathname,
-        body: request.method === "POST" ? await request.clone().json() : undefined,
-      });
-
-      return app.fetch(request);
-    },
-  });
-
-  await once(server, "listening");
-  servers.push(server);
-
-  const { port } = server.address() as AddressInfo;
-
-  return { url: `http://127.0.0.1:${port}`, requests, store };
-};
-
-const posts = (requests: Recorded[]) => requests.filter((request) => request.method === "POST");
 
 const writeVideo = async (name: string, bytes = 100_000) => {
   const path = join(work, name);
@@ -107,29 +79,6 @@ const copyBursts = async (name: string) => {
   await writeFile(path, await readFile(burstsVideo));
 
   return path;
-};
-
-const videoKeyOf = async (path: string) => {
-  const bytes = await readFile(path);
-
-  return {
-    hash: await openSubtitlesHash(bytes.length, async (start, length) =>
-      bytes.subarray(start, start + length),
-    ),
-    size: bytes.length,
-  };
-};
-
-const confirmFix = async (
-  store: TimingsStore,
-  video: { hash: string; size: number },
-  cues: Cue[],
-) => {
-  const fix = toFixCues(cues);
-  const row = { video, subtitleHashes: fix.map((cue) => cue.h), cues: fix };
-
-  await store.putFix({ ...row, method: "audio", submitter: "s1", origin: "o1" });
-  await store.putFix({ ...row, method: "audio", submitter: "s2", origin: "o2" });
 };
 
 const retimedSources = (): SourceSet => ({
@@ -160,11 +109,6 @@ const cuesIn = async (path: string) => parseSubtitle(await readFile(path, "utf8"
 const startsWithin = (aligned: Cue[], expected: Cue[]) =>
   Math.max(...aligned.map((cue, index) => Math.abs(cue.start - (expected[index]?.start ?? 0))));
 
-const noNetwork = () =>
-  vi.fn<typeof fetch>(async () => {
-    throw new Error("No network");
-  });
-
 beforeAll(async () => {
   if (hasFFmpeg) {
     await writeBursts(burstsVideo, spoken, spokenEnd + 2000);
@@ -178,7 +122,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  servers.splice(0).forEach((server) => server.close());
+  stopTimings();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
