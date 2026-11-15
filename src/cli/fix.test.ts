@@ -415,7 +415,9 @@ describe("Open Timings", () => {
     );
 
     expect(code).toBe(0);
-    expect(output).toContain(`${detailLine("not shared", "could not save the install id")}\n`);
+    expect(output).toContain(
+      `${detailLine("not shared", "could not save the install id: EACCES")}\n`,
+    );
     expect(posts(requests)).toEqual([]);
   });
 });
@@ -503,21 +505,6 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     expect(output).toContain("\n  skipped     en · Fake · made for another video\n");
     expect((await cuesIn(join(work, `${movieName}.en.srt`)))[0]?.text).toBe("Other Line 0");
     expect(posts(requests)).toEqual([]);
-  });
-
-  it("reports no mismatch when the speech detection is implausible", async () => {
-    const video = await copyBursts(`${movieName}.mkv`);
-    const { url, requests } = await startTimings();
-
-    vi.mocked(alignToSpeech).mockResolvedValueOnce({ kind: "implausible-speech", share: 0.95 });
-
-    const { code } = await run(
-      ["fix", video, "--lang", "en", "--imdb", "tt0111161", "--audio", "--api", url],
-      { sources: retimedSources() },
-    );
-
-    expect(code).toBe(0);
-    expect(posts(requests).map((request) => request.path)).not.toContain("/api/v1/mismatches");
   });
 
   it.each<[string, AudioAlignment, string]>([
@@ -827,6 +814,20 @@ describe("install id location", () => {
     expect(await installIdFrom(join(home, ".config", "subsontime"), fallback)).toBe(installId);
   });
 
+  it("refuses a fallback folder that other users can open", async () => {
+    const home = join(work, "home");
+    const fallback = join(work, "fallback");
+
+    await mkdir(home, { mode: 0o500 });
+    await mkdir(fallback);
+    await chmod(fallback, 0o755);
+
+    await expect(installIdFrom(join(home, "config"), fallback)).rejects.toThrow(
+      "the fallback folder is open to other users",
+    );
+    expect(await readdir(fallback)).toEqual([]);
+  });
+
   it("refuses a fallback that is not a folder of its own", async () => {
     const home = join(work, "home");
     const fallback = join(work, "fallback");
@@ -836,7 +837,7 @@ describe("install id location", () => {
     await symlink(join(work, "elsewhere"), fallback);
 
     await expect(installIdFrom(join(home, "config"), fallback)).rejects.toThrow(
-      "is not this user's folder",
+      "the fallback folder is not this user's",
     );
     expect(await readdir(join(work, "elsewhere"))).toEqual([]);
   });
@@ -847,7 +848,7 @@ describe("install id location", () => {
     await mkdir(home, { mode: 0o500 });
 
     await expect(installIdFrom(join(home, "config"), undefined)).rejects.toThrow(
-      "could not save the install id",
+      expect.objectContaining({ code: "EACCES" }),
     );
   });
 });

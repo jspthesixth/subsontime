@@ -43,13 +43,16 @@ import { fileFingerprint } from "./video-hash.ts";
 
 export type Sharing = "on" | "private" | "offline";
 
-export type ShareOutcome = "shared" | "no-install-id" | "no-answer";
+export type ShareOutcome = { shared: true } | { shared: false; reason: string };
 
 export const audioNotShared = "audio check not reliable enough yet";
 
-export const shareFailures = {
-  "no-install-id": "could not save the install id",
-  "no-answer": "Open Timings did not answer",
+const errorReasonOf = (error: unknown) => {
+  if (error instanceof Error && "code" in error && typeof error.code === "string") {
+    return error.code;
+  }
+
+  return error instanceof Error ? error.message : "unknown error";
 };
 
 export type Paint = { value: (text: string) => string; dim: (text: string) => string };
@@ -517,17 +520,20 @@ const pickTimed = async (
 export const shareAll = async (
   shares: Share[],
   context: Pick<FixContext, "timings" | "sharing" | "installId">,
-) => {
+): Promise<ShareOutcome | undefined> => {
   const { timings } = context;
 
   if (timings === undefined || context.sharing !== "on" || shares.length === 0) {
     return undefined;
   }
 
-  const installId = await context.installId().catch(() => undefined);
+  const installId = await context.installId().catch((error: unknown) => ({ failed: error }));
 
-  if (installId === undefined) {
-    return "no-install-id";
+  if (typeof installId !== "string") {
+    return {
+      shared: false,
+      reason: `could not save the install id: ${errorReasonOf(installId.failed)}`,
+    };
   }
 
   try {
@@ -535,9 +541,9 @@ export const shareAll = async (
       await timings.submit(share, installId);
     }
 
-    return "shared";
+    return { shared: true };
   } catch {
-    return "no-answer";
+    return { shared: false, reason: "Open Timings did not answer" };
   }
 };
 
@@ -550,9 +556,9 @@ const shareLines = (sharing: Sharing, sent: ShareOutcome | undefined): Line[] =>
     return [];
   }
 
-  return sent === "shared"
+  return sent.shared
     ? [{ label: "shared with Open Timings", value: "numbers and fingerprints only", tone: "dim" }]
-    : [{ label: "not shared", value: shareFailures[sent], tone: "dim" }];
+    : [{ label: "not shared", value: sent.reason, tone: "dim" }];
 };
 
 const releaseOf = (found: Found, lang: string, candidate: CandidateRef) =>

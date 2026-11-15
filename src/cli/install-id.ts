@@ -43,7 +43,11 @@ const ownDirectory = async (directory: string) => {
   const uid = process.getuid?.();
 
   if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) {
-    throw new Error(`${directory} is not this user's folder`);
+    throw new Error("the fallback folder is not this user's");
+  }
+
+  if ((info.mode & 0o077) !== 0) {
+    throw new Error("the fallback folder is open to other users");
   }
 };
 
@@ -65,9 +69,9 @@ export const installIdIn = async (directory: string): Promise<string> => {
 };
 
 export const installIdFrom = (directory: string, fallback: string | undefined) =>
-  installIdIn(directory).catch(async () => {
+  installIdIn(directory).catch(async (error: unknown) => {
     if (fallback === undefined) {
-      throw new Error("could not save the install id");
+      throw error;
     }
 
     await mkdir(fallback, { recursive: true, mode: 0o700 });
