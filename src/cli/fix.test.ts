@@ -450,7 +450,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     expect(posts(requests)).toEqual([]);
   });
 
-  it("writes and shares an audio fix whose contrast clears 3.5", async () => {
+  it("writes an audio fix whose contrast clears 3.5 and shares nothing", async () => {
     const video = await copyBursts(`${movieName}.mkv`);
     const { url, requests } = await startTimings();
 
@@ -463,16 +463,14 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
 
     expect(code).toBe(0);
     expect(output).toMatch(/\n {6}synced against the audio {4}-(1\.9|2\.0)\d s\n/);
+    expect(output).toContain(
+      `${detailLine("not shared", "audio check not reliable enough yet")}\n`,
+    );
     expect(startsWithin(await cuesIn(join(work, `${movieName}.en.srt`)), spoken)).toBeLessThan(100);
-    expect(posts(requests)).toEqual([
-      expect.objectContaining({
-        path: "/api/v1/fixes",
-        body: expect.objectContaining({ method: "audio" }),
-      }),
-    ]);
+    expect(posts(requests)).toEqual([]);
   });
 
-  it("skips a subtitle whose contrast is under 1.5 and reports it as a mismatch", async () => {
+  it("skips a subtitle whose contrast is under 1.5 and reports no mismatch", async () => {
     const video = await copyBursts(`${movieName}.mkv`);
     const { url, requests } = await startTimings();
 
@@ -504,10 +502,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     expect(output).toContain("\n  en  Fake · Second\n");
     expect(output).toContain("\n  skipped     en · Fake · made for another video\n");
     expect((await cuesIn(join(work, `${movieName}.en.srt`)))[0]?.text).toBe("Other Line 0");
-    expect(posts(requests).map((request) => request.path)).toEqual([
-      "/api/v1/mismatches",
-      "/api/v1/fixes",
-    ]);
+    expect(posts(requests)).toEqual([]);
   });
 
   it("reports no mismatch when the speech detection is implausible", async () => {

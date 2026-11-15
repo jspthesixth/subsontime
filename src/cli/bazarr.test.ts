@@ -11,8 +11,6 @@ import {
 } from "../audio/align-audio.ts";
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import { hasFFmpeg, writeBursts } from "../audio/test-video.ts";
-import { fixCuesOf } from "../stremio/file-route.ts";
-import { hashesOf } from "../stremio/open-timings.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
@@ -120,7 +118,7 @@ describe("with the audio measured", () => {
     vi.mocked(ffmpegFound).mockReturnValue(true);
   });
 
-  it("overwrites the subtitle, keeps the original and shares an audio fix", async () => {
+  it("overwrites the subtitle, keeps the original and shares nothing", async () => {
     const paths = await prepare();
     const original = await readFile(paths.subtitle);
     const { url, requests } = await startTimings();
@@ -131,26 +129,19 @@ describe("with the audio measured", () => {
 
     expect(code).toBe(0);
     expect(errors).toBe("");
-    expect(output).toBe("subsontime: synced to the audio +1.20 s · contrast 9.4 · shared\n");
+    expect(output).toBe(
+      "subsontime: synced to the audio +1.20 s · contrast 9.4 · not shared, audio check not reliable enough yet\n",
+    );
     expect(await cuesIn(paths.subtitle)).toEqual(shiftedBy(1200));
     expect(await readFile(origOf(paths.subtitle))).toEqual(original);
-    expect(posts(requests)).toEqual([
-      expect.objectContaining({
-        path: "/api/v1/fixes",
-        body: expect.objectContaining({
-          method: "audio",
-          subtitle: fixCuesOf(shiftedBy(1200)),
-          video: await videoKeyOf(paths.video),
-        }),
-      }),
-    ]);
+    expect(posts(requests)).toEqual([]);
   });
 
   it.each([
     ["a median shift of 100 ms", aligned(shiftedBy(100), 9.4)],
     ["a median shift of -100 ms", aligned(shiftedBy(-100), 9.4)],
   ])(
-    "leaves a subtitle already in sync byte-identical and shares its own times at %s",
+    "leaves a subtitle already in sync byte-identical and shares nothing at %s",
     async (_, alignment) => {
       const paths = await prepare();
       const original = await readFile(paths.subtitle);
@@ -161,15 +152,12 @@ describe("with the audio measured", () => {
       const { code, output } = await run(argsFor(paths, "--api", url));
 
       expect(code).toBe(0);
-      expect(output).toBe("subsontime: already in sync with the audio · contrast 9.4 · shared\n");
+      expect(output).toBe(
+        "subsontime: already in sync with the audio · contrast 9.4 · not shared, audio check not reliable enough yet\n",
+      );
       expect(await readFile(paths.subtitle)).toEqual(original);
       expect(await readdir(work)).not.toContain("Film.2001.en.orig.srt");
-      expect(posts(requests)).toEqual([
-        expect.objectContaining({
-          path: "/api/v1/fixes",
-          body: expect.objectContaining({ method: "audio", subtitle: fixCuesOf(track) }),
-        }),
-      ]);
+      expect(posts(requests)).toEqual([]);
     },
   );
 
@@ -202,7 +190,7 @@ describe("with the audio measured", () => {
     expect(await cuesIn(paths.subtitle)).toEqual(cues);
   });
 
-  it("rewrites and shares at a contrast of exactly 3.5", async () => {
+  it("rewrites at a contrast of exactly 3.5 and shares nothing", async () => {
     const paths = await prepare();
     const { url, requests } = await startTimings();
 
@@ -210,8 +198,10 @@ describe("with the audio measured", () => {
 
     const { output } = await run(argsFor(paths, "--api", url));
 
-    expect(output).toBe("subsontime: synced to the audio +1.20 s · contrast 3.5 · shared\n");
-    expect(posts(requests).map((request) => request.path)).toEqual(["/api/v1/fixes"]);
+    expect(output).toBe(
+      "subsontime: synced to the audio +1.20 s · contrast 3.5 · not shared, audio check not reliable enough yet\n",
+    );
+    expect(posts(requests)).toEqual([]);
   });
 
   it("leaves the subtitle and shares nothing at a contrast of exactly 1.5", async () => {
@@ -228,7 +218,7 @@ describe("with the audio measured", () => {
     expect(posts(requests)).toEqual([]);
   });
 
-  it("leaves a subtitle for another video and reports the mismatch", async () => {
+  it("leaves a subtitle for another video and reports nothing", async () => {
     const paths = await prepare();
     const original = await readFile(paths.subtitle);
     const { url, requests } = await startTimings();
@@ -239,16 +229,11 @@ describe("with the audio measured", () => {
 
     expect(code).toBe(0);
     expect(output).toBe(
-      "subsontime: left as it is · made for another video (contrast 1.1) · shared\n",
+      "subsontime: left as it is · made for another video (contrast 1.1) · not shared, audio check not reliable enough yet\n",
     );
     expect(await readFile(paths.subtitle)).toEqual(original);
     expect(await readdir(work)).not.toContain("Film.2001.en.orig.srt");
-    expect(posts(requests)).toEqual([
-      expect.objectContaining({
-        path: "/api/v1/mismatches",
-        body: expect.objectContaining({ subtitleHashes: hashesOf(track) }),
-      }),
-    ]);
+    expect(posts(requests)).toEqual([]);
   });
 
   it.each<[string, AudioAlignment, string]>([
@@ -368,35 +353,6 @@ describe("with the audio measured", () => {
     expect(requests).toEqual([]);
     expect(fetched).not.toHaveBeenCalled();
     await expect(stat(join(configDir, "install-id"))).rejects.toThrow("ENOENT");
-  });
-
-  it("says when Open Timings did not answer", async () => {
-    const paths = await prepare();
-
-    vi.mocked(alignToAudio).mockResolvedValueOnce(aligned(shiftedBy(1200), 9.4));
-
-    const { output } = await run(argsFor(paths, "--api", "http://127.0.0.1:1"));
-
-    expect(output).toBe(
-      "subsontime: synced to the audio +1.20 s · contrast 9.4 · not shared, Open Timings did not answer\n",
-    );
-  });
-
-  it("says when no folder can hold the install id", async () => {
-    const paths = await prepare();
-    const { url, requests } = await startTimings();
-    const home = join(work, "home");
-
-    await mkdir(home, { mode: 0o500 });
-    configDir = join(home, ".config", "subsontime");
-    vi.mocked(alignToAudio).mockResolvedValueOnce(aligned(shiftedBy(1200), 9.4));
-
-    const { output } = await run(argsFor(paths, "--api", url));
-
-    expect(output).toBe(
-      "subsontime: synced to the audio +1.20 s · contrast 9.4 · not shared, could not save the install id\n",
-    );
-    expect(posts(requests)).toEqual([]);
   });
 
   it("exits 0 with one line when anything throws", async () => {
@@ -542,7 +498,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     expect(await readFile(origOf(subtitle), "utf8")).toBe(writeSRT(lateSpoken));
   });
 
-  it("shares a subtitle already in sync with its own times and leaves it byte-identical", async () => {
+  it("leaves a subtitle already in sync byte-identical and shares nothing", async () => {
     const video = join(work, "Film.2001.mkv");
     const subtitle = join(work, "Film.2001.en.srt");
     const { url, requests } = await startTimings();
@@ -554,14 +510,9 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     const { output } = await run(argsFor({ video, subtitle }, "--api", url));
 
     expect(output).toMatch(
-      /^subsontime: already in sync with the audio · contrast \d+\.\d · shared\n$/,
+      /^subsontime: already in sync with the audio · contrast \d+\.\d · not shared, audio check not reliable enough yet\n$/,
     );
     expect(await readFile(subtitle)).toEqual(original);
-    expect(posts(requests)).toEqual([
-      expect.objectContaining({
-        path: "/api/v1/fixes",
-        body: expect.objectContaining({ method: "audio", subtitle: fixCuesOf(spoken) }),
-      }),
-    ]);
+    expect(posts(requests)).toEqual([]);
   });
 });

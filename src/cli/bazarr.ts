@@ -13,20 +13,14 @@ import { shiftOf } from "../timing/retime.ts";
 import { cueHashes } from "../timings/fingerprint.ts";
 import {
   anotherVideoReason,
-  audioShare,
-  mismatchShare,
+  audioNotShared,
   ratioOf,
   replaceFile,
-  shareAll,
-  shareFailures,
   sharedOf,
   shiftText,
   timingOf,
   unusedReason,
-  type ShareOutcome,
-  type Sharing,
 } from "./fix.ts";
-import { installIdFrom } from "./install-id.ts";
 import type { CLIDeps } from "./main.ts";
 import { defaultAPIURL, timingsClient } from "./timings-client.ts";
 import { fileFingerprint } from "./video-hash.ts";
@@ -58,13 +52,8 @@ const firstLine = (error: unknown) =>
 
 const code3Of = (lang: string) => toISO6392(toISO6391(lang) ?? lang) ?? lang.toLowerCase();
 
-const sharedText = (sent: ShareOutcome | undefined) => {
-  if (sent === undefined) {
-    return "not shared, --private";
-  }
-
-  return sent === "shared" ? "shared" : `not shared, ${shareFailures[sent]}`;
-};
+const notSharedText = (isPrivate: boolean) =>
+  isPrivate ? "not shared, --private" : `not shared, ${audioNotShared}`;
 
 const inSync = (original: Cue[], timed: Cue[], speedRatio: number) => {
   const { offsetMs, cuts } = shiftOf(original, timed, speedRatio);
@@ -93,7 +82,7 @@ const rewrite = async (subtitle: string, lang: string | undefined, cues: Cue[], 
   });
 };
 
-const run = async (argv: string[], deps: CLIDeps) => {
+const run = async (argv: string[]) => {
   const { video: videoPath, subtitle, lang, api, private: isPrivate } = parse(argv);
 
   if (videoPath === undefined || subtitle === undefined) {
@@ -108,16 +97,11 @@ const run = async (argv: string[], deps: CLIDeps) => {
     return `${left} · only .srt subtitles are retimed`;
   }
 
-  const sharing: Sharing = isPrivate === true ? "private" : "on";
-  const context = {
-    sharing,
-    timings: isPrivate === true ? undefined : timingsClient(api ?? defaultAPIURL),
-    installId: () => installIdFrom(deps.configDir, deps.fallbackConfigDir),
-  };
+  const timings = isPrivate === true ? undefined : timingsClient(api ?? defaultAPIURL);
   const code3 = lang === undefined ? undefined : code3Of(lang);
   const cues = await readCues(subtitle, code3);
   const video = await fileFingerprint(videoPath);
-  const fixed = await sharedFix(cues, await sharedOf(context.timings, video));
+  const fixed = await sharedFix(cues, await sharedOf(timings, video));
 
   if (fixed?.kind === "shared-fix") {
     const { label, value = "" } = timingOf(fixed, cues);
@@ -142,11 +126,10 @@ const run = async (argv: string[], deps: CLIDeps) => {
   }
 
   const contrast = `contrast ${audio.contrast.toFixed(1)}`;
+  const notShared = notSharedText(isPrivate === true);
 
   if (audio.contrast < audioMismatchContrast) {
-    const sent = await shareAll([mismatchShare(video, cues)], context);
-
-    return `${left} · ${anotherVideoReason} (${contrast}) · ${sharedText(sent)}`;
+    return `${left} · ${anotherVideoReason} (${contrast}) · ${notShared}`;
   }
 
   if (audio.contrast < audioAcceptContrast) {
@@ -154,20 +137,16 @@ const run = async (argv: string[], deps: CLIDeps) => {
   }
 
   if (inSync(cues, audio.cues, audio.speedRatio)) {
-    const sent = await shareAll([audioShare(video, cues)], context);
-
-    return `already in sync with the audio · ${contrast} · ${sharedText(sent)}`;
+    return `already in sync with the audio · ${contrast} · ${notShared}`;
   }
 
   await rewrite(subtitle, code3, cues, audio.cues);
 
-  const sent = await shareAll([audioShare(video, audio.cues)], context);
-
-  return `synced to the audio ${shiftText(cues, audio.cues, audio.speedRatio)} · ${contrast} · ${sharedText(sent)}`;
+  return `synced to the audio ${shiftText(cues, audio.cues, audio.speedRatio)} · ${contrast} · ${notShared}`;
 };
 
 export const bazarr = async (argv: string[], deps: CLIDeps) => {
-  const line = await run(argv, deps).catch((error: unknown) =>
+  const line = await run(argv).catch((error: unknown) =>
     error instanceof UsageError
       ? `${firstLine(error)} · ${usage}`
       : `${left} · ${firstLine(error)}`,

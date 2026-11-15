@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileFingerprint } from "../../src/cli/video-hash.ts";
 
-type Film = { imdbId: string; folder: string; url: string; mustFix?: boolean };
+type Film = { imdbId: string; folder: string; url: string; mustSync?: boolean };
 type RadarrMovie = { id: number; imdbId: string; hasFile: boolean };
 type BazarrMovie = { radarrId: number; imdbId: string; profileId: number | null };
 type BazarrJob = { job_name: string; status: string };
@@ -44,7 +44,7 @@ const films: Film[] = [
   {
     imdbId: "tt0052077",
     folder: "Plan 9 from Outer Space (1959)",
-    mustFix: true,
+    mustSync: true,
     url: "https://archive.org/download/plan-9-from-outer-space_202011/Plan%209%20from%20Outer%20Space%20%20%20Ed%20Wood%20%28full%20movie%29.mp4",
   },
 ];
@@ -278,6 +278,7 @@ const rowsIn = (sql: string) =>
     .filter((row) => row !== "");
 
 const sharedLine = /· shared \|?\s*$/;
+const syncedLine = /subsontime: (synced to|already in sync with) the audio/;
 
 const resultOf = async (key: string, movies: BazarrMovie[], film: Film, logLines: string[]) => {
   const radarrId = movies.find(({ imdbId }) => imdbId === film.imdbId)?.radarrId;
@@ -290,6 +291,7 @@ const resultOf = async (key: string, movies: BazarrMovie[], film: Film, logLines
   const audio = methods.filter((method) => method === "audio").length;
   const lines = logLines.filter((line) => line.includes(`/movies/${film.folder}/`));
   const shared = lines.filter((line) => sharedLine.test(line)).length;
+  const synced = lines.filter((line) => syncedLine.test(line)).length;
 
   console.log(`\n${film.folder}`);
   downloads.forEach(({ language, provider, score }) =>
@@ -297,14 +299,14 @@ const resultOf = async (key: string, movies: BazarrMovie[], film: Film, logLines
   );
   console.log(`  beside the film: ${beside.join(", ") || "nothing"}`);
   console.log(
-    `  subsontime: ${lines.length} lines, ${shared} shared · Open Timings: ${methods.length} fixes, ${audio} audio`,
+    `  subsontime: ${lines.length} lines, ${synced} synced, ${shared} shared · Open Timings: ${methods.length} fixes, ${audio} audio`,
   );
 
   return [
     ...(lines.length === 0 ? ["no subsontime: line in Bazarr's log"] : []),
     ...(shared === methods.length ? [] : [`${shared} shared lines for ${methods.length} fixes`]),
-    ...(audio === methods.length ? [] : [`${methods.length - audio} fixes that are not audio`]),
-    ...(film.mustFix === true && audio === 0 ? ["no audio fix"] : []),
+    ...(audio === 0 ? [] : [`${audio} audio fixes published`]),
+    ...(film.mustSync === true && synced === 0 ? ["no subtitle synced to the audio"] : []),
   ].map((failure) => `${film.folder}: ${failure}`);
 };
 

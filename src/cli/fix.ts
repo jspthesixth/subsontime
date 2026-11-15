@@ -20,14 +20,13 @@ import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
 import {
   downloader,
-  fixCuesOf,
   recordAttempts,
   resolveAttempts,
   servedCues,
   sharesOf,
   type Share,
 } from "../stremio/file-route.ts";
-import { hashesOf, type Shared } from "../stremio/open-timings.ts";
+import type { Shared } from "../stremio/open-timings.ts";
 import type { CandidateRef } from "../stremio/refs.ts";
 import { bestSlotSize, searchVideo, toCandidateRef } from "../stremio/subtitles-route.ts";
 import type { Cue } from "../subtitles/cue.ts";
@@ -45,6 +44,8 @@ import { fileFingerprint } from "./video-hash.ts";
 export type Sharing = "on" | "private" | "offline";
 
 export type ShareOutcome = "shared" | "no-install-id" | "no-answer";
+
+export const audioNotShared = "audio check not reliable enough yet";
 
 export const shareFailures = {
   "no-install-id": "could not save the install id",
@@ -71,7 +72,13 @@ type AudioResult = AudioAlignment | { kind: "failed"; reason: string };
 type Line = { label: string; value?: string; tone?: "value" | "dim" };
 type Skip = { lang: string; candidate: CandidateRef; reason: string };
 type Found = { references: Candidate[]; ranked: (lang: string) => Candidate[] };
-type Chosen = { candidate: CandidateRef; cues: Cue[]; timing: Line; audio?: Line };
+type Chosen = {
+  candidate: CandidateRef;
+  cues: Cue[];
+  timing: Line;
+  audio?: Line;
+  fromAudio?: boolean;
+};
 type Picked = { chosen?: Chosen; skipped: Skip[]; shares: Share[] };
 type Language = { lines: string[]; skipped: Skip[]; written: boolean };
 type Listen = {
@@ -167,16 +174,6 @@ export const exists = (path: string) =>
     () => true,
     () => false,
   );
-
-export const audioShare = (video: VideoKey, cues: Cue[]): Share => ({
-  kind: "fix",
-  input: { video, subtitle: fixCuesOf(cues), method: "audio" },
-});
-
-export const mismatchShare = (video: VideoKey, cues: Cue[]): Share => ({
-  kind: "mismatch",
-  input: { video, subtitleHashes: hashesOf(cues) },
-});
 
 export const abandonWrites = () => {
   inFlight.forEach((path) => rmSync(path, { force: true }));
@@ -477,7 +474,6 @@ const pickTimed = async (
 
     if (aligned !== undefined && aligned.contrast < audioMismatchContrast) {
       skipped.push({ lang, candidate, reason: anotherVideoReason });
-      shares.push(mismatchShare(video, track.cues));
       continue;
     }
 
@@ -490,9 +486,10 @@ const pickTimed = async (
             label: "synced against the audio",
             value: shiftText(track.cues, aligned.cues, aligned.speedRatio, candidate.p),
           },
+          fromAudio: true,
         },
         skipped,
-        shares: [...shares, audioShare(video, aligned.cues)],
+        shares,
       };
     }
 
@@ -602,7 +599,13 @@ const fixLanguage = async (
   const written: Line[] =
     outcome.file === undefined
       ? [{ label: "not written", value: outcome.problem }]
-      : [{ label: `wrote ${outcome.file}` }, ...shareLines(context.sharing, sent)];
+      : [
+          { label: `wrote ${outcome.file}` },
+          ...(chosen.fromAudio === true && context.sharing === "on"
+            ? [{ label: "not shared", value: audioNotShared, tone: "dim" } as const]
+            : []),
+          ...shareLines(context.sharing, sent),
+        ];
 
   return {
     lines: [

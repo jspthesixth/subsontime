@@ -1,6 +1,6 @@
 # Bazarr end to end
 
-Radarr and Bazarr share one media folder with two public-domain films. Bazarr runs `subsontime bazarr` after every subtitle it downloads, and the subtitle's fix lands in a local Open Timings (our server and its Postgres). `run.ts` configures everything through the apps' HTTP APIs, starts the search and checks the result.
+Radarr and Bazarr share one media folder with two public-domain films. Bazarr runs `subsontime bazarr` after every subtitle it downloads, against a local Open Timings (our server and its Postgres). The command syncs the subtitle to the audio on disk and publishes no `audio` fix and no mismatch yet. `run.ts` configures everything through the apps' HTTP APIs, starts the search and checks the result.
 
 - Night of the Living Dead (tt0063350): https://archive.org/download/NightOfTheLivingDead-MPEG/NightOfTheLivingDead_512kb.mp4
 - Plan 9 from Outer Space (tt0052077): https://archive.org/download/plan-9-from-outer-space_202011/Plan%209%20from%20Outer%20Space%20%20%20Ed%20Wood%20%28full%20movie%29.mp4
