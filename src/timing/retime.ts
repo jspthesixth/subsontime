@@ -72,10 +72,20 @@ export const shiftOf = (original: Cue[], aligned: Cue[], speedRatio: number) => 
   };
 };
 
-const speedRatioFor = (subtitle: Track, reference: Track) =>
-  subtitle.candidate.fps !== undefined && reference.candidate.fps !== undefined
-    ? speedRatioFromFPS(subtitle.candidate.fps, reference.candidate.fps)
-    : bestSpeedRatio(reference.cues, subtitle.cues, speedRatios);
+const taggedRatios = ({ fps: subtitleFPS }: Candidate, { fps: referenceFPS }: Candidate) =>
+  subtitleFPS === undefined || referenceFPS === undefined
+    ? []
+    : [speedRatioFromFPS(subtitleFPS, referenceFPS)];
+
+const speedRatioFor = (subtitle: Track, reference: Track) => {
+  const tagged = taggedRatios(subtitle.candidate, reference.candidate);
+  const fitting = tagged.find(
+    (speedRatio) =>
+      alignOffset(reference.cues, subtitle.cues, { speedRatio }).score >= retimedMinimumScore,
+  );
+
+  return fitting ?? bestSpeedRatio(reference.cues, subtitle.cues, [...tagged, ...speedRatios]);
+};
 
 const bestAlignment = async (subtitle: Track, reference: Track, speedRatio: number) => {
   const offset = alignOffset(reference.cues, subtitle.cues, { speedRatio });

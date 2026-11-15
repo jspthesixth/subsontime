@@ -73,6 +73,12 @@ describe("retime", () => {
     expect(result.kind === "retimed" && largestStartError(result.cues)).toBeLessThanOrEqual(10);
   });
 
+  it("falls back to the speed search when the frame rate tag is wrong", async () => {
+    const result = await retime(subtitleOf(shifted, 25), [byHash(track, 23.976)]);
+
+    expect(result).toMatchObject({ kind: "retimed", speedRatio: 1 });
+  });
+
   it("uses a frame rate ratio that no speed search would try", async () => {
     const scaled = transform(resegment(track, 7), (time) => (time * 25) / 30 + 2000);
 
