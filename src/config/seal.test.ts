@@ -56,6 +56,23 @@ describe("seal", () => {
     expect(unseal(token, secret)).toEqual({ ...old, useShared: true, share: true });
   });
 
+  it("opens a link sealed before the extras with the extras off", () => {
+    const token =
+      "AQrayQZPwhMYhSSTE58xMGB5hEuVQGaI4Hp1uTmhVH2LKFWGrItvNzps_aM5E2DrS52IGLaGSVaGZl6KUieNrhcrdfgr7vqkj0_v52VFmgEh0gdhs7q-EaTTAwxr1z9NE05n0HoO97SsGVVfm_lrl0xu0wyiG2uWLhefwDpiYrxg2rP01k5eDGLaqGWeKIA-3slv771UxxbW9EqsAOMbDLG-ur8EJs3goz0fbWkU31HXW0SItY29wRw5OtyRAmqDpDBVjaB5JT9WlOV6j3nXD2fHk0NcOIXPkxneqp48KgKsEMUugGM2Ppp3cD12n1fI9FVHVkyIGTF6eY92W0pYJOUH4v9BkNPQsZa45OaAlnetejwkfvghDGixyQ";
+
+    expect(unseal(token, secret)).toEqual({
+      version: 1,
+      installId: "old-install",
+      languages: ["eng", "hrv"],
+      bestOnly: true,
+      timing: "auto",
+      sources: [{ kind: "stremio-addon", url: "https://opensubtitles-v3.strem.io/manifest.json" }],
+      extras: { hideMismatches: false, dialogueOnly: false, foreignParts: false },
+      useShared: true,
+      share: true,
+    });
+  });
+
   it("refuses to seal an invalid config", () => {
     const config = { ...defaultConfig(["eng"]), languages: [] };
 

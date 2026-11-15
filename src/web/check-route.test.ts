@@ -140,7 +140,11 @@ describe("POST /api/check", () => {
 
   it("shows a served mismatch with its reason and marks nothing to play first", async () => {
     const installURL = `https://subs.example.com/${seal(
-      { ...defaultConfig(["eng"]), bestOnly: false, extras: { hideMismatches: false } },
+      {
+        ...defaultConfig(["eng"]),
+        bestOnly: false,
+        extras: { ...defaultConfig(["eng"]).extras, hideMismatches: false },
+      },
       secret,
     )}/manifest.json`;
 

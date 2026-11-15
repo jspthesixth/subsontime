@@ -10,6 +10,7 @@ import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
+import { stripHearingImpaired } from "../subtitles/hearing-impaired.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
@@ -274,17 +275,21 @@ const shareAfterResponse = (
     })
     .catch(logWrite);
 
-const servedOf = (attempts: Attempt[], config: Config): Served => {
+const servedOf = (attempts: Attempt[], config: Config, dialogueOnly: boolean): Served => {
   const cues = attempts
     .map((attempt) => servedCues(attempt, config))
     .find((each) => each !== undefined);
+  const shown = dialogueOnly && cues !== undefined ? stripHearingImpaired(cues) : cues;
 
-  if (cues !== undefined) {
-    return { found: true, srt: writeSRT(cues) };
+  if (shown !== undefined && shown.length > 0) {
+    return { found: true, srt: writeSRT(shown) };
   }
 
   return {
-    found: attempts.some((attempt) => attempt.result?.kind === "mismatch") && !config.bestOnly,
+    found:
+      attempts.some((attempt) => attempt.result?.kind === "mismatch") &&
+      !config.bestOnly &&
+      !dialogueOnly,
     srt: "",
   };
 };
@@ -344,7 +349,7 @@ export const fileRoute =
           shared,
         ),
       );
-      const fresh = servedOf(attempts, config);
+      const fresh = servedOf(attempts, config, ref.t === "dialogue");
 
       if (config.share && video !== undefined) {
         shares.push(...sharesOf(attempts, video));

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Context } from "hono";
 import * as v from "valibot";
 import type { RouteDeps } from "../app.ts";
-import { configSchema, type Config } from "../config/config.ts";
+import { languagesSchema, type Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { invalidLinkMessage } from "../config/seal.ts";
 import { fetchWithTimeout } from "../http.ts";
@@ -78,7 +78,7 @@ const catalogCache = { "cache-control": "public, max-age=3600" };
 
 const checkSchema = v.object({
   installURL: v.optional(v.string()),
-  languages: v.optional(configSchema.entries.languages),
+  languages: v.optional(languagesSchema),
   type: v.picklist(catalogTypes),
   id: v.pipe(v.string(), v.maxLength(64)),
   videoHash: v.optional(v.pipe(v.string(), v.regex(/^[0-9a-f]{16}$/))),

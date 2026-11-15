@@ -201,44 +201,61 @@ const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
   </div>
 </section>`;
 
+type Switch = { id: string; labelId: string; title: string; body: string; checked: boolean };
+
+const switchRow = ({ id, labelId, title, body, checked }: Switch) =>
+  html`<div class="list-row" style="align-items: flex-start; flex-wrap: nowrap;">
+    <div class="list-main">
+      <span class="h4" id="${labelId}">${title}</span><span class="small">${body}</span>
+    </div>
+    <button
+      type="button"
+      role="switch"
+      class="switch"
+      id="${id}"
+      aria-checked="${String(checked)}"
+      aria-labelledby="${labelId}"
+    >
+      <span></span>
+    </button>
+  </div>`;
+
+const extraSwitches: Switch[] = [
+  {
+    id: "hide-mismatches",
+    labelId: "x-hide",
+    title: "Hide subtitles made for another video",
+    body: "When a subtitle’s dialogue does not line up with your file at all, it is for a different episode or film. It is left out, and when you share fixes it is flagged so it is left out for everyone once another connection agrees.",
+    checked: true,
+  },
+  {
+    id: "dialogue-only",
+    labelId: "x-dialogue",
+    title: "Dialogue only",
+    body: "Also offer a copy without hearing-impaired tags like [music], (door slams) and speaker names.",
+    checked: false,
+  },
+];
+
 const extrasBlock = html`<section class="setup-block" aria-labelledby="s4">
   ${setupHead("04", "s4", "Extras", "Things no other Stremio addon does. All optional.")}
-  <div class="list">
-    <div class="list-row" style="align-items: flex-start; flex-wrap: nowrap;">
-      <div class="list-main">
-        <span class="h4" id="x-hide">Hide subtitles made for another video</span
-        ><span class="small"
-          >When a subtitle’s dialogue does not line up with your file at all, it is for a different
-          episode or film. It is left out, and when you share fixes it is flagged so it is left out
-          for everyone once another connection agrees.</span
-        >
-      </div>
-      <button
-        type="button"
-        role="switch"
-        class="switch"
-        id="hide-mismatches"
-        aria-checked="true"
-        aria-labelledby="x-hide"
-      >
-        <span></span>
-      </button>
-    </div>
-  </div>
+  <div class="list">${extraSwitches.map(switchRow)}</div>
 </section>`;
 
-const sharingSwitches = [
+const sharingSwitches: Switch[] = [
   {
     id: "use-shared",
     labelId: "o-use",
     title: "Use shared fixes",
     body: "Apply a fix others confirmed for your exact file, and leave out subtitles they flagged for another video.",
+    checked: true,
   },
   {
     id: "share",
     labelId: "o-share",
     title: "Share the fixes made for me",
     body: "Send the result back: the new time of each line, with fingerprints. Never subtitle text, your accounts or your address.",
+    checked: true,
   },
 ];
 
@@ -249,26 +266,7 @@ const sharingBlock = html`<section class="setup-block" aria-labelledby="s5">
     <p class="small">The shared record of fixes.</p>
     <a class="more" href="/timings">What it keeps${moreArrow}</a>
   </div>
-  <div class="list">
-    ${sharingSwitches.map(
-      ({ id, labelId, title, body }) =>
-        html`<div class="list-row" style="align-items: flex-start; flex-wrap: nowrap;">
-          <div class="list-main">
-            <span class="h4" id="${labelId}">${title}</span><span class="small">${body}</span>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            class="switch"
-            id="${id}"
-            aria-checked="true"
-            aria-labelledby="${labelId}"
-          >
-            <span></span>
-          </button>
-        </div>`,
-    )}
-  </div>
+  <div class="list">${sharingSwitches.map(switchRow)}</div>
 </section>`;
 
 const installBar = html`<div class="install-bar" id="install-bar">

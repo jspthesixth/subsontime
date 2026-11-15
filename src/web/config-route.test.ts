@@ -15,7 +15,7 @@ const form = {
   bestOnly: true,
   timing: "auto",
   sources: [{ kind: "stremio-addon", url: "https://opensubtitles-v3.strem.io/manifest.json" }],
-  extras: { hideMismatches: true },
+  extras: { hideMismatches: true, dialogueOnly: false, foreignParts: false },
   useShared: true,
   share: true,
 };
@@ -79,6 +79,27 @@ describe("POST /api/config", () => {
     expect(installURL).toMatch(
       /^https:\/\/subs\.example\.com\/[A-Za-z0-9_-]{40,}\/manifest\.json$/,
     );
+  });
+
+  it("takes settings from before the extras with the extras off", async () => {
+    const { installURL } = await create({ ...form, extras: { hideMismatches: false } });
+
+    expect(await (await post("/api/config/open", { installURL })).json()).toEqual({
+      ...form,
+      extras: { hideMismatches: false, dialogueOnly: false, foreignParts: false },
+    });
+  });
+
+  it("refuses the first language as the second one", async () => {
+    const response = await post("/api/config", {
+      ...form,
+      extras: { ...form.extras, dualLanguage: "hrv" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Choose a second language other than the first",
+    });
   });
 
   it("is never cached", async () => {

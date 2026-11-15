@@ -8,7 +8,7 @@ import { parseStremioId } from "../sources/stremio-addon.ts";
 import { parseRelease, releaseSimilarity } from "../subtitles/release.ts";
 import { pickReferences } from "../timing/references.ts";
 import { hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
-import { encodeRef, type CandidateRef } from "./refs.ts";
+import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 export const bestSlotSize = 4;
 const perLanguageLimit = 10;
@@ -88,7 +88,7 @@ export const subtitlesRoute =
         : hiddenKeyFor(openTimings, state, fingerprint, viewerOf(config, openTimings.installSalt)),
     ]);
     const references = found.references.map(toCandidateRef);
-    const subURL = (candidates: Candidate[]) => {
+    const subURL = (candidates: Candidate[], t?: SubtitleRef["t"]) => {
       const ref = encodeRef(
         {
           v: 1,
@@ -97,6 +97,7 @@ export const subtitlesRoute =
           x: references,
           w: fingerprint === undefined ? undefined : { h: fingerprint.hash, z: fingerprint.size },
           d: hiddenKey,
+          t,
         },
         refKey,
       );
@@ -106,17 +107,25 @@ export const subtitlesRoute =
     const subtitles = config.languages.flatMap((lang) => {
       const candidates = found.ranked(lang);
 
-      if (config.bestOnly) {
-        return candidates.length === 0
-          ? []
-          : [{ id: `${lang}-best`, lang, url: subURL(candidates.slice(0, bestSlotSize)) }];
+      if (candidates.length === 0) {
+        return [];
       }
 
-      return candidates.slice(0, perLanguageLimit).map((candidate, index) => ({
-        id: `${lang}-${index + 1}`,
-        lang,
-        url: subURL([candidate]),
-      }));
+      const slots = config.bestOnly
+        ? [{ id: `${lang}-best`, candidates: candidates.slice(0, bestSlotSize) }]
+        : candidates
+            .slice(0, perLanguageLimit)
+            .map((candidate, index) => ({ id: `${lang}-${index + 1}`, candidates: [candidate] }));
+      const entries = slots.map((slot) => ({ id: slot.id, lang, url: subURL(slot.candidates) }));
+      const [first] = slots;
+
+      return config.extras.dialogueOnly && first !== undefined
+        ? entries.toSpliced(1, 0, {
+            id: `${lang}-dialogue`,
+            lang,
+            url: subURL(first.candidates, "dialogue"),
+          })
+        : entries;
     });
 
     return context.json({ subtitles }, 200, { "cache-control": "public, max-age=3600" });

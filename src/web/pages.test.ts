@@ -39,6 +39,17 @@ describe.each(["/", "/stremio", "/check", "/timings"])("GET %s", (path) => {
 });
 
 describe("GET /stremio", () => {
+  it("has a Dialogue only switch, off", async () => {
+    const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
+
+    expect(page).toContain(
+      '<span class="h4" id="x-dialogue">Dialogue only</span><span class="small">Also offer a copy without hearing-impaired tags like [music], (door slams) and speaker names.</span>',
+    );
+    expect(page).toMatch(
+      /<button[^>]*role="switch"[^>]*id="dialogue-only"[^>]*aria-checked="false"[^>]*aria-labelledby="x-dialogue"/,
+    );
+  });
+
   it("has an Open Timings section with both switches on", async () => {
     const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
 

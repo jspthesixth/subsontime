@@ -332,7 +332,9 @@ describe("subtitle file", () => {
   });
 
   it("serves a mismatch as it came when mismatches are not hidden", async () => {
-    const { app, url } = await firstSlot(mismatchSources(), { extras: { hideMismatches: false } });
+    const { app, url } = await firstSlot(mismatchSources(), {
+      extras: { ...defaultConfig(["eng"]).extras, hideMismatches: false },
+    });
 
     const response = await app.request(url);
 

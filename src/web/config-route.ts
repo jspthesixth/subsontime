@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import * as v from "valibot";
 import { baseURL } from "../base-url.ts";
-import { configSchema, type Config } from "../config/config.ts";
+import { formSchema, type Config } from "../config/config.ts";
 import { formOf } from "../config/default-config.ts";
 import { invalidLinkMessage, seal, sealedConfigPattern, unseal } from "../config/seal.ts";
 
@@ -9,7 +9,6 @@ type ConfigRouteDeps = { secret: string; publicURL?: string };
 
 const invalidSettingsMessage = "These settings are not valid";
 const unbuildableMessage = "Could not build the install link";
-const formSchema = v.omit(configSchema, ["version", "installId"]);
 const openSchema = v.object({ installURL: v.string() });
 
 export const toStremioURL = (installURL: string) => {

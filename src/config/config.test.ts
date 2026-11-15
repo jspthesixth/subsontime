@@ -25,6 +25,20 @@ describe("configSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it.each([
+    ["hrv", true],
+    ["eng", false],
+    ["en", false],
+  ])("takes %j as the second language of an English install: %j", (dualLanguage, valid) => {
+    const config = defaultConfig(["eng", "hrv"]);
+    const result = v.safeParse(configSchema, {
+      ...config,
+      extras: { ...config.extras, dualLanguage },
+    });
+
+    expect(result.success).toBe(valid);
+  });
+
   it("rejects a stremio-addon url that is not an https manifest", () => {
     const config = {
       ...defaultConfig(["eng"]),
