@@ -16,7 +16,7 @@ services:
       - radarr-config:/config
       - ${MEDIA_DIR:?set MEDIA_DIR to the folder that holds the films}:/movies
     ports:
-      - "57878:7878"
+      - "127.0.0.1:57878:7878"
 
   bazarr:
     image: lscr.io/linuxserver/bazarr:v1.6.2-ls372
@@ -28,8 +28,8 @@ services:
       - ${MEDIA_DIR:?set MEDIA_DIR to the folder that holds the films}:/movies
       - ${SUBSONTIME_BINARY:?set SUBSONTIME_BINARY to the linux-musl build}:/usr/local/bin/subsontime:ro
     ports:
-      - "56767:6767"
-      - "57000:7000"
+      - "127.0.0.1:56767:6767"
+      - "127.0.0.1:57000:7000"
 
   subsontime:
     build: ../..
