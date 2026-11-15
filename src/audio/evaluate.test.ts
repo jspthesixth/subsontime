@@ -6,7 +6,7 @@ import type { Cue } from "../subtitles/cue.ts";
 import { uniqueLines } from "../subtitles/lines.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
-import { alignToSpeech, audioDecisionOf } from "./align-audio.ts";
+import { alignToSpeech, audioDecisionOf, type Heard } from "./align-audio.ts";
 import {
   headContrastOf,
   headRule,
@@ -165,12 +165,35 @@ const computedFor = async (pairs: Pair[], cache = emptyCache()) => {
   return computed.flat();
 };
 
+const ruleFeaturesOf = async (heard: Heard, cues: Cue[]) => {
+  const load = {
+    heard: async () => heard,
+    cues: async () => cues,
+    trusted: async () => [],
+    labelled: async () => [],
+  };
+  const [computed] = await featuresFor(
+    {
+      subtitle: "clip",
+      targets: [{ key: "k", file: "f", negative: true, needs: ["rigid", "shifts", "thirds"] }],
+    },
+    load,
+  );
+  const { rigid, shifts, thirds } = computed?.values ?? {};
+
+  if (rigid === undefined || shifts === undefined || thirds === undefined) {
+    throw new Error("Features missing");
+  }
+
+  return { rigid, shifts, thirds };
+};
+
 const trainPairs = async () => (await pairsOf(root, "train", {})).pairs;
 
 const decidedRows = async () => {
   const pairs = await trainPairs();
 
-  return rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), headRule);
+  return rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), headRule, 0);
 };
 
 const rowFor = (rows: Row[], subtitle: string, file: string) =>
@@ -249,7 +272,7 @@ describe("pairsOf", () => {
 describe("headRule over cached features", () => {
   it("decides every pair with the contrast alignToSpeech gives", async () => {
     const pairs = await trainPairs();
-    const rows = rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), headRule);
+    const rows = rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), headRule, 0);
     const speeches: Record<string, Cue[]> = { a: speechA, b: speechB };
     const expected = await Promise.all(
       rows.map(async ({ subtitle, file }) => {
@@ -268,35 +291,30 @@ describe("headRule over cached features", () => {
     expect(rows.map(({ decision, contrast }) => ({ decision, contrast }))).toEqual(expected);
   });
 
-  it("calls a clip too short to judge as alignToSpeech does", async () => {
-    const speech = syntheticTrack(5, 15);
-    const load = {
-      heard: async () => heardOf(speech),
-      cues: async () => speech,
-      trusted: async () => [],
-      labelled: async () => [],
-    };
-    const [computed] = await featuresFor(
-      {
-        subtitle: "clip",
-        targets: [{ key: "k", file: "f", negative: true, needs: ["rigid", "shifts", "thirds"] }],
-      },
-      load,
-    );
-    const { rigid, shifts, thirds } = computed?.values ?? {};
+  const shortSpeech = syntheticTrack(5, 15);
+  const speechMs = speechA.reduce((sum, cue) => sum + cue.end - cue.start, 0);
 
-    expect(await alignToSpeech(heardOf(speech), speech)).toEqual({ kind: "too-short" });
-    expect(
-      rigid !== undefined && shifts !== undefined && thirds !== undefined
-        ? headContrastOf({ ...row({}), rigid, shifts, thirds })
-        : "missing",
-    ).toBeUndefined();
+  it.each([
+    ["a clip too short to judge", heardOf(shortSpeech), shortSpeech, "too-short"],
+    [
+      "implausible speech",
+      { spans: speechA, audioMs: speechMs / 0.95 },
+      speechA,
+      "implausible-speech",
+    ],
+  ])("gives no contrast for %s as alignToSpeech does", async (_, heard, cues, kind) => {
+    expect(await alignToSpeech(heard, cues)).toMatchObject({ kind });
+    expect(headContrastOf(await ruleFeaturesOf(heard, cues))).toBeUndefined();
   });
 
   it("accepts an own subtitle with the label's timing", async () => {
     const owned = rowFor(await decidedRows(), "ownA", "a") ?? row({});
 
-    expect(owned).toMatchObject({ decision: "accept", offsetMs: -2000 });
+    expect(owned).toMatchObject({
+      decision: "accept",
+      offsetMs: -2000,
+      timingErrorMs: { medianMs: 0, p90Ms: 0 },
+    });
     expect(outcomeOf(owned, 0)).toBe("accept");
   });
 

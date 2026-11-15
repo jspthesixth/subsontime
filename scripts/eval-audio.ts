@@ -121,7 +121,7 @@ const computeFeatures = async (root: string, split: string) => {
 const decide = async (root: string, split: string) => {
   const started = performance.now();
   const { pairs, skipped } = await pairsOf(root, split, process.env);
-  const rows = rowsOf(featuresOf(pairs, await readCache(root, split)), headRule);
+  const rows = rowsOf(featuresOf(pairs, await readCache(root, split)), headRule, labelOffsetMs);
   const path = join(root, "results", `${split}-${revision()}.jsonl`);
 
   await mkdir(dirname(path), { recursive: true });

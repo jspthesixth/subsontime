@@ -62,7 +62,9 @@ export type Pair = {
   identityUnverified?: boolean;
 };
 
-export type Rule = (features: Features) => AudioDecision;
+export type RuleFeatures = Pick<Features, "rigid" | "shifts" | "thirds">;
+
+export type Rule = (features: RuleFeatures) => AudioDecision;
 
 export type Row = Pair & {
   decision: AudioDecision;
@@ -74,6 +76,7 @@ export type Row = Pair & {
   speechShare: number;
   coverage: number;
   startDiffsMs?: number[];
+  timingErrorMs?: { medianMs: number; p90Ms: number };
   mislistedBy?: string;
 };
 
@@ -165,7 +168,7 @@ const quantile = (values: number[], q: number) => {
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? Infinity;
 };
 
-const shiftScoreOf = (features: Features, shift: number) => {
+const shiftScoreOf = (features: RuleFeatures, shift: number) => {
   const score = features.shifts.scores[shiftGridMs.indexOf(shift)];
 
   if (score === undefined) {
@@ -175,7 +178,7 @@ const shiftScoreOf = (features: Features, shift: number) => {
   return score;
 };
 
-export const headContrastOf = (features: Features) => {
+export const headContrastOf = (features: RuleFeatures) => {
   const { rigid } = features;
   const { speedRatio, offsetMs, score } = bestFit(rigid);
 
@@ -195,18 +198,25 @@ export const headContrastOf = (features: Features) => {
 
 export const headRule: Rule = (features) => decisionOf(headContrastOf(features));
 
-export const rowsOf = (features: Features[], rule: Rule): Row[] =>
+export const timingErrorOf = (diffs: number[], offsetMs: number) => {
+  const errors = diffs.map((diff) => Math.abs(diff - offsetMs));
+
+  return { medianMs: quantile(errors, 0.5), p90Ms: quantile(errors, 0.9) };
+};
+
+export const rowsOf = (features: Features[], rule: Rule, offsetMs: number): Row[] =>
   features.map(({ rigid, shifts, thirds, mislisting, timing, split, ...pair }) => {
     const fit = bestFit(rigid);
-    const decision = rule({ ...pair, rigid, shifts, thirds });
+    const decision = rule({ rigid, shifts, thirds });
     const refined =
       decision === "accept" &&
       split !== undefined &&
       prefersSplit(fit.withinScore, split.withinScore)
         ? split
         : undefined;
-    const startDiffsMs = refined?.diffsMs ?? timing?.diffsMs;
-    const contrast = headContrastOf({ ...pair, rigid, shifts, thirds });
+    const startDiffsMs =
+      pair.truth === "positive" ? (refined?.diffsMs ?? timing?.diffsMs) : undefined;
+    const contrast = headContrastOf({ rigid, shifts, thirds });
     const mislistedBy = pair.truth === "negative" && decision === "accept" ? mislisting?.by : null;
 
     return {
@@ -219,17 +229,17 @@ export const rowsOf = (features: Features[], rule: Rule): Row[] =>
       offsetMs: refined?.offsetMs ?? fit.offsetMs,
       speechShare: rigid.speechShare,
       coverage: (rigid.window.end - rigid.window.start) / Math.max(rigid.audioMs, 1),
-      ...(startDiffsMs === undefined ? {} : { startDiffsMs }),
+      ...(startDiffsMs === undefined
+        ? {}
+        : { startDiffsMs, timingErrorMs: timingErrorOf(startDiffsMs, offsetMs) }),
       ...(mislistedBy === null || mislistedBy === undefined ? {} : { mislistedBy }),
     };
   });
 
 const isTimed = (diffs: number[], offsetMs: number) => {
-  const errors = diffs.map((diff) => Math.abs(diff - offsetMs));
+  const { medianMs, p90Ms } = timingErrorOf(diffs, offsetMs);
 
-  return (
-    quantile(errors, 0.5) <= correctTiming.medianMs && quantile(errors, 0.9) <= correctTiming.p90Ms
-  );
+  return medianMs <= correctTiming.medianMs && p90Ms <= correctTiming.p90Ms;
 };
 
 export const outcomeOf = (row: Row, offsetMs: number): Outcome => {
@@ -357,7 +367,7 @@ const spreadOf = (values: number[]) => ({
 
 export const offsetsOf = (rows: Row[]) => {
   const signed = rows.flatMap((row) =>
-    row.startDiffsMs === undefined || row.identityUnverified === true
+    row.truth !== "positive" || row.startDiffsMs === undefined || row.identityUnverified === true
       ? []
       : [
           {
