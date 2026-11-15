@@ -15,7 +15,22 @@ defaults:
     shell: bash
 
 jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          version=$(jq -r .version package.json)
+
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+
   build:
+    needs: tag
     strategy:
       matrix:
         include:
@@ -25,10 +40,12 @@ jobs:
           - { runner: ubuntu-24.04-arm, name: subsontime-linux-musl-arm64, musl: linux/arm64 }
           - { runner: macos-15-intel, name: subsontime-macos-x64 }
           - { runner: macos-15, name: subsontime-macos-arm64 }
-          - { runner: windows-latest, name: subsontime-windows-x64.exe }
+          - { runner: windows-2025, name: subsontime-windows-x64.exe }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11.21.0
