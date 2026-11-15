@@ -5,6 +5,7 @@ import { alignToSpeech, hear, speechShareOf } from "../src/audio/align-audio.ts"
 import { audioStreamOf, pcmFrom } from "../src/audio/ffmpeg.ts";
 import type { Cue } from "../src/subtitles/cue.ts";
 import { decodeSubtitle } from "../src/subtitles/decode.ts";
+import { uniqueLines } from "../src/subtitles/lines.ts";
 import { parseSubtitle } from "../src/subtitles/parse.ts";
 import { cutsOf, deltasOf, median } from "../src/timing/retime.ts";
 
@@ -175,32 +176,17 @@ const alignedTo = async (film: Film, subtitle: Subtitle): Promise<Aligned> => {
   };
 };
 
-const normalized = (text: string) =>
-  text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-
-const uniqueLines = (cues: Cue[], times: Cue[]) => {
-  const counts = Map.groupBy(
-    cues.map((cue, index) => ({
-      key: normalized(cue.text),
-      start: cue.start,
-      before: times[index]?.start ?? 0,
-    })),
-    (line) => line.key,
+const linesOf = (cues: Cue[], times: Cue[]) =>
+  new Map(
+    [...uniqueLines(cues)].map(([key, index]) => [
+      key,
+      { start: cues[index]?.start ?? 0, before: times[index]?.start ?? 0 },
+    ]),
   );
-
-  return new Map(
-    [...counts].flatMap(([key, lines]) =>
-      key.length >= 8 && lines.length === 1 ? [[key, lines[0]]] : [],
-    ),
-  );
-};
 
 const agreement = (a: Aligned, b: Aligned) => {
-  const linesA = uniqueLines(a.cues, a.original);
-  const linesB = uniqueLines(b.cues, b.original);
+  const linesA = linesOf(a.cues, a.original);
+  const linesB = linesOf(b.cues, b.original);
   const shared = [...linesA].flatMap(([key, line]) => {
     const other = linesB.get(key);
 

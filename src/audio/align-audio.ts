@@ -29,6 +29,8 @@ export type AudioAlignment =
   | { kind: "too-short" }
   | { kind: "empty-subtitle" };
 
+export type AudioDecision = "accept" | "not-clear" | "mismatch";
+
 export const audioAcceptContrast = 3.5;
 export const audioMismatchContrast = 1.5;
 export const plausibleSpeechShare = { min: 0.15, max: 0.9 };
@@ -43,7 +45,7 @@ const withinSpeech = { withinReference: true };
 const shifted = (cues: Cue[], ms: number) =>
   cues.map((cue) => ({ ...cue, start: cue.start + ms, end: cue.end + ms }));
 
-const windowOf = (cues: Cue[]) => ({
+export const windowOf = (cues: Cue[]) => ({
   start: Math.min(...cues.map((cue) => cue.start)),
   end: Math.max(...cues.map((cue) => cue.end)),
 });
@@ -82,6 +84,18 @@ const refined = async (speech: Cue[], rigid: Alignment, cues: Cue[], speedRatio:
   const split = await alignCues(speech, cues, { ...withinSpeech, speedRatio });
 
   return split.score > rigid.score ? split.cues : rigid.cues;
+};
+
+export const audioDecisionOf = (alignment: AudioAlignment): AudioDecision => {
+  if (alignment.kind !== "aligned") {
+    return "not-clear";
+  }
+
+  if (alignment.contrast < audioMismatchContrast) {
+    return "mismatch";
+  }
+
+  return alignment.contrast >= audioAcceptContrast ? "accept" : "not-clear";
 };
 
 export const speechShareOf = ({ spans, audioMs }: Heard) =>

@@ -4,8 +4,7 @@ import { readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises
 import { basename, dirname, extname, join } from "node:path";
 import {
   alignToSpeech,
-  audioAcceptContrast,
-  audioMismatchContrast,
+  audioDecisionOf,
   contrastOf,
   hear,
   isPlausibleSpeech,
@@ -487,12 +486,12 @@ const pickTimed = async (
     const audio = await steps.listen?.(lang).align(track.cues);
     const aligned = audio?.kind === "aligned" ? audio : undefined;
 
-    if (aligned !== undefined && aligned.contrast < audioMismatchContrast) {
+    if (aligned !== undefined && audioDecisionOf(aligned) === "mismatch") {
       skipped.push({ lang, candidate, reason: anotherVideoReason });
       continue;
     }
 
-    if (aligned !== undefined && aligned.contrast >= audioAcceptContrast) {
+    if (aligned !== undefined && audioDecisionOf(aligned) === "accept") {
       return {
         chosen: {
           candidate,

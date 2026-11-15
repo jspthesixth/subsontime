@@ -1,7 +1,7 @@
 import { chmod, copyFile, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { alignToAudio, audioAcceptContrast, audioMismatchContrast } from "../audio/align-audio.ts";
+import { alignToAudio, audioDecisionOf } from "../audio/align-audio.ts";
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import { toISO6391, toISO6392 } from "../languages.ts";
 import { sharedFix } from "../stremio/open-timings.ts";
@@ -120,20 +120,17 @@ const run = async (argv: string[]) => {
   }
 
   const audio = await alignToAudio(videoPath, cues, { language: lang });
+  const decision = audioDecisionOf(audio);
 
-  if (audio.kind !== "aligned") {
+  if (audio.kind !== "aligned" || decision === "not-clear") {
     return `${left} · ${unusedReason(audio)}`;
   }
 
   const contrast = `contrast ${audio.contrast.toFixed(1)}`;
   const notShared = notSharedText(isPrivate === true);
 
-  if (audio.contrast < audioMismatchContrast) {
+  if (decision === "mismatch") {
     return `${left} · ${anotherVideoReason} (${contrast}) · ${notShared}`;
-  }
-
-  if (audio.contrast < audioAcceptContrast) {
-    return `${left} · ${unusedReason(audio)}`;
   }
 
   if (inSync(cues, audio.cues, audio.speedRatio)) {

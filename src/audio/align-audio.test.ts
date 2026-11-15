@@ -11,6 +11,7 @@ import {
   alignToAudio,
   alignToSpeech,
   audioAcceptContrast,
+  audioDecisionOf,
   audioMismatchContrast,
   contrastOf,
   plausibleSpeechShare,
@@ -262,6 +263,35 @@ describe("alignToSpeech", () => {
       );
     },
   );
+});
+
+const alignedAt = (contrast: number) => ({
+  kind: "aligned" as const,
+  cues: track,
+  score: 0.5,
+  offsetScore: 0.5,
+  speedRatio: 1,
+  contrast,
+});
+
+describe("audioDecisionOf", () => {
+  it.each([
+    [audioAcceptContrast, "accept"],
+    [audioAcceptContrast - 0.01, "not-clear"],
+    [audioMismatchContrast, "not-clear"],
+    [audioMismatchContrast - 0.01, "mismatch"],
+  ])("decides %f contrast is %s", (contrast, decision) => {
+    expect(audioDecisionOf(alignedAt(contrast))).toBe(decision);
+  });
+
+  it.each([
+    { kind: "no-speech" as const },
+    { kind: "implausible-speech" as const, share: 0.05 },
+    { kind: "too-short" as const },
+    { kind: "empty-subtitle" as const },
+  ])("calls $kind not clear", (alignment) => {
+    expect(audioDecisionOf(alignment)).toBe("not-clear");
+  });
 });
 
 describe("alignToAudio without ffmpeg", () => {
