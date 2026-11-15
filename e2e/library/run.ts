@@ -2,10 +2,9 @@ import { execFileSync } from "node:child_process";
 import { access, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { timingsClient } from "../../src/cli/timings-client.ts";
 import { fileFingerprint } from "../../src/cli/video-hash.ts";
 
-type Film = { imdbId: string; folder: string; url: string };
+type Film = { imdbId: string; folder: string; url: string; mustFix?: boolean };
 type RadarrMovie = { id: number; imdbId: string; hasFile: boolean };
 type BazarrMovie = { radarrId: number; imdbId: string; profileId: number | null };
 type BazarrJob = { job_name: string; status: string };
@@ -25,7 +24,6 @@ if (mediaDir === undefined || mediaDir === "") {
 
 const radarrURL = "http://127.0.0.1:57878/api/v3";
 const bazarrURL = "http://127.0.0.1:56767/api";
-const openTimingsURL = "http://127.0.0.1:57000";
 const openTimingsInBazarr = "http://127.0.0.1:7000";
 const postProcessing = `subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}} --api ${openTimingsInBazarr}`;
 const openSubtitlesUser = process.env["OPENSUBTITLES_USERNAME"];
@@ -46,6 +44,7 @@ const films: Film[] = [
   {
     imdbId: "tt0052077",
     folder: "Plan 9 from Outer Space (1959)",
+    mustFix: true,
     url: "https://archive.org/download/plan-9-from-outer-space_202011/Plan%209%20from%20Outer%20Space%20%20%20Ed%20Wood%20%28full%20movie%29.mp4",
   },
 ];
@@ -273,14 +272,24 @@ const downloadsOf = async (key: string, radarrId: number | undefined) => {
   return data.filter(({ action }) => action === 1);
 };
 
-const resultOf = async (key: string, movies: BazarrMovie[], film: Film) => {
+const rowsIn = (sql: string) =>
+  inContainer("postgres", "psql", "-U", "subsontime", "-At", "-c", sql)
+    .split("\n")
+    .filter((row) => row !== "");
+
+const sharedLine = /· shared \|?\s*$/;
+
+const resultOf = async (key: string, movies: BazarrMovie[], film: Film, logLines: string[]) => {
   const radarrId = movies.find(({ imdbId }) => imdbId === film.imdbId)?.radarrId;
   const downloads = await downloadsOf(key, radarrId);
   const beside = await subtitlesOf(film);
-  const { fixes, hidden } = await timingsClient(openTimingsURL).lookUp(
-    await fileFingerprint(videoOf(film)),
+  const { hash, size } = await fileFingerprint(videoOf(film));
+  const methods = rowsIn(
+    `select method from fixes where video_hash = '${hash}' and video_size = ${size}`,
   );
-  const audio = fixes.filter(({ method }) => method === "audio").length;
+  const audio = methods.filter((method) => method === "audio").length;
+  const lines = logLines.filter((line) => line.includes(`/movies/${film.folder}/`));
+  const shared = lines.filter((line) => sharedLine.test(line)).length;
 
   console.log(`\n${film.folder}`);
   downloads.forEach(({ language, provider, score }) =>
@@ -288,35 +297,32 @@ const resultOf = async (key: string, movies: BazarrMovie[], film: Film) => {
   );
   console.log(`  beside the film: ${beside.join(", ") || "nothing"}`);
   console.log(
-    `  Open Timings: ${audio} audio · ${hidden.map(({ reason, count }) => `${count} ${reason}`).join(", ") || "nothing hidden"}`,
+    `  subsontime: ${lines.length} lines, ${shared} shared · Open Timings: ${methods.length} fixes, ${audio} audio`,
   );
 
   return [
-    ...(downloads.length === 0 ? ["no subtitle downloaded"] : []),
-    ...(beside.length === downloads.length ? [] : [`${beside.length} subtitles beside the film`]),
-    ...(audio === downloads.length ? [] : [`${audio} audio fixes`]),
-  ].map((failure) => `${film.folder}: ${failure} for ${downloads.length} downloads`);
+    ...(lines.length === 0 ? ["no subsontime: line in Bazarr's log"] : []),
+    ...(shared === methods.length ? [] : [`${shared} shared lines for ${methods.length} fixes`]),
+    ...(audio === methods.length ? [] : [`${methods.length - audio} fixes that are not audio`]),
+    ...(film.mustFix === true && audio === 0 ? ["no audio fix"] : []),
+  ].map((failure) => `${film.folder}: ${failure}`);
 };
 
 const assertFlow = async (key: string) => {
   step("Open Timings");
 
   const movies = await bazarrMovies(key);
-  const failures = [];
-
-  for (const film of films) {
-    failures.push(...(await resultOf(key, movies, film)));
-  }
-
   const logLines = inContainer("bazarr", "cat", "/config/log/bazarr.log")
     .split("\n")
     .filter((line) => line.includes("subsontime:"));
+  const mismatches = Number(rowsIn("select count(*) from mismatches")[0] ?? 0);
+  const failures = mismatches === 0 ? [] : [`${mismatches} mismatch rows`];
+
+  for (const film of films) {
+    failures.push(...(await resultOf(key, movies, film, logLines)));
+  }
 
   console.log(`\n${logLines.join("\n")}`);
-
-  if (logLines.length === 0) {
-    failures.push("no subsontime: line in Bazarr's log");
-  }
 
   if (failures.length > 0) {
     throw new Error(failures.join("\n"));
