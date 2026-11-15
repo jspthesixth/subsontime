@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import iconv from "iconv-lite";
@@ -275,7 +275,42 @@ describe("with the audio measured", () => {
     expect(posts(requests)).toEqual([]);
   });
 
-  it("writes the original once and never overwrites it", async () => {
+  it("keeps the subtitle's file mode", async () => {
+    const paths = await prepare();
+
+    await chmod(paths.subtitle, 0o600);
+    vi.mocked(alignToAudio).mockResolvedValueOnce(aligned(shiftedBy(1200), 9.4));
+
+    await run(argsFor(paths, "--private"));
+
+    expect((await stat(paths.subtitle)).mode & 0o777).toBe(0o600);
+    expect(await cuesIn(paths.subtitle)).toEqual(shiftedBy(1200));
+  });
+
+  it("replaces the original when Bazarr downloads a different subtitle", async () => {
+    const paths = await prepare();
+    const other = track.map((cue) => ({ ...cue, text: `Other ${cue.text}` }));
+
+    vi.mocked(alignToAudio)
+      .mockResolvedValueOnce(aligned(shiftedBy(1200), 9.4))
+      .mockResolvedValueOnce(
+        aligned(
+          transform(other, (time) => time + 1200),
+          9.4,
+        ),
+      );
+
+    await run(argsFor(paths, "--private"));
+    await writeFile(paths.subtitle, crlfWithBOM(other));
+
+    const download = await readFile(paths.subtitle);
+
+    await run(argsFor(paths, "--private"));
+
+    expect(await readFile(origOf(paths.subtitle))).toEqual(download);
+  });
+
+  it("keeps the original when it runs again on its own output", async () => {
     const paths = await prepare();
     const original = await readFile(paths.subtitle);
 
@@ -372,6 +407,26 @@ describe("without the audio", () => {
     expect(await cuesIn(paths.subtitle)).toEqual(track);
     expect(await readFile(origOf(paths.subtitle))).toEqual(original);
     expect(vi.mocked(alignToAudio)).not.toHaveBeenCalled();
+    expect(posts(requests)).toEqual([]);
+  });
+
+  it("leaves a subtitle already in sync with a confirmed shared fix byte-identical", async () => {
+    const store = memoryStore();
+    const paths = await prepare(crlfWithBOM(shiftedBy(80)));
+    const original = await readFile(paths.subtitle);
+    const { url, requests } = await startTimings(store);
+
+    await confirmFix(store, await videoKeyOf(paths.video), track);
+    vi.stubEnv("SUBSONTIME_FFMPEG", join(work, "no-such-ffmpeg"));
+
+    const { code, output } = await run(argsFor(paths, "--api", url));
+
+    expect(code).toBe(0);
+    expect(output).toBe(
+      "subsontime: already in sync with the shared fix, confirmed -0.08 s · 2 agree · from audio\n",
+    );
+    expect(await readFile(paths.subtitle)).toEqual(original);
+    expect(await readdir(work)).not.toContain("Film.2001.en.orig.srt");
     expect(posts(requests)).toEqual([]);
   });
 

@@ -1,12 +1,7 @@
-import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { parseArgs } from "node:util";
-import {
-  alignToAudio,
-  audioAcceptContrast,
-  audioMismatchContrast,
-  type AudioAlignment,
-} from "../audio/align-audio.ts";
+import { alignToAudio, audioAcceptContrast, audioMismatchContrast } from "../audio/align-audio.ts";
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import { toISO6391, toISO6392 } from "../languages.ts";
 import { sharedFix } from "../stremio/open-timings.ts";
@@ -15,11 +10,12 @@ import { decodeSubtitle } from "../subtitles/decode.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { shiftOf } from "../timing/retime.ts";
+import { cueHashes } from "../timings/fingerprint.ts";
 import {
   anotherVideoReason,
   audioShare,
-  exists,
   mismatchShare,
+  ratioOf,
   replaceFile,
   shareAll,
   sharedOf,
@@ -32,8 +28,6 @@ import { installIdIn } from "./install-id.ts";
 import type { CLIDeps } from "./main.ts";
 import { defaultAPIURL, timingsClient } from "./timings-client.ts";
 import { fileFingerprint } from "./video-hash.ts";
-
-type Aligned = Extract<AudioAlignment, { kind: "aligned" }>;
 
 class UsageError extends Error {}
 
@@ -70,20 +64,31 @@ const sharedText = (sent: boolean | undefined) => {
   return sent ? "shared" : "not shared, Open Timings did not answer";
 };
 
-const inSync = (original: Cue[], { cues, speedRatio }: Aligned) => {
-  const { offsetMs, cuts } = shiftOf(original, cues, speedRatio);
+const inSync = (original: Cue[], timed: Cue[], speedRatio: number) => {
+  const { offsetMs, cuts } = shiftOf(original, timed, speedRatio);
 
   return speedRatio === 1 && cuts === 0 && Math.abs(offsetMs) <= inSyncMs;
 };
 
-const rewrite = async (subtitle: string, cues: Cue[]) => {
-  const original = join(dirname(subtitle), `${basename(subtitle, extname(subtitle))}.orig.srt`);
+const readCues = async (path: string, lang: string | undefined) =>
+  parseSubtitle(decodeSubtitle(await readFile(path), lang));
 
-  if (!(await exists(original))) {
+const sameTexts = (first: Cue[], second: Cue[]) =>
+  cueHashes(first).join() === cueHashes(second).join();
+
+const rewrite = async (subtitle: string, lang: string | undefined, cues: Cue[], timed: Cue[]) => {
+  const original = join(dirname(subtitle), `${basename(subtitle, extname(subtitle))}.orig.srt`);
+  const kept = await readCues(original, lang).catch(() => []);
+  const { mode } = await stat(subtitle);
+
+  if (!sameTexts(kept, cues)) {
     await replaceFile(original, (temp) => copyFile(subtitle, temp));
   }
 
-  await replaceFile(subtitle, (temp) => writeFile(temp, writeSRT(cues)));
+  await replaceFile(subtitle, async (temp) => {
+    await writeFile(temp, writeSRT(timed));
+    await chmod(temp, mode);
+  });
 };
 
 const run = async (argv: string[], deps: CLIDeps) => {
@@ -107,16 +112,19 @@ const run = async (argv: string[], deps: CLIDeps) => {
     timings: isPrivate === true ? undefined : timingsClient(api ?? defaultAPIURL),
     installId: () => installIdIn(deps.configDir),
   };
-  const cues = parseSubtitle(
-    decodeSubtitle(await readFile(subtitle), lang === undefined ? undefined : code3Of(lang)),
-  );
+  const code3 = lang === undefined ? undefined : code3Of(lang);
+  const cues = await readCues(subtitle, code3);
   const video = await fileFingerprint(videoPath);
   const fixed = await sharedFix(cues, await sharedOf(context.timings, video));
 
   if (fixed?.kind === "shared-fix") {
     const { label, value = "" } = timingOf(fixed, cues);
 
-    await rewrite(subtitle, fixed.cues);
+    if (inSync(cues, fixed.cues, ratioOf(cues, fixed.cues))) {
+      return `already in sync with the ${label} ${value}`;
+    }
+
+    await rewrite(subtitle, code3, cues, fixed.cues);
 
     return `${label} ${value}`;
   }
@@ -143,13 +151,13 @@ const run = async (argv: string[], deps: CLIDeps) => {
     return `${left} · ${unusedReason(audio)}`;
   }
 
-  if (inSync(cues, audio)) {
+  if (inSync(cues, audio.cues, audio.speedRatio)) {
     const sent = await shareAll([audioShare(video, cues)], context);
 
     return `already in sync with the audio · ${contrast} · ${sharedText(sent)}`;
   }
 
-  await rewrite(subtitle, audio.cues);
+  await rewrite(subtitle, code3, cues, audio.cues);
 
   const sent = await shareAll([audioShare(video, audio.cues)], context);
 

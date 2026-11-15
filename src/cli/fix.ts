@@ -132,7 +132,7 @@ export const shiftText = (original: Cue[], timed: Cue[], speedRatio: number, fps
 
 const spanOf = (cues: Cue[]) => (cues.at(-1)?.start ?? 0) - (cues[0]?.start ?? 0);
 
-const ratioOf = (original: Cue[], applied: Cue[]) => {
+export const ratioOf = (original: Cue[], applied: Cue[]) => {
   const ratio = spanOf(applied) === 0 ? 1 : spanOf(original) / spanOf(applied);
 
   return speedRatios.reduce((best, each) =>
