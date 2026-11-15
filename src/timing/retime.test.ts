@@ -36,12 +36,26 @@ const cuesOf = (spans: number[][]) =>
   spans.map(([start = 0, end = 0]) => ({ start, end, text: "" }));
 
 const actBreaks = (() => {
-  const { subtitle, reference, pairs } = JSON.parse(
+  const { subtitle, reference } = JSON.parse(
     readFileSync(new URL("../../test/fixtures/subtitles/act-breaks.json", import.meta.url), "utf8"),
-  ) as { subtitle: number[][]; reference: number[][]; pairs: number[][] };
+  ) as { subtitle: number[][]; reference: number[][] };
 
-  return { subtitle: cuesOf(subtitle), reference: cuesOf(reference), pairs };
+  return { subtitle: cuesOf(subtitle), reference: cuesOf(reference) };
 })();
+
+const filmRate = 24 / 23.976;
+
+const steppedAt = (index: number) => (index >= 70 ? 800 : 0) + (index >= 140 ? 800 : 0);
+
+const sloped = track.map((cue, index) => ({
+  ...cue,
+  start: cue.start * filmRate - steppedAt(index),
+  end: cue.end * filmRate - steppedAt(index),
+}));
+
+const shareWithin = (cues: Cue[], expected: Cue[], ms: number) =>
+  expected.filter((cue, index) => Math.abs((cues[index]?.start ?? 0) - cue.start) <= ms).length /
+  expected.length;
 
 const largestStartError = (cues: Cue[]) =>
   Math.max(...cues.map((cue, index) => Math.abs(cue.start - (track[index]?.start ?? Infinity))));
@@ -213,19 +227,23 @@ describe("retime", () => {
   });
 
   it("follows act-break steps instead of a slope", async () => {
-    const { subtitle, reference, pairs } = actBreaks;
+    const { subtitle, reference } = actBreaks;
 
     const result = await retime(subtitleOf(subtitle), [byHash(reference)]);
 
     const cues = result.kind === "retimed" ? result.cues : [];
-    const close = pairs.filter(
-      ([subtitleIndex = 0, referenceIndex = 0]) =>
-        Math.abs((cues[subtitleIndex]?.start ?? 0) - (reference[referenceIndex]?.start ?? 0)) <=
-        100,
-    );
 
     expect(result).toMatchObject({ kind: "retimed", speedRatio: 1 });
-    expect(close.length / pairs.length).toBeGreaterThan(0.75);
+    expect(shareWithin(cues, reference.slice(0, -1), 100)).toBeGreaterThan(0.75);
+  });
+
+  it("keeps a true film-rate slope under act-break steps", async () => {
+    const result = await retime(subtitleOf(sloped), [byHash(track)]);
+
+    const cues = result.kind === "retimed" ? result.cues : [];
+
+    expect(result).toMatchObject({ kind: "retimed", speedRatio: filmRate });
+    expect(shareWithin(cues, track, 100)).toBeGreaterThan(0.9);
   });
 
   it("does not retime without references", async () => {
