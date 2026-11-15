@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -26,6 +26,7 @@ const bursts = join(directory, "bursts.mkv");
 const intro = join(directory, "intro.mkv");
 const pictureOnly = join(directory, "picture-only.mkv");
 const silent = join(directory, "silent.mkv");
+const shortClip = join(directory, "short.mkv");
 const pidFile = join(directory, "ffmpeg.pid");
 const wrapper = join(directory, "ffmpeg-wrapper.sh");
 
@@ -51,13 +52,27 @@ const bytesIn = async function* (bytes: Uint8Array, sizes: number[]) {
 const startsWithin = (aligned: Cue[], expected: Cue[]) =>
   Math.max(...aligned.map((cue, index) => Math.abs(cue.start - (expected[index]?.start ?? 0))));
 
-const pattern = [
-  { start: 1000, end: 3000, text: "" },
-  { start: 4000, end: 5500, text: "" },
-  { start: 7000, end: 10_000, text: "" },
-];
+const shortTrack = syntheticTrack(1, 5);
+const second = (atSeconds: number) => ({
+  start: atSeconds * 1000,
+  end: atSeconds * 1000 + 1000,
+  text: "",
+});
+const pattern = transform(
+  [
+    { start: 1000, end: 3000, text: "" },
+    { start: 4000, end: 5500, text: "" },
+    { start: 7000, end: 10_000, text: "" },
+  ],
+  (time) => time + 200_000,
+);
+const wrongShiftsSeconds = [-149, -113, -71, -37, 37, 71, 113, 149];
 
-const repeatedAt = (ms: number) => [...pattern, ...transform(pattern, (time) => time + ms)];
+const sortedSpans = (spans: Cue[]) => spans.toSorted((a, b) => a.start - b.start);
+
+const patternWithin = (spans: Cue[]) => sortedSpans([second(0), ...pattern, ...spans, second(400)]);
+
+const contrastOfPattern = (spans: Cue[]) => contrastOf(spans, pattern, scoreOf(spans, pattern));
 
 const alignedTo = async (videoPath: string, cues: Cue[]) => {
   const result = await alignToAudio(videoPath, cues);
@@ -111,24 +126,40 @@ describe("samplesFrom", () => {
 
 describe("contrastOf", () => {
   it("is high for a pattern that matches only at its true position", () => {
-    const spans = repeatedAt(55_000);
+    expect(
+      contrastOfPattern(patternWithin(transform(pattern, (time) => time + 55_000))),
+    ).toBeGreaterThanOrEqual(audioAcceptContrast);
+  });
 
-    expect(contrastOf(spans, pattern, scoreOf(spans, pattern))).toBeGreaterThanOrEqual(
-      audioAcceptContrast,
+  it.each(wrongShiftsSeconds)("is near 1 when a copy of the pattern sits %i s away", (shift) => {
+    expect(
+      contrastOfPattern(patternWithin(transform(pattern, (time) => time + shift * 1000))),
+    ).toBeCloseTo(1, 1);
+  });
+
+  it("measures a short clip on the 4 shifts that stay on its speech", () => {
+    expect(contrastOfPattern(sortedSpans([second(135), ...pattern, second(275)]))).toBeTypeOf(
+      "number",
     );
   });
 
-  it("is near 1 for a pattern that scores the same 37 s later", () => {
-    const spans = repeatedAt(37_000);
-
-    expect(contrastOf(spans, pattern, scoreOf(spans, pattern))).toBeCloseTo(1, 1);
+  it("gives no contrast for a short clip with 3 shifts on its speech", () => {
+    expect(contrastOfPattern(sortedSpans([second(135), ...pattern, second(270)]))).toBeUndefined();
   });
 
-  it("is near 1 for a pattern that scores the same 149 s earlier", () => {
-    const spans = repeatedAt(149_000);
-    const late = spans.slice(pattern.length);
+  it("measures every shift once the subtitle spans 300 s", () => {
+    const cues = [...pattern, second(501)];
+    const spans = transform(pattern, (time) => time + 800_000);
 
-    expect(contrastOf(spans, late, scoreOf(spans, late))).toBeCloseTo(1, 1);
+    expect(contrastOf(spans, cues, scoreOf(spans, cues))).toBeTypeOf("number");
+  });
+});
+
+describe("alignToAudio without ffmpeg", () => {
+  it("reports an empty subtitle without reading the video", async () => {
+    expect(await alignToAudio(join(directory, "missing.mkv"), [])).toEqual({
+      kind: "empty-subtitle",
+    });
   });
 });
 
@@ -136,9 +167,10 @@ describe("pcmFrom without ffmpeg", () => {
   it("asks for ffmpeg when it cannot be started", async () => {
     vi.stubEnv("SUBSONTIME_FFMPEG", join(directory, "no-such-ffmpeg"));
 
-    await expect(drain(pcmFrom(bursts, new AbortController().signal))).rejects.toThrow(
-      missingFFmpeg,
-    );
+    const failure = drain(pcmFrom(bursts, new AbortController().signal));
+
+    await expect(failure).rejects.toThrow(missingFFmpeg);
+    await expect(failure).rejects.not.toHaveProperty("cause");
   });
 });
 
@@ -171,6 +203,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
       ),
       writeSilentPicture(pictureOnly, 2000),
       writeSilentAudio(silent, 5000),
+      writeBursts(shortClip, shortTrack, (shortTrack.at(-1)?.end ?? 0) + 2000),
     ]);
   }, 60_000);
 
@@ -207,6 +240,30 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     expect(result.offsetScore).toBeLessThan(splitWorthScore);
     expect(cutsOf(deltas)).toBe(0);
     expect(Math.abs(median(deltas) - (introMs - 2000))).toBeLessThanOrEqual(100);
+  });
+
+  it("reports a clip too short to judge", async () => {
+    expect(
+      await alignToAudio(
+        shortClip,
+        transform(shortTrack, (time) => time + 2000),
+      ),
+    ).toEqual({ kind: "too-short" });
+  });
+
+  it("reads a file whose name looks like an ffmpeg protocol", async () => {
+    const working = process.cwd();
+
+    await copyFile(bursts, join(directory, "concat:x.mkv"));
+    process.chdir(directory);
+
+    try {
+      expect(
+        startsWithin((await alignedTo("concat:x.mkv", track)).cues, track),
+      ).toBeLessThanOrEqual(100);
+    } finally {
+      process.chdir(working);
+    }
   });
 
   it("reports no speech for a silent soundtrack", async () => {

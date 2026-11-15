@@ -42,9 +42,7 @@ describe.skipIf(!hasFFmpeg)("alignToAudio", () => {
         "matroska",
         fifo,
       ]);
-      const result = await alignToAudio(fifo, syntheticTrack(1, 2500));
-
-      await writer;
+      const [result] = await Promise.all([alignToAudio(fifo, syntheticTrack(1, 2500)), writer]);
 
       expect(result.kind === "aligned" && result.cues.length).toBe(2500);
       expect(peak - before).toBeLessThan(maximumGrowth);

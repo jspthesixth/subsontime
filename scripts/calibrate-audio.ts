@@ -138,8 +138,8 @@ const filmFrom = async (argument: string): Promise<Film> => {
 const alignedTo = async (film: Film, subtitle: Subtitle): Promise<Aligned> => {
   const result = await alignToSpeech(film.speech, subtitle.cues);
 
-  if (result.kind === "no-speech") {
-    throw new Error(`No speech detected in ${film.name}`);
+  if (result.kind !== "aligned") {
+    throw new Error(`${film.name}: ${result.kind}`);
   }
 
   const deltas = deltasOf(subtitle.cues, result.cues, result.speedRatio);

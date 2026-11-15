@@ -10,7 +10,7 @@ const decodeArguments = (videoPath: string) => [
   "-loglevel",
   "error",
   "-i",
-  videoPath,
+  `file:${videoPath}`,
   "-map",
   "0:a:0",
   "-ac",
@@ -86,9 +86,7 @@ export const pcmFrom = async function* (videoPath: string, signal: AbortSignal) 
     signal.throwIfAborted();
 
     if (spawnError !== undefined) {
-      throw new Error("ffmpeg is needed for --audio. Install it and try again.", {
-        cause: spawnError,
-      });
+      throw new Error("ffmpeg is needed for --audio. Install it and try again.");
     }
 
     if (code !== 0) {
