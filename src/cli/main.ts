@@ -39,7 +39,7 @@ Finds subtitles for each video, times them to the exact file and writes
 Options:
   --lang <codes>      Languages, ISO 639-1 or 639-2, comma separated (default: yours and English)
   --audio             Align to the soundtrack (needs ffmpeg)
-  --private           Share nothing with Open Timings
+  --private           Make no contact with Open Timings (no lookup, no sharing)
   --offline           Make no network call (needs --subtitle and --audio)
   --subtitle <path>   Time this subtitle instead of searching (one --lang)
   --imdb <tt...>      The IMDb id, when the file name does not find the title
@@ -215,7 +215,7 @@ const run = async (argv: string[], deps: CliDeps) => {
     audio: values.audio === true,
     sharing,
     sources,
-    timings: sharing === "offline" ? undefined : timingsClient(values.api ?? defaultAPIURL),
+    timings: sharing === "on" ? timingsClient(values.api ?? defaultAPIURL) : undefined,
     installId: () => installIdIn(deps.configDir),
     imdbId: values.imdb,
     subtitle: values.subtitle,

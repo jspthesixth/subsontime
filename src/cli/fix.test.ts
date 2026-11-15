@@ -1,11 +1,21 @@
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, truncate, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { alignToSpeech } from "../audio/align-audio.ts";
+import { alignToSpeech, type AudioAlignment } from "../audio/align-audio.ts";
 import { hasFFmpeg, writeBursts } from "../audio/test-video.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource } from "../sources/test-sources.ts";
@@ -23,6 +33,7 @@ import { configDirOf } from "./install-id.ts";
 import { main, type CliDeps } from "./main.ts";
 
 vi.mock("../audio/align-audio.ts", { spy: true });
+vi.mock("node:fs/promises", { spy: true });
 
 type Recorded = { method: string; path: string; body: unknown };
 
@@ -312,7 +323,7 @@ describe("Open Timings", () => {
     ]);
   });
 
-  it("sends nothing with --private", async () => {
+  it("makes no contact with Open Timings with --private", async () => {
     const { url, requests } = await startTimings();
     const video = await writeVideo(`${movieName}.mkv`);
 
@@ -322,7 +333,7 @@ describe("Open Timings", () => {
     );
 
     expect(code).toBe(0);
-    expect(posts(requests)).toEqual([]);
+    expect(requests).toEqual([]);
     expect(output).toContain("Not shared (--private)");
     await expect(stat(join(configDir, "install-id"))).rejects.toThrow("ENOENT");
   });
@@ -361,6 +372,9 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
 
     expect(code).toBe(0);
     expect(output).toContain("Shared fix, confirmed · 2 agree · from audio");
+    expect(output).toContain(
+      "Shared fix, confirmed · 2 agree · from audio\n               audio not used: confirmed shared fix\n",
+    );
     expect(await cuesIn(join(work, `${movieName}.en.srt`))).toEqual(spoken);
     expect(reference.download).not.toHaveBeenCalled();
     expect(vi.mocked(alignToSpeech)).not.toHaveBeenCalled();
@@ -429,6 +443,53 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     ]);
   });
 
+  it.each<[string, AudioAlignment, string]>([
+    ["no speech", { kind: "no-speech" }, "audio not used: no speech found"],
+    ["a short clip", { kind: "too-short" }, "audio not used: clip too short"],
+    ["an empty subtitle", { kind: "empty-subtitle" }, "audio not used: empty subtitle"],
+    [
+      "a contrast of 2.1",
+      {
+        kind: "aligned",
+        cues: lateSpoken,
+        score: 0.3,
+        offsetScore: 0.3,
+        speedRatio: 1,
+        contrast: 2.1,
+      },
+      "audio not used: not clear enough (contrast 2.1)",
+    ],
+  ])(
+    "keeps the reference timing and says why audio was not used after %s",
+    async (_, audio, note) => {
+      const video = await copyBursts(`${movieName}.mkv`);
+
+      vi.mocked(alignToSpeech).mockResolvedValueOnce(audio);
+
+      const { code, output } = await run(
+        ["fix", video, "--lang", "en", "--imdb", "tt0111161", "--audio", "--private"],
+        { sources: retimedSources() },
+      );
+
+      expect(code).toBe(0);
+      expect(output).toContain(`               Retimed · -2.00 s\n               ${note}\n`);
+      expect(await cuesIn(join(work, `${movieName}.en.srt`))).toEqual(track);
+    },
+  );
+
+  it("says why audio was not used when ffmpeg cannot read the video", async () => {
+    const video = await writeVideo(`${movieName}.mkv`);
+
+    const { code, output } = await run(
+      ["fix", video, "--lang", "en", "--imdb", "tt0111161", "--audio", "--private"],
+      { sources: retimedSources() },
+    );
+
+    expect(code).toBe(0);
+    expect(output).toMatch(/\n {15}audio not used: ffmpeg exited with code \d+: .+\n/);
+    expect(vi.mocked(alignToSpeech)).not.toHaveBeenCalled();
+  });
+
   it("makes no network call with --offline and aligns a local subtitle", async () => {
     const video = await copyBursts(`${movieName}.mkv`);
     const subtitle = join(work, "local.srt");
@@ -472,6 +533,21 @@ describe("writing", () => {
     expect(second.output).toContain(
       `Not written: ${movieName}.en.srt and ${movieName}.en.subsontime.srt already exist`,
     );
+  });
+
+  it("removes the reserved subtitle when the write fails", async () => {
+    const video = await writeVideo(`${movieName}.mkv`);
+
+    vi.mocked(rename).mockRejectedValueOnce(new Error("no space left on device"));
+
+    const { code, output } = await run(
+      ["fix", video, "--lang", "en", "--imdb", "tt0111161", "--private"],
+      { sources: retimedSources() },
+    );
+
+    expect(code).toBe(1);
+    expect(output).toContain("               Not written: no space left on device\n");
+    expect(await readdir(work)).toEqual([`${movieName}.mkv`]);
   });
 
   it("writes UTF-8 without a byte order mark into --out", async () => {

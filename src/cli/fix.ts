@@ -55,13 +55,14 @@ export type FixContext = {
 type Aligned = Extract<AudioAlignment, { kind: "aligned" }>;
 type Skip = { lang: string; candidate: CandidateRef; reason: string };
 type Found = { references: Candidate[]; ranked: (lang: string) => Candidate[] };
-type Chosen = { candidate: CandidateRef; cues: Cue[]; timing: string };
+type AudioResult = AudioAlignment | { kind: "failed"; reason: string };
+type Chosen = { candidate: CandidateRef; cues: Cue[]; timing: string; note?: string };
 type Pick = { chosen?: Chosen; skipped: Skip[]; shares: Share[] };
 type Language = { lines: string[]; skipped: Skip[]; written: boolean };
 type Steps = {
   download: Download;
   shared: Shared | undefined;
-  align: ((cues: Cue[]) => Promise<Aligned | undefined>) | undefined;
+  align: ((cues: Cue[]) => Promise<AudioResult>) | undefined;
   local: boolean;
 };
 
@@ -71,7 +72,7 @@ const labelWidth = 13;
 const localSourceName = "Local file";
 const audioMismatchReason =
   "Made for another video. Its dialogue does not line up with the soundtrack.";
-const untimedReason = "Could not be timed to this file.";
+const untimedReason = "Could not be timed to this file";
 const unidentifiedReason = "Could not identify this title";
 
 export const row = (label: string, text: string) => `  ${label.padEnd(labelWidth)}${text}`;
@@ -221,15 +222,38 @@ const audioTiming = ({ candidate, track }: Attempt, audio: Aligned) => {
 };
 
 const speechOnce = (path: string) => {
-  let spans: Promise<Cue[] | undefined> | undefined;
+  let spans: Promise<Cue[] | Error> | undefined;
 
   return () => {
     spans ??= detectSpeech(pcmFrom(path, new AbortController().signal), pcmSampleRate).catch(
-      () => undefined,
+      (error: unknown) => (error instanceof Error ? error : new Error("ffmpeg failed")),
     );
 
     return spans;
   };
+};
+
+const unusedReason = (audio: AudioResult): string => {
+  switch (audio.kind) {
+    case "aligned":
+      return `not clear enough (contrast ${audio.contrast.toFixed(1)})`;
+    case "no-speech":
+      return "no speech found";
+    case "too-short":
+      return "clip too short";
+    case "empty-subtitle":
+      return "empty subtitle";
+    case "failed":
+      return audio.reason;
+  }
+};
+
+const audioNote = (steps: Steps, audio: AudioResult | undefined) => {
+  if (steps.align === undefined) {
+    return undefined;
+  }
+
+  return `audio not used: ${audio === undefined ? "confirmed shared fix" : unusedReason(audio)}`;
 };
 
 const localFound = (path: string, lang: string) => {
@@ -297,8 +321,10 @@ const pickTimed = async (
       steps.align === undefined || served.result?.kind === "shared-fix"
         ? undefined
         : await steps.align(served.track.cues);
+    const aligned = audio?.kind === "aligned" ? audio : undefined;
+    const note = audioNote(steps, audio);
 
-    if (audio !== undefined && audio.contrast < audioMismatchContrast) {
+    if (aligned !== undefined && aligned.contrast < audioMismatchContrast) {
       skipped.push({ lang, candidate: served.candidate, reason: audioMismatchReason });
       shares.push({
         kind: "mismatch",
@@ -307,30 +333,37 @@ const pickTimed = async (
       continue;
     }
 
-    if (audio !== undefined && audio.contrast >= audioAcceptContrast) {
+    if (aligned !== undefined && aligned.contrast >= audioAcceptContrast) {
       return {
         chosen: {
           candidate: served.candidate,
-          cues: audio.cues,
-          timing: audioTiming(served, audio),
+          cues: aligned.cues,
+          timing: audioTiming(served, aligned),
         },
         skipped,
         shares: [
           ...shares,
-          { kind: "fix", input: { video, subtitle: fixCuesOf(audio.cues), method: "audio" } },
+          { kind: "fix", input: { video, subtitle: fixCuesOf(aligned.cues), method: "audio" } },
         ],
       };
     }
 
     if (steps.local && served.result?.kind === "not-retimed") {
       return {
-        skipped: [...skipped, { lang, candidate: served.candidate, reason: untimedReason }],
+        skipped: [
+          ...skipped,
+          {
+            lang,
+            candidate: served.candidate,
+            reason: note === undefined ? `${untimedReason}.` : `${untimedReason} (${note}).`,
+          },
+        ],
         shares,
       };
     }
 
     return {
-      chosen: { candidate: served.candidate, cues, timing: timingText(served) },
+      chosen: { candidate: served.candidate, cues, timing: timingText(served), note },
       skipped,
       shares: [...shares, ...sharesOf([served], video)],
     };
@@ -390,7 +423,7 @@ const fixLanguage = async (
   const picked: Pick =
     fromShared === undefined
       ? await pickTimed(lang, candidates, found.references.map(toCandidateRef), video, steps)
-      : { chosen: fromShared, skipped: [], shares: [] };
+      : { chosen: { ...fromShared, note: audioNote(steps, undefined) }, skipped: [], shares: [] };
   const sent = await shareAll(picked.shares, context);
   const { chosen, skipped } = picked;
 
@@ -408,18 +441,28 @@ const fixLanguage = async (
     basename(path, extname(path)),
     lang,
     chosen.cues,
-  );
+  ).catch((error: unknown) => ({
+    file: undefined,
+    taken: [],
+    error: error instanceof Error ? error.message : "Failed",
+  }));
   const lines = [
     row(
       language,
       [chosen.candidate.n, ...(releaseName === undefined ? [] : [releaseName])].join(" · "),
     ),
     continued(chosen.timing),
+    ...(chosen.note === undefined ? [] : [continued(chosen.note)]),
   ];
 
   if (outcome.file === undefined) {
     return {
-      lines: [...lines, continued(`Not written: ${outcome.taken.join(" and ")} already exist`)],
+      lines: [
+        ...lines,
+        continued(
+          `Not written: ${"error" in outcome ? outcome.error : `${outcome.taken.join(" and ")} already exist`}`,
+        ),
+      ],
       skipped,
       written: false,
     };
@@ -511,9 +554,10 @@ export const fixVideo = async (path: string, context: FixContext) => {
     align: context.audio
       ? async (cues: Cue[]) => {
           const spans = await speech();
-          const audio = spans === undefined ? undefined : await alignToSpeech(spans, cues);
 
-          return audio?.kind === "aligned" ? audio : undefined;
+          return spans instanceof Error
+            ? { kind: "failed", reason: spans.message }
+            : alignToSpeech(spans, cues);
         }
       : undefined,
   };
