@@ -197,6 +197,16 @@ const content = html`<main>
             ${neverKept.map((item) => html`<div class="mark-no">${noIcon}<span class="body">${item}</span></div>`)}
           </div>
         </div>
+        <div class="stack gap-16 measure">
+          <h3 class="h3">Keep it free</h3>
+          <p class="body">
+            Subs On Time is free, with no ads and no accounts. If it saved a film night, you can
+            help pay for hosting.
+          </p>
+          <a class="more" href="https://ko-fi.com/jspthesixth" target="_blank" rel="noopener"
+            >Support on Ko-fi${moreArrow}</a
+          >
+        </div>
       </div>
     </div>
   </section>

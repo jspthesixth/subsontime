@@ -53,6 +53,10 @@ Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` when more than one i
 
 Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point at addons on your own network.
 
+## Support
+
+Subs On Time is free, with no ads and no accounts. If it saved a film night, you can help pay for hosting on [Ko-fi](https://ko-fi.com/jspthesixth).
+
 ## Privacy
 
 Submissions carry no account and no address. A daily-changing code makes it harder for one connection to confirm its own fix or hide a subtitle; it cannot be traced back after that day.

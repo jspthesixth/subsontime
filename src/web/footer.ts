@@ -16,6 +16,7 @@ export const footer = html`<footer class="site-footer">
       <a href="/check">Check a file</a>
       <a href="/timings#api">API</a>
       <a href="https://github.com/jspthesixth/subsontime">GitHub</a>
+      <a href="https://ko-fi.com/jspthesixth" target="_blank" rel="noopener">Support</a>
     </nav>
   </div>
 </footer>`;

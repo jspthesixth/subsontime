@@ -92,6 +92,18 @@ describe("GET /", () => {
     expect(page).toContain("Our server never reads your video.");
     expect(page).toMatch(/<a class="more" href="\/timings"/);
   });
+
+  it("links Ko-fi from the page and the footer, in a new tab", async () => {
+    const page = await (await app.request("/")).text();
+    const koFi = /<a[^>]*href="https:\/\/ko-fi\.com\/jspthesixth" target="_blank" rel="noopener"/;
+    const main = page.match(/<main[\s\S]*<\/main>/)?.[0] ?? "";
+    const footer = page.match(/<footer[\s\S]*<\/footer>/)?.[0] ?? "";
+
+    expect(main).toMatch(koFi);
+    expect(main).toContain("Keep it free");
+    expect(footer).toMatch(koFi);
+    expect(page).not.toContain("github.com/sponsors");
+  });
 });
 
 describe("GET /timings", () => {
