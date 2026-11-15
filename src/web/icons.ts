@@ -20,6 +20,10 @@ export const removeIcon = html`<svg width="12" height="12" viewBox="0 0 12 12" a
   <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6"></path>
 </svg>`;
 
+export const earlierIcon = html`<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+  <path d="M7.5 2L3.5 6l4 4" stroke="currentColor" stroke-width="1.6" fill="none"></path>
+</svg>`;
+
 export const copyIcon = html`<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
   <rect
     x="4"

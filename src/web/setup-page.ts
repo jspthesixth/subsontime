@@ -1,5 +1,5 @@
 import { html } from "hono/html";
-import { arrowIcon, moreArrow, removeIcon, statusIcon } from "./icons.ts";
+import { arrowIcon, earlierIcon, moreArrow, removeIcon, statusIcon } from "./icons.ts";
 import { installedView } from "./installed-view.ts";
 import { languageOptions } from "./language-options.ts";
 import { layout } from "./layout.ts";
@@ -313,7 +313,8 @@ const installBar = html`<div class="install-bar" id="install-bar">
 const templates = html`<template id="chip-template"
     ><span class="chip" role="listitem"
       ><span class="n"></span><span class="chip-name"></span
-      ><button type="button" class="x">${removeIcon}</button></span
+      ><button type="button" class="x move">${earlierIcon}</button
+      ><button type="button" class="x remove">${removeIcon}</button></span
     ></template
   >
   <template id="addon-template"

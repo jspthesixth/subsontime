@@ -6,12 +6,14 @@ import { searchKey } from "../search-key.ts";
 import { combobox } from "./lib/combobox.ts";
 import { clone, find } from "./lib/dom.ts";
 import { installLinkOf } from "./lib/install-link.ts";
+import { move } from "./lib/move.ts";
 import { errorOf, postJSON } from "./lib/post-json.ts";
 
 type Account = Exclude<SourceSettings, { kind: "stremio-addon" }>;
 type Installed = { installURL: string; stremioURL: string; webURL: string };
 
 const copiedDuration = 2000;
+const canDrag = matchMedia("(hover: hover) and (pointer: fine)").matches;
 
 const chosen = find(document, "#chosen-languages");
 const search = find<HTMLInputElement>(document, "#lang-search");
@@ -98,9 +100,15 @@ const addLanguage = (code: string | undefined) => {
   languageCombo.setOpen(false);
 };
 
+const moveLanguage = (from: number, to: number) => {
+  update({ languages: move(state.languages, from, to) });
+};
+
 const chipFor = (code: string, index: number) => {
-  const chip = clone("#chip-template");
-  const remove = find(chip, ".x");
+  const fragment = clone("#chip-template");
+  const chip = find(fragment, ".chip");
+  const earlier = find(chip, ".move");
+  const remove = find(chip, ".remove");
 
   find(chip, ".n").textContent = String(index + 1);
   find(chip, ".chip-name").textContent = nameOf(code);
@@ -108,6 +116,30 @@ const chipFor = (code: string, index: number) => {
   remove.addEventListener("click", () => {
     update({ languages: state.languages.filter((each) => each !== code) });
     search.focus();
+  });
+
+  if (index === 0) {
+    earlier.remove();
+  }
+
+  earlier.setAttribute("aria-label", `Move ${nameOf(code)} earlier`);
+  earlier.addEventListener("click", () => {
+    moveLanguage(index, index - 1);
+    find(chosen, `.chip:nth-child(${index}) ${index === 1 ? ".remove" : ".move"}`).focus();
+  });
+  chip.draggable = canDrag;
+  chip.addEventListener("dragstart", (event) => {
+    event.dataTransfer?.setData("text/plain", code);
+  });
+  chip.addEventListener("dragover", (event) => event.preventDefault());
+  chip.addEventListener("drop", (event) => {
+    const from = state.languages.indexOf(event.dataTransfer?.getData("text/plain") ?? "");
+
+    event.preventDefault();
+
+    if (from !== -1) {
+      moveLanguage(from, index);
+    }
   });
 
   return chip;

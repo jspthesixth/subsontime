@@ -447,6 +447,9 @@ svg {
   font-size: 12px;
   color: #5e5d56;
 }
+.chip[draggable="true"] {
+  cursor: grab;
+}
 .chip .x {
   display: inline-flex;
   align-items: center;
@@ -1050,6 +1053,9 @@ svg {
   content: "";
   position: absolute;
   inset: -8px;
+}
+.chip .move::after {
+  inset: -8px -2px -8px -14px;
 }
 .switch::after {
   content: "";

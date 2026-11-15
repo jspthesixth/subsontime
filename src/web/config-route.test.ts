@@ -175,6 +175,14 @@ describe("POST /api/config", () => {
     });
   });
 
+  it("keeps the new language order of the install it edits", async () => {
+    const { installURL } = await create({ ...form, languages: ["hrv", "eng", "deu"] });
+    const edited = await create({ ...form, languages: ["deu", "hrv", "eng"], installURL });
+    const response = await post("/api/config/open", { installURL: edited.installURL });
+
+    expect(await response.json()).toMatchObject({ languages: ["deu", "hrv", "eng"] });
+  });
+
   it("ignores an install id sent next to the install it edits", async () => {
     const { installURL } = await create(form);
     const edited = await create({ ...form, installURL, installId: "chosen" });
