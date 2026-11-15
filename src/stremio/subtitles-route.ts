@@ -7,7 +7,7 @@ import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import { parseRelease, releaseSimilarity } from "../subtitles/release.ts";
 import { pickReferences } from "../timing/references.ts";
-import { hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
+import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
@@ -65,7 +65,7 @@ const readExtras = (context: Context<AppEnv>) => {
 };
 
 export const subtitlesRoute =
-  ({ sourcesFor, refKey, publicURL, state, openTimings }: RouteDeps) =>
+  ({ sourcesFor, refKey, publicURL, state, openTimings, defer }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const extra = context.req.param("extra");
@@ -101,33 +101,43 @@ export const subtitlesRoute =
       listed !== undefined || fileKey === undefined
         ? undefined
         : await recalledFileHash(state, fileKey);
+    const fingerprint =
+      listed ?? (recalled === undefined ? undefined : { hash: recalled.w.h, size: recalled.w.z });
     const query = {
       ...video,
-      videoHash: extras.get("videoHash") ?? recalled?.w.h,
-      videoSize: Number.isFinite(videoSize) ? videoSize : recalled?.w.z,
+      videoHash: fingerprint?.hash ?? extras.get("videoHash") ?? undefined,
+      videoSize: fingerprint?.size ?? (Number.isFinite(videoSize) ? videoSize : undefined),
       filename,
       languages: config.languages,
     };
-    const fingerprint = videoKeyOf(query.videoHash, query.videoSize);
     const [found, hiddenKey] = await Promise.all([
       searchVideo(sourcesFor(config, context.get("tokens")), query),
-      openTimings === undefined || fingerprint === undefined || !config.useShared
+      openTimings === undefined || listed === undefined || !config.useShared
         ? undefined
-        : hiddenKeyFor(openTimings, state, fingerprint, viewerOf(config, openTimings.installSalt)),
+        : hiddenKeyFor(openTimings, state, listed, viewerOf(config, openTimings.installSalt)),
     ]);
+    const unflagged = (ref: CandidateRef) =>
+      recalled === undefined ? ref : { ...ref, h: undefined };
     const references = found.references.map(toCandidateRef);
 
     if (listed !== undefined && fileKey !== undefined) {
-      await recordFileHash(state, fileKey, {
-        w: { h: listed.hash, z: listed.size },
-        x: references,
-        m: config.languages.flatMap((lang) =>
-          found
-            .ranked(lang)
-            .filter(({ hashMatch }) => hashMatch)
-            .map(({ ref }) => ref),
-        ),
-      });
+      try {
+        defer(
+          recordFileHash(state, fileKey, {
+            w: { h: listed.hash, z: listed.size },
+            x: references,
+            m: config.languages.flatMap((lang) =>
+              found
+                .ranked(lang)
+                .filter(({ hashMatch }) => hashMatch)
+                .map(({ sourceName, ref }): [string, string] => [sourceName, ref]),
+            ),
+            d: hiddenKey,
+          }),
+        );
+      } catch (error) {
+        console.error(`File hash record failed: ${errorName(error)}`);
+      }
     }
 
     const subURL = (candidates: Candidate[], t?: SubtitleRef["t"]) => {
@@ -135,10 +145,10 @@ export const subtitlesRoute =
         {
           v: 1,
           q,
-          c: candidates.map(toCandidateRef),
-          x: references,
-          w: fingerprint === undefined ? undefined : { h: fingerprint.hash, z: fingerprint.size },
-          k: fingerprint === undefined ? fileKey : undefined,
+          c: candidates.map(toCandidateRef).map(unflagged),
+          x: references.map(unflagged),
+          w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
+          k: listed === undefined ? fileKey : undefined,
           d: hiddenKey,
           t,
         },

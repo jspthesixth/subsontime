@@ -188,6 +188,37 @@ describe("reading Open Timings", () => {
     expect(hidden.text).toBe(writeSRT(other));
   });
 
+  it("skips a hidden subtitle when the hash came from the other listing", async () => {
+    const store = memoryStore();
+    const { token } = installed();
+    const app = appWith(
+      {
+        listed: [
+          fakeSource("Fake", [
+            { ref: "hidden", cues: shifted },
+            { ref: "next", cues: other },
+          ]),
+        ],
+        references: [],
+      },
+      store,
+    );
+    const listing = `/${token}/subtitles/movie/tt0111161`;
+
+    await hideByMismatch(store, shifted);
+
+    const first = (await (
+      await app.request(`${listing}/filename=Movie.mkv.json`)
+    ).json()) as Listing;
+
+    await app.request(
+      `${listing}/videoHash=${video.hash}&videoSize=${video.size}&filename=Movie.mkv.json`,
+    );
+    const response = await app.request(first.subtitles[0]?.url ?? "");
+
+    expect(await response.text()).toBe(writeSRT(other));
+  });
+
   it("serves an empty subtitle for a single hidden candidate", async () => {
     const store = memoryStore();
     const { token } = installed({ bestOnly: false });

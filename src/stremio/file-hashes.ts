@@ -9,7 +9,8 @@ const recordSeconds = 4 * 60 * 60;
 const fileHashSchema = v.object({
   w: v.object({ h: v.string(), z: v.number() }),
   x: v.array(candidateRefSchema),
-  m: v.array(v.string()),
+  m: v.array(v.tuple([v.string(), v.string()])),
+  d: v.optional(v.string()),
 });
 
 export type FileHash = v.InferOutput<typeof fileHashSchema>;
@@ -31,16 +32,23 @@ export const recalledFileHash = async (state: SharedState, key: string) => {
   return parsed.success ? parsed.output : undefined;
 };
 
-export const withFileHash = (ref: SubtitleRef, { w, x, m }: FileHash): SubtitleRef => {
-  const matched = new Set(m);
+const matchKey = (source: string, ref: string) => JSON.stringify([source, ref]);
+
+export const withFileHash = (ref: SubtitleRef, { w, x, m, d }: FileHash): SubtitleRef => {
+  const matched = new Set(m.map(([source, id]) => matchKey(source, id)));
 
   return {
     ...ref,
     c: ref.c
-      .map((candidate) => (matched.has(candidate.r) ? { ...candidate, h: 1 as const } : candidate))
+      .map((candidate) =>
+        matched.has(matchKey(candidate.n, candidate.r))
+          ? { ...candidate, h: 1 as const }
+          : { ...candidate, h: undefined },
+      )
       .toSorted((a, b) => Number(b.h === 1) - Number(a.h === 1)),
     x,
     w,
+    d,
     k: undefined,
   };
 };

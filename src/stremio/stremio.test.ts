@@ -532,6 +532,11 @@ describe("subtitle file", () => {
   });
 });
 
+const matchedByHash = new Map([
+  ["3e0c5471cdc9cb0e", "disc"],
+  ["0123456789abcdef", "broadcast"],
+]);
+
 const hashAware = (): SourceSet => {
   const source = fakeSource("Fake", [
     { ref: "broadcast", cues: shifted },
@@ -545,7 +550,7 @@ const hashAware = (): SourceSet => {
         search: async (query, signal) =>
           (await source.search(query, signal)).map((candidate) => ({
             ...candidate,
-            hashMatch: candidate.ref === "disc" && query.videoHash === "3e0c5471cdc9cb0e",
+            hashMatch: matchedByHash.get(query.videoHash ?? "") === candidate.ref,
           })),
       },
     ],
@@ -558,6 +563,7 @@ describe("a hash from the other listing", () => {
   const name = "Modern Family S01E23 Hawaii  (1080p x265 10bit Joy).mkv";
   const withoutHash = `${episode}/filename=${encodeURIComponent(name)}.json`;
   const withHash = `${episode}/filename=${encodeURIComponent(name)}&videoSize=227584187&videoHash=3e0c5471cdc9cb0e.json`;
+  const otherRelease = `${episode}/filename=${encodeURIComponent(name)}&videoSize=227584188&videoHash=0123456789abcdef.json`;
 
   it("serves the hash match from a listing that came before the hash", async () => {
     const app = appWith(hashAware());
@@ -581,8 +587,25 @@ describe("a hash from the other listing", () => {
     const { body } = await list(app, token, withoutHash);
     const ref = refOf(body.subtitles[0]?.url ?? "");
 
-    expect(ref.c[0]).toEqual({ n: "Fake", r: "disc", l: "eng", h: 1 });
-    expect(ref.w).toEqual({ h: "3e0c5471cdc9cb0e", z: 227584187 });
+    expect(ref.c).toEqual([
+      { n: "Fake", r: "disc", l: "eng" },
+      { n: "Fake", r: "broadcast", l: "eng" },
+    ]);
+    expect(ref.w).toBeUndefined();
+  });
+
+  it("serves the newest release when another one with the same name came first", async () => {
+    const app = appWith(hashAware());
+    const token = sealed();
+
+    await list(app, token, withHash);
+    const second = await list(app, token, withoutHash);
+
+    await list(app, token, otherRelease);
+    const response = await app.request(second.body.subtitles[0]?.url ?? "");
+
+    expect(parseSubtitle(await response.text())).toEqual(shifted);
+    expect(retime).not.toHaveBeenCalled();
   });
 
   it("keeps the hash to the install that listed it", async () => {
