@@ -35,8 +35,10 @@ const findLabel = <T>(tokens: string[], table: [RegExp, T][]) =>
 const isAlias = (token: string) =>
   [...sources, ...resolutions].some(([pattern]) => matches(pattern, token));
 
+const isLabelNoise = (token: string) => /^(forced|sdh|hi|cc)$/i.test(token);
+
 const isTrailingNoise = (token: string) =>
-  /^(forced|sdh|hi|cc)$/i.test(token) || (/^[a-z]{2,3}$/i.test(token) && !isAlias(token));
+  isLabelNoise(token) || (/^[a-z]{2,3}$/i.test(token) && !isAlias(token));
 
 const dropTrailingNoise = (tokens: string[]): string[] =>
   tokens.length > 1 && isTrailingNoise(tokens.at(-1) ?? "")
@@ -44,9 +46,10 @@ const dropTrailingNoise = (tokens: string[]): string[] =>
     : tokens;
 
 const trailingTag = /\s*[[(]([^\])]*)[\])]$/;
+const noiseAfterTag = /(?<=[\])])(\.([a-z]{2,3}|forced|sdh|hi|cc))+$/i;
 
 const isCodec = (token: string) =>
-  /^(aac|ac3|eac3|dts|ddp?|truehd|atmos|flac|opus|hevc|avc|hdr|sdr|remux)$/i.test(token);
+  /^(aac|ac3|eac3|dts|ddp?|truehd|atmos|flac|opus|hevc|avc|av1|hdr(10)?|sdr|dv)$/i.test(token);
 
 const dashGroup = (tokens: string[]) => {
   const group = dropTrailingNoise(tokens)
@@ -56,8 +59,13 @@ const dashGroup = (tokens: string[]) => {
   return group === undefined || isAlias(group) ? undefined : group;
 };
 
+const withoutLabelNoise = (tokens: string[]): string[] =>
+  tokens.length > 1 && isLabelNoise(tokens.at(-1) ?? "")
+    ? withoutLabelNoise(tokens.slice(0, -1))
+    : tokens;
+
 const tagGroup = (tag: string[]) => {
-  const last = tag.at(-1) ?? "";
+  const last = withoutLabelNoise(tag).at(-1) ?? "";
 
   return /^[A-Za-z]{2,}[A-Za-z0-9]*$/.test(last) && !isAlias(last) && !isCodec(last)
     ? last
@@ -66,9 +74,10 @@ const tagGroup = (tag: string[]) => {
 
 export const parseRelease = (name: string): Release => {
   const stem = name.replace(/\.(mkv|mp4|avi|srt|sub|ass|vtt)$/i, "");
-  const tag = tokenize(stem.match(trailingTag)?.[1] ?? "");
+  const tagged = stem.replace(noiseAfterTag, "");
+  const tag = tokenize(tagged.match(trailingTag)?.[1] ?? "");
   const releaseTag = tag.some(isAlias);
-  const tokens = tokenize(releaseTag ? stem : stem.replace(trailingTag, ""));
+  const tokens = tokenize(releaseTag ? tagged : stem.replace(trailingTag, ""));
 
   return {
     source: findLabel(tokens, sources),

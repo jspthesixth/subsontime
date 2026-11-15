@@ -66,6 +66,18 @@ describe("parseRelease", () => {
 
   it("takes no codec as the group of trailing parentheses", () => {
     expect(parseRelease("Movie (1080p BluRay x265 AAC)").group).toBeUndefined();
+    expect(parseRelease("Movie (2160p WEB-DL HDR10)").group).toBeUndefined();
+    expect(parseRelease("Movie (1080p WEB-DL AV1)").group).toBeUndefined();
+  });
+
+  it("reads trailing parentheses before a language and a forced tag", () => {
+    expect(
+      parseRelease("Modern Family S01E23 Hawaii (1080p x265 10bit Joy).en.forced.srt").group,
+    ).toBe("Joy");
+  });
+
+  it("drops a hearing-impaired tag inside trailing parentheses", () => {
+    expect(parseRelease("Movie (1080p BluRay x265 Tigole SDH)").group).toBe("Tigole");
   });
 
   it("ignores a bracketed tag without release labels", () => {
