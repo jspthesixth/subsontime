@@ -12,6 +12,20 @@ import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 export const bestSlotSize = 4;
 const perLanguageLimit = 10;
+const displayNames = new Map([["OpenSubtitles API", "OpenSubtitles"]]);
+
+export const labelOf = (candidates: Candidate[], dialogueOnly = false) => {
+  const sources = new Set(
+    candidates.map(({ sourceName }) => displayNames.get(sourceName) ?? sourceName),
+  );
+  const notes = [
+    candidates.every(({ hashMatch }) => hashMatch) ? ["made for this file"] : [],
+    dialogueOnly ? ["dialogue only"] : [],
+  ].flat();
+  const name = [...sources].join(", ");
+
+  return notes.length === 0 ? name : `${name} (${notes.join(", ")})`;
+};
 
 export const toCandidateRef = (candidate: Candidate): CandidateRef => ({
   n: candidate.sourceName,
@@ -113,15 +127,21 @@ export const subtitlesRoute =
 
       const best = candidates.slice(0, bestSlotSize);
       const entries = config.bestOnly
-        ? [{ id: `${lang}-best`, lang, url: subURL(best) }]
+        ? [{ id: `${lang}-best`, lang, label: labelOf(best), url: subURL(best) }]
         : candidates.slice(0, perLanguageLimit).map((candidate, index) => ({
             id: `${lang}-${index + 1}`,
             lang,
+            label: labelOf([candidate]),
             url: subURL([candidate]),
           }));
 
       return config.extras.dialogueOnly
-        ? entries.toSpliced(1, 0, { id: `${lang}-dialogue`, lang, url: subURL(best, "dialogue") })
+        ? entries.toSpliced(1, 0, {
+            id: `${lang}-dialogue`,
+            lang,
+            label: labelOf(best, true),
+            url: subURL(best, "dialogue"),
+          })
         : entries;
     });
 

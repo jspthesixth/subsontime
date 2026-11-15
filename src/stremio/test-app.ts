@@ -8,7 +8,7 @@ import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { memoryStore, type TimingsStore } from "../timings/db.ts";
 import { submitterOf } from "../timings/submitter.ts";
 
-export type Listing = { subtitles: { id: string; lang: string; url: string }[] };
+export type Listing = { subtitles: { id: string; lang: string; label: string; url: string }[] };
 
 export type App = ReturnType<typeof createApp>;
 

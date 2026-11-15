@@ -96,6 +96,12 @@ describe("dialogue only", () => {
     );
 
     expect(subtitles.map((entry) => entry.id)).toEqual(["eng-1", "eng-dialogue", "eng-2", "eng-3"]);
+    expect(subtitles.map((entry) => entry.label)).toEqual([
+      "Fake",
+      "Fake (dialogue only)",
+      "Fake",
+      "Fake",
+    ]);
     expect(refOf(urlOf(subtitles, "eng-dialogue")).c).toEqual([
       { n: "Fake", r: "a", l: "eng" },
       { n: "Fake", r: "b", l: "eng" },

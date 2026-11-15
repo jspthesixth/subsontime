@@ -21,7 +21,7 @@ import { decodeRef, encodeRef, refKey, type SubtitleRef } from "./refs.ts";
 
 vi.mock("../timing/retime.ts", { spy: true });
 
-type Listing = { subtitles: { id: string; lang: string; url: string }[] };
+type Listing = { subtitles: { id: string; lang: string; label: string; url: string }[] };
 
 const secret = "a-test-secret-that-is-long-enough-1234";
 const fileName = "Movie.2024.1080p.BluRay.x264-GROUP.mkv";
@@ -221,6 +221,41 @@ describe("subtitle list", () => {
       ["hrv-best", "hrv"],
       ["eng-best", "eng"],
     ]);
+  });
+
+  it("labels each candidate with its source and keeps the language code", async () => {
+    const api = fakeSource("OpenSubtitles API", [{ ref: "hash", hashMatch: true }]);
+    const subdl = fakeSource("SubDL", [{ ref: "plain" }]);
+    const addon = fakeSource("subs.example.com", [{ ref: "addon" }]);
+
+    const { body } = await list(
+      appWith({ listed: [api, subdl, addon], references: [] }),
+      sealed({ bestOnly: false }),
+      "movie/tt0111161.json",
+    );
+
+    expect(body.subtitles.map((entry) => [entry.lang, entry.label])).toEqual([
+      ["eng", "OpenSubtitles (made for this file)"],
+      ["eng", "SubDL"],
+      ["eng", "subs.example.com"],
+    ]);
+  });
+
+  it.each([
+    [[{ ref: "a", hashMatch: true }], [{ ref: "b" }], "OpenSubtitles, SubDL"],
+    [[{ ref: "a", hashMatch: true }], [], "OpenSubtitles (made for this file)"],
+    [[{ ref: "a" }, { ref: "b" }], [], "OpenSubtitles"],
+  ])("labels a best entry with every source it can fall back to", async (open, subdl, label) => {
+    const { body } = await list(
+      appWith({
+        listed: [fakeSource("OpenSubtitles", open), fakeSource("SubDL", subdl)],
+        references: [],
+      }),
+      sealed(),
+      "movie/tt0111161.json",
+    );
+
+    expect(body.subtitles.map((entry) => entry.label)).toEqual([label]);
   });
 
   it("lists at most ten candidates per language", async () => {
