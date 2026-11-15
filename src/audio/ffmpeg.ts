@@ -1,5 +1,6 @@
 import { execFile, spawn, spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { format, parse } from "node:path";
 import { promisify } from "node:util";
 import * as v from "valibot";
 import { toISO6391 } from "../languages.ts";
@@ -28,15 +29,19 @@ const probeSchema = v.object({
 
 export type AudioStream = v.InferInput<typeof probeSchema>["streams"][number];
 
+const probeTimeoutMs = 30_000;
+
 export const ffprobeCommand = () => {
   const { SUBSONTIME_FFPROBE: configured } = process.env;
-  const ffmpeg = ffmpegCommand();
 
   if (configured) {
     return configured;
   }
 
-  return ffmpeg.includes("/") ? join(dirname(ffmpeg), "ffprobe") : "ffprobe";
+  const { dir, ext } = parse(ffmpegCommand());
+  const sibling = format({ dir, name: "ffprobe", ext });
+
+  return dir !== "" && existsSync(sibling) ? sibling : "ffprobe";
 };
 
 const baseLanguage = (code: string) => (toISO6391(code) ?? code.toLowerCase()).split("-")[0];
@@ -76,7 +81,7 @@ export const audioStreamOf = async (
     const { stdout } = await execFileAsync(
       ffprobeCommand(),
       ["-v", "error", "-select_streams", "a", "-show_streams", "-of", "json", `file:${videoPath}`],
-      { signal, maxBuffer: 16 * 1024 * 1024 },
+      { signal, timeout: probeTimeoutMs, maxBuffer: 16 * 1024 * 1024 },
     );
 
     return chooseAudioStream(v.parse(probeSchema, JSON.parse(stdout)).streams, language);

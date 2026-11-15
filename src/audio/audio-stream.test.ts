@@ -1,9 +1,17 @@
+import { spawnSync } from "node:child_process";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hear } from "./align-audio.ts";
-import { audioStreamOf, chooseAudioStream, pcmFrom, type AudioStream } from "./ffmpeg.ts";
+import { syntheticTrack } from "../timing/test-tracks.ts";
+import { alignToAudio, hear } from "./align-audio.ts";
+import {
+  audioStreamOf,
+  chooseAudioStream,
+  ffprobeCommand,
+  pcmFrom,
+  type AudioStream,
+} from "./ffmpeg.ts";
 import { hasFFmpeg, run, writeBursts } from "./test-video.ts";
 
 const stream = (language: string | undefined, extra: Partial<AudioStream> = {}): AudioStream => ({
@@ -57,7 +65,9 @@ describe("chooseAudioStream", () => {
   });
 });
 
-describe.skipIf(!hasFFmpeg)("audioStreamOf", () => {
+const hasFFprobe = hasFFmpeg && spawnSync(ffprobeCommand(), ["-version"]).status === 0;
+
+describe.skipIf(!hasFFprobe)("audioStreamOf", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -97,6 +107,49 @@ describe.skipIf(!hasFFmpeg)("audioStreamOf", () => {
 
     expect([english, croatian]).toEqual([1, 0]);
     expect(Math.abs((spans[0]?.start ?? 0) - 10_000)).toBeLessThan(500);
+  });
+
+  it("hands the subtitle language to the stream choice", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "subsontime-language-"));
+    const croatian = syntheticTrack(1, 30);
+    const english = syntheticTrack(2, 30);
+    const first = join(directory, "first.mkv");
+    const second = join(directory, "second.mkv");
+    const both = join(directory, "both.mkv");
+    const durationMs = (english.at(-1)?.end ?? 0) + 2000;
+
+    await writeBursts(first, croatian, durationMs);
+    await writeBursts(second, english, durationMs);
+    await run([
+      "-i",
+      first,
+      "-i",
+      second,
+      "-map",
+      "0:v",
+      "-map",
+      "0:a",
+      "-map",
+      "1:a",
+      "-c",
+      "copy",
+      "-metadata:s:a:0",
+      "language=hrv",
+      "-metadata:s:a:1",
+      "language=eng",
+      both,
+    ]);
+
+    const shifted = english.map((item) => ({
+      ...item,
+      start: item.start + 1500,
+      end: item.end + 1500,
+    }));
+    const result = await alignToAudio(both, shifted, { language: "en" });
+
+    const start = result.kind === "aligned" ? result.cues[0]?.start : undefined;
+
+    expect(Math.abs((start ?? Infinity) - (english[0]?.start ?? 0))).toBeLessThan(300);
   });
 
   it("uses the first stream when ffprobe is missing", async () => {

@@ -356,9 +356,13 @@ const listenTo = (path: string) => {
   const heardByStream = new Map<number, Promise<Heard | Error>>();
 
   return (lang: string): Listen => {
+    const signal = new AbortController().signal;
+    let probed: Promise<number> | undefined;
+
     const speech = async () => {
-      const signal = new AbortController().signal;
-      const stream = await audioStreamOf(path, lang, signal);
+      probed ??= audioStreamOf(path, lang, signal);
+
+      const stream = await probed;
       const listened =
         heardByStream.get(stream) ??
         hear(pcmFrom(path, signal, stream)).catch((error: unknown) =>
