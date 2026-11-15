@@ -439,7 +439,9 @@ describe("without the audio", () => {
     const { code, output } = await run(argsFor(paths, "--private"));
 
     expect(code).toBe(0);
-    expect(output).toBe("subsontime: left as it is · ffmpeg is needed to sync to the audio\n");
+    expect(output).toBe(
+      "subsontime: left as it is · ffmpeg is needed to sync to the audio. Install it and try again.\n",
+    );
     expect(await readFile(paths.subtitle)).toEqual(original);
   });
 

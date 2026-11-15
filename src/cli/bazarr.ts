@@ -130,7 +130,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
   }
 
   if (!ffmpegFound()) {
-    return `${left} · ffmpeg is needed to sync to the audio`;
+    return `${left} · ffmpeg is needed to sync to the audio. Install it and try again.`;
   }
 
   const audio = await alignToAudio(videoPath, cues);
