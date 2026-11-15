@@ -111,20 +111,17 @@ export const subtitlesRoute =
         return [];
       }
 
-      const slots = config.bestOnly
-        ? [{ id: `${lang}-best`, candidates: candidates.slice(0, bestSlotSize) }]
-        : candidates
-            .slice(0, perLanguageLimit)
-            .map((candidate, index) => ({ id: `${lang}-${index + 1}`, candidates: [candidate] }));
-      const entries = slots.map((slot) => ({ id: slot.id, lang, url: subURL(slot.candidates) }));
-      const [first] = slots;
-
-      return config.extras.dialogueOnly && first !== undefined
-        ? entries.toSpliced(1, 0, {
-            id: `${lang}-dialogue`,
+      const best = candidates.slice(0, bestSlotSize);
+      const entries = config.bestOnly
+        ? [{ id: `${lang}-best`, lang, url: subURL(best) }]
+        : candidates.slice(0, perLanguageLimit).map((candidate, index) => ({
+            id: `${lang}-${index + 1}`,
             lang,
-            url: subURL(first.candidates, "dialogue"),
-          })
+            url: subURL([candidate]),
+          }));
+
+      return config.extras.dialogueOnly
+        ? entries.toSpliced(1, 0, { id: `${lang}-dialogue`, lang, url: subURL(best, "dialogue") })
         : entries;
     });
 

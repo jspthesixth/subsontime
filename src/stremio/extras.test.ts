@@ -87,7 +87,7 @@ describe("dialogue only", () => {
     });
   });
 
-  it("puts the dialogue copy of the first entry right after it when every candidate is listed", async () => {
+  it("puts a dialogue copy of the best four right after the first entry when every candidate is listed", async () => {
     const source = fakeSource("Fake", [{ ref: "a" }, { ref: "b" }, { ref: "c" }]);
 
     const { subtitles } = await listedFor(
@@ -96,7 +96,11 @@ describe("dialogue only", () => {
     );
 
     expect(subtitles.map((entry) => entry.id)).toEqual(["eng-1", "eng-dialogue", "eng-2", "eng-3"]);
-    expect(refOf(urlOf(subtitles, "eng-dialogue")).c).toEqual([{ n: "Fake", r: "a", l: "eng" }]);
+    expect(refOf(urlOf(subtitles, "eng-dialogue")).c).toEqual([
+      { n: "Fake", r: "a", l: "eng" },
+      { n: "Fake", r: "b", l: "eng" },
+      { n: "Fake", r: "c", l: "eng" },
+    ]);
   });
 
   it("serves the best subtitle without its hearing-impaired tags", async () => {

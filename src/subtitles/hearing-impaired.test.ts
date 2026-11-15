@@ -32,6 +32,10 @@ describe("stripHearingImpaired", () => {
     ["JOHN: Hello", "Hello"],
     ["Wait [sighs] for me.", "Wait for me."],
     ["- MARY: Wait.\n- ♪ la la ♪", "- Wait."],
+    ["[DOOR SLAMS] MARY: Wait.", "Wait."],
+    ["(laughs) JOHN: Hi", "Hi"],
+    ["# song #\nHello.", "Hello."],
+    ["#1 fan", "#1 fan"],
   ])("keeps the dialogue of %j as %j", (text, expected) => {
     expect(stripHearingImpaired([{ start: 1000, end: 2000, text }])).toEqual([
       { start: 1000, end: 2000, text: expected },
