@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import * as v from "valibot";
 import { alignToSpeech, hear, speechShareOf } from "../src/audio/align-audio.ts";
-import { pcmFrom } from "../src/audio/ffmpeg.ts";
+import { audioStreamOf, pcmFrom } from "../src/audio/ffmpeg.ts";
 import type { Cue } from "../src/subtitles/cue.ts";
 import { decodeSubtitle } from "../src/subtitles/decode.ts";
 import { parseSubtitle } from "../src/subtitles/parse.ts";
@@ -119,7 +119,9 @@ const subtitlesFor = async (imdbId: string) => {
 const speechOf = async (imdbId: string, videoPath: string) => {
   const started = performance.now();
   const stored = await cached(join(outputDirectory, `${imdbId}.speech.json`), async () => {
-    const { spans, audioMs } = await hear(pcmFrom(videoPath, new AbortController().signal));
+    const signal = new AbortController().signal;
+    const stream = await audioStreamOf(videoPath, "eng", signal);
+    const { spans, audioMs } = await hear(pcmFrom(videoPath, signal, stream));
 
     return JSON.stringify({
       speech: spans,

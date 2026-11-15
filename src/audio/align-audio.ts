@@ -9,9 +9,9 @@ import {
 } from "../timing/alass.ts";
 import { splitWorthScore } from "../timing/retime.ts";
 import { detectSpeech } from "../timing/speech.ts";
-import { pcmFrom, pcmSampleRate } from "./ffmpeg.ts";
+import { audioStreamOf, pcmFrom, pcmSampleRate } from "./ffmpeg.ts";
 
-type AudioOptions = { signal?: AbortSignal };
+type AudioOptions = { signal?: AbortSignal; language?: string };
 
 export type Heard = { spans: Cue[]; audioMs: number };
 
@@ -151,7 +151,9 @@ export const alignToAudio = async (
     return { kind: "empty-subtitle" };
   }
 
-  const heard = await hear(pcmFrom(videoPath, options?.signal ?? new AbortController().signal));
+  const signal = options?.signal ?? new AbortController().signal;
+  const stream = await audioStreamOf(videoPath, options?.language, signal);
+  const heard = await hear(pcmFrom(videoPath, signal, stream));
 
   return alignToSpeech(heard, cues);
 };

@@ -13,7 +13,7 @@ import {
   type AudioAlignment,
   type Heard,
 } from "../audio/align-audio.ts";
-import { pcmFrom } from "../audio/ffmpeg.ts";
+import { audioStreamOf, pcmFrom } from "../audio/ffmpeg.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { toISO6391 } from "../languages.ts";
 import type { SourceSet } from "../sources/from-config.ts";
@@ -91,7 +91,7 @@ type Listen = {
 type Steps = {
   download: ReturnType<typeof downloader>;
   shared: Shared | undefined;
-  listen: Listen | undefined;
+  listen: ((lang: string) => Listen) | undefined;
   local: boolean;
 };
 
@@ -352,50 +352,58 @@ const unused = (audio: AudioResult): Line => ({
   value: unusedReason(audio),
 });
 
-const listenTo = (path: string): Listen => {
-  let listened: Promise<Heard | Error> | undefined;
+const listenTo = (path: string) => {
+  const heardByStream = new Map<number, Promise<Heard | Error>>();
 
-  const speech = () => {
-    listened ??= hear(pcmFrom(path, new AbortController().signal)).catch((error: unknown) =>
-      error instanceof Error ? error : new Error("ffmpeg failed"),
-    );
+  return (lang: string): Listen => {
+    const speech = async () => {
+      const signal = new AbortController().signal;
+      const stream = await audioStreamOf(path, lang, signal);
+      const listened =
+        heardByStream.get(stream) ??
+        hear(pcmFrom(path, signal, stream)).catch((error: unknown) =>
+          error instanceof Error ? error : new Error("ffmpeg failed"),
+        );
 
-    return listened;
-  };
+      heardByStream.set(stream, listened);
 
-  return {
-    async align(cues) {
-      const heard = await speech();
+      return listened;
+    };
 
-      return heard instanceof Error
-        ? { kind: "failed", reason: heard.message }
-        : alignToSpeech(heard, cues);
-    },
-    async check(cues) {
-      const heard = await speech();
+    return {
+      async align(cues) {
+        const heard = await speech();
 
-      if (heard instanceof Error) {
-        return unused({ kind: "failed", reason: heard.message });
-      }
+        return heard instanceof Error
+          ? { kind: "failed", reason: heard.message }
+          : alignToSpeech(heard, cues);
+      },
+      async check(cues) {
+        const heard = await speech();
 
-      const { spans } = heard;
+        if (heard instanceof Error) {
+          return unused({ kind: "failed", reason: heard.message });
+        }
 
-      if (spans.length === 0) {
-        return unused({ kind: "no-speech" });
-      }
+        const { spans } = heard;
 
-      const share = speechShareOf(heard);
+        if (spans.length === 0) {
+          return unused({ kind: "no-speech" });
+        }
 
-      if (!isPlausibleSpeech(share)) {
-        return unused({ kind: "implausible-speech", share });
-      }
+        const share = speechShareOf(heard);
 
-      const contrast = contrastOf(spans, cues, scoreOf(spans, cues));
+        if (!isPlausibleSpeech(share)) {
+          return unused({ kind: "implausible-speech", share });
+        }
 
-      return contrast === undefined
-        ? unused({ kind: "too-short" })
-        : { label: "checked against the audio", value: `contrast ${contrast.toFixed(1)}` };
-    },
+        const contrast = contrastOf(spans, cues, scoreOf(spans, cues));
+
+        return contrast === undefined
+          ? unused({ kind: "too-short" })
+          : { label: "checked against the audio", value: `contrast ${contrast.toFixed(1)}` };
+      },
+    };
   };
 };
 
@@ -466,13 +474,13 @@ const pickTimed = async (
 
     if (result?.kind === "shared-fix") {
       return {
-        chosen: { candidate, cues, timing, audio: await steps.listen?.check(cues) },
+        chosen: { candidate, cues, timing, audio: await steps.listen?.(lang).check(cues) },
         skipped,
         shares,
       };
     }
 
-    const audio = await steps.listen?.align(track.cues);
+    const audio = await steps.listen?.(lang).align(track.cues);
     const aligned = audio?.kind === "aligned" ? audio : undefined;
 
     if (aligned !== undefined && aligned.contrast < audioMismatchContrast) {

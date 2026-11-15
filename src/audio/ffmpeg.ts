@@ -1,4 +1,8 @@
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import * as v from "valibot";
+import { toISO6391 } from "../languages.ts";
 
 export const pcmSampleRate = 16000;
 
@@ -6,9 +10,86 @@ export const ffmpegCommand = () => process.env.SUBSONTIME_FFMPEG || "ffmpeg";
 
 export const ffmpegFound = () => spawnSync(ffmpegCommand(), ["-version"]).error === undefined;
 
+const execFileAsync = promisify(execFile);
+
+const flag = v.optional(v.number(), 0);
+
+const probeSchema = v.object({
+  streams: v.array(
+    v.object({
+      tags: v.optional(
+        v.object({ language: v.optional(v.string()), title: v.optional(v.string()) }),
+        {},
+      ),
+      disposition: v.optional(v.object({ comment: flag, original: flag, default: flag }), {}),
+    }),
+  ),
+});
+
+export type AudioStream = v.InferInput<typeof probeSchema>["streams"][number];
+
+export const ffprobeCommand = () => {
+  const { SUBSONTIME_FFPROBE: configured } = process.env;
+  const ffmpeg = ffmpegCommand();
+
+  if (configured) {
+    return configured;
+  }
+
+  return ffmpeg.includes("/") ? join(dirname(ffmpeg), "ffprobe") : "ffprobe";
+};
+
+const baseLanguage = (code: string) => (toISO6391(code) ?? code.toLowerCase()).split("-")[0];
+
+const isCommentary = ({ tags, disposition }: AudioStream) =>
+  disposition?.comment === 1 || /commentary/i.test(tags?.title ?? "");
+
+export const chooseAudioStream = (streams: AudioStream[], language: string | undefined) => {
+  const candidates = streams.flatMap((stream, index) =>
+    isCommentary(stream) ? [] : [{ stream, index }],
+  );
+  const wanted = language === undefined ? undefined : baseLanguage(language);
+  const picks = [
+    ({ stream }: (typeof candidates)[number]) =>
+      wanted !== undefined &&
+      stream.tags?.language !== undefined &&
+      baseLanguage(stream.tags.language) === wanted,
+    ({ stream }: (typeof candidates)[number]) => stream.disposition?.original === 1,
+    ({ stream }: (typeof candidates)[number]) => stream.disposition?.default === 1,
+  ];
+
+  return (
+    picks.map((pick) => candidates.find(pick)).find((found) => found !== undefined)?.index ??
+    candidates[0]?.index ??
+    0
+  );
+};
+
+export const audioStreamOf = async (
+  videoPath: string,
+  language: string | undefined,
+  signal: AbortSignal,
+) => {
+  signal.throwIfAborted();
+
+  try {
+    const { stdout } = await execFileAsync(
+      ffprobeCommand(),
+      ["-v", "error", "-select_streams", "a", "-show_streams", "-of", "json", `file:${videoPath}`],
+      { signal, maxBuffer: 16 * 1024 * 1024 },
+    );
+
+    return chooseAudioStream(v.parse(probeSchema, JSON.parse(stdout)).streams, language);
+  } catch {
+    signal.throwIfAborted();
+
+    return 0;
+  }
+};
+
 const stderrTailLength = 4096;
 
-const decodeArguments = (videoPath: string) => [
+const decodeArguments = (videoPath: string, stream: number) => [
   "-nostdin",
   "-hide_banner",
   "-loglevel",
@@ -16,7 +97,7 @@ const decodeArguments = (videoPath: string) => [
   "-i",
   `file:${videoPath}`,
   "-map",
-  "0:a:0",
+  `0:a:${stream}`,
   "-ac",
   "1",
   "-ar",
@@ -58,10 +139,10 @@ export const exitError = (
   return new Error(`ffmpeg exited with ${code === null ? killedBy : `code ${code}`}: ${lastLine}`);
 };
 
-export const pcmFrom = async function* (videoPath: string, signal: AbortSignal) {
+export const pcmFrom = async function* (videoPath: string, signal: AbortSignal, stream = 0) {
   signal.throwIfAborted();
 
-  const child = spawn(ffmpegCommand(), decodeArguments(videoPath), {
+  const child = spawn(ffmpegCommand(), decodeArguments(videoPath, stream), {
     stdio: ["ignore", "pipe", "pipe"],
     signal,
   });

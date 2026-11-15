@@ -119,7 +119,7 @@ const run = async (argv: string[]) => {
     return `${left} · ffmpeg is needed to sync to the audio. Install it and try again.`;
   }
 
-  const audio = await alignToAudio(videoPath, cues);
+  const audio = await alignToAudio(videoPath, cues, { language: lang });
 
   if (audio.kind !== "aligned") {
     return `${left} · ${unusedReason(audio)}`;
