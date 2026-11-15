@@ -9,7 +9,7 @@ const sources: [RegExp, NonNullable<Release["source"]>][] = [
   [/^(bluray|blu-ray|bdrip|brrip|bdremux|remux)$/i, "bluray"],
   [/^(web-dl|webdl|web)$/i, "web-dl"],
   [/^webrip$/i, "webrip"],
-  [/^hdtv$/i, "hdtv"],
+  [/^(hdtv|pdtv|hdtvrip)$/i, "hdtv"],
   [/^(dvdrip|dvd)$/i, "dvdrip"],
 ];
 
@@ -116,9 +116,11 @@ const codecs: [RegExp, string][] = [
   [/(^|[^a-z0-9])av1([^a-z0-9]|$)/i, "av1"],
 ];
 
+const codecOf = (filename: string) => codecs.find(([pattern]) => pattern.test(filename))?.[1];
+
 export const releaseSignatureOf = (filename: string) => {
   const { group, resolution } = parseRelease(filename);
-  const codec = codecs.find(([pattern]) => pattern.test(filename))?.[1];
+  const codec = codecOf(filename);
 
   return group === undefined
     ? undefined
@@ -130,3 +132,23 @@ export const releaseFamilyOf = ({ source, group }: Release): ReleaseFamily | und
 
 export const inReleaseFamily = (release: Release, family: ReleaseFamily) =>
   release.group?.toLowerCase() === family.group && release.source === family.source;
+
+const discOrWebSources = new Set<Release["source"]>(["bluray", "dvdrip", "web-dl", "webrip"]);
+const ripGroups = new Set(["joy", "tigole", "qxr", "silence", "psa"]);
+
+export const isDiscOrWeb = ({ source }: Release) => discOrWebSources.has(source);
+
+export const looksLikeRip = (filename: string) => {
+  const { source, resolution, group } = parseRelease(filename);
+  const codec = codecOf(filename);
+
+  return (
+    source === undefined &&
+    (resolution === "1080p" ||
+      resolution === "2160p" ||
+      codec === "h265" ||
+      codec === "av1" ||
+      /(^|[^a-z0-9])10bit([^a-z0-9]|$)/i.test(filename) ||
+      ripGroups.has(group?.toLowerCase() ?? ""))
+  );
+};

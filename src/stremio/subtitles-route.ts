@@ -7,12 +7,14 @@ import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import {
   inReleaseFamily,
+  isDiscOrWeb,
+  looksLikeRip,
   parseRelease,
   releaseFamilyOf,
   releaseSimilarity,
   type ReleaseFamily,
 } from "../subtitles/release.ts";
-import { pickReferences } from "../timing/references.ts";
+import { freeFirst, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
@@ -60,9 +62,14 @@ export const searchVideo = async (
   const all = [...listed, ...referenceOnly];
   const inFamily = ({ release }: Candidate) =>
     family !== undefined && inReleaseFamily(release, family);
+  const learned = pickReferences(all, fileRelease, family);
+  const ripGuess = family === undefined && looksLikeRip(query.filename ?? "");
+  const guessed = ({ release }: Candidate) => ripGuess && isDiscOrWeb(release);
+  const fromGuess = learned.length === 0 && ripGuess;
 
   return {
-    references: pickReferences(all, fileRelease, family),
+    references: fromGuess ? freeFirst(all.filter(guessed)) : learned,
+    fromGuess,
     observedFamily: all
       .filter(({ hashMatch }) => hashMatch)
       .map(({ release }) => releaseFamilyOf(release))
@@ -74,6 +81,7 @@ export const searchVideo = async (
           (a, b) =>
             Number(b.hashMatch) - Number(a.hashMatch) ||
             Number(inFamily(b)) - Number(inFamily(a)) ||
+            Number(guessed(b)) - Number(guessed(a)) ||
             releaseSimilarity(b.release, fileRelease) - releaseSimilarity(a.release, fileRelease),
         ),
   };
@@ -182,7 +190,10 @@ export const subtitlesRoute =
           v: 1,
           q,
           c: candidates.map(toCandidateRef).map(unflagged),
-          x: references.map(unflagged),
+          x:
+            found.fromGuess && candidates[0] !== undefined && isDiscOrWeb(candidates[0].release)
+              ? []
+              : references.map(unflagged),
           w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
           k: listed === undefined ? fileKey : undefined,
           d: hiddenKey,

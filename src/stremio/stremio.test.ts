@@ -676,6 +676,9 @@ const firstRefAt = async (app: ReturnType<typeof appWith>, token: string, path: 
 const film = (hash: string) =>
   `movie/tt0111161/${joy(1, "Film")}&videoSize=1&videoHash=${hash}.json`;
 
+const namedFilm = (hash: string) =>
+  `movie/tt0111161/filename=${encodeURIComponent("Film (1080p BluRay x265 10bit Joy).mkv")}&videoSize=1&videoHash=${hash}.json`;
+
 describe("release families", () => {
   it("serves the release family an earlier episode of the same release matched", async () => {
     const app = appWith(byQuery(familyEntries()));
@@ -721,7 +724,7 @@ describe("release families", () => {
     const { ref } = await firstRefAt(
       app,
       token,
-      `series/tt1442437:1:24/${joy(24, "Family Portrait", "Other")}${withHashOf(24)}.json`,
+      `series/tt1442437:1:24/filename=${encodeURIComponent("Modern Family S01E24 Family Portrait  (1080p BluRay x265 10bit Other).mkv")}${withHashOf(24)}.json`,
     );
 
     expect(ref.c[0]?.r).toBe("e24-hdtv");
@@ -749,14 +752,93 @@ describe("release families", () => {
     expect(ref.c[0]?.r).toBe("e24-hdtv");
   });
 
-  it("leaves films alone", async () => {
+  it("learns no family from films", async () => {
     const app = appWith(byQuery(familyEntries()));
     const token = sealed({ languages: ["hrv"] });
 
-    await list(app, token, film(hashOf(0)));
-    const { ref } = await firstRefAt(app, token, film("ffffffffffffffff"));
+    await list(app, token, namedFilm(hashOf(0)));
+    const { ref } = await firstRefAt(app, token, namedFilm("ffffffffffffffff"));
 
     expect(ref.c[0]?.r).toBe("e0-hdtv");
+  });
+});
+
+const episode24 = (filename: string) =>
+  `series/tt1442437:1:24/filename=${encodeURIComponent(filename)}${withHashOf(24)}.json`;
+
+describe("a file that looks like a disc or web rip", () => {
+  it("serves the disc subtitle over the broadcast one without anything learned", async () => {
+    const app = appWith(byQuery(familyEntries()));
+    const token = sealed({ languages: ["hrv"] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      token,
+      `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
+    );
+    const served = parseSubtitle(await (await app.request(url)).text());
+
+    expect(ref.c.map(({ r }) => r)).toEqual(["e24-dvd", "e24-hdtv"]);
+    expect(served.map(({ start }) => start)).toEqual(disc.map(({ start }) => start));
+  });
+
+  it("retimes a broadcast subtitle against a disc one in another language", async () => {
+    const app = appWith(byQuery(familyEntries({ discLang: "eng" })));
+    const token = sealed({ languages: ["hrv"] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      token,
+      `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
+    );
+    const served = parseSubtitle(await (await app.request(url)).text());
+    const close = disc
+      .slice(0, -1)
+      .filter((cue, index) => Math.abs((served[index]?.start ?? 0) - cue.start) <= 100);
+
+    expect(ref.x.map(({ r }) => r)).toEqual(["e24-dvd"]);
+    expect(close.length / (disc.length - 1)).toBeGreaterThan(0.95);
+  });
+
+  it("keeps the exact-release ranking for a file that names its source", async () => {
+    const { ref } = await firstRefAt(
+      appWith(byQuery(familyEntries())),
+      sealed({ languages: ["hrv"] }),
+      episode24("Modern.Family.S01E24.1080p.HDTV.x265-LOL.mkv"),
+    );
+
+    expect(ref.c[0]?.r).toBe("e24-hdtv");
+  });
+
+  it("leaves a 720p file without rip signals alone", async () => {
+    const { ref } = await firstRefAt(
+      appWith(byQuery(familyEntries())),
+      sealed({ languages: ["hrv"] }),
+      episode24("Modern Family S01E24 720p.mkv"),
+    );
+
+    expect(ref.c[0]?.r).toBe("e24-hdtv");
+    expect(ref.x).toEqual([]);
+  });
+
+  it("lets a hash match win over the guess", async () => {
+    const { ref } = await firstRefAt(
+      appWith(byQuery(familyEntries({ matched: "hdtv" }))),
+      sealed({ languages: ["hrv"] }),
+      `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`,
+    );
+
+    expect(ref.c[0]?.r).toBe("e23-hdtv");
+  });
+
+  it("guesses for films the same way", async () => {
+    const { ref } = await firstRefAt(
+      appWith(byQuery(familyEntries())),
+      sealed({ languages: ["hrv"] }),
+      film("ffffffffffffffff"),
+    );
+
+    expect(ref.c[0]?.r).toBe("e0-dvd");
   });
 });
 

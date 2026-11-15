@@ -8,6 +8,12 @@ import {
 
 const maximumReferences = 3;
 
+export const freeFirst = (pool: Candidate[]) => {
+  const free = pool.filter(({ metered }) => metered !== true);
+
+  return (free.length > 0 ? free : pool).slice(0, maximumReferences);
+};
+
 export const pickReferences = (
   candidates: Candidate[],
   fileRelease: Release,
@@ -22,7 +28,6 @@ export const pickReferences = (
             sameRelease(release, fileRelease) ||
             (family !== undefined && inReleaseFamily(release, family)),
         );
-  const free = pool.filter(({ metered }) => metered !== true);
 
-  return (free.length > 0 ? free : pool).slice(0, maximumReferences);
+  return freeFirst(pool);
 };
