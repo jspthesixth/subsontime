@@ -1,0 +1,369 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import * as v from "valibot";
+import type { Cue } from "../subtitles/cue.ts";
+import { decodeSubtitle } from "../subtitles/decode.ts";
+import { uniqueLines } from "../subtitles/lines.ts";
+import { parseSubtitle } from "../subtitles/parse.ts";
+import {
+  alignCues,
+  alignOffset,
+  bestScoredRatio,
+  offsetCues,
+  scoreOf,
+  speedRatios,
+} from "../timing/alass.ts";
+import { shiftOf } from "../timing/retime.ts";
+import {
+  shifted,
+  speechShareOf,
+  windowOf,
+  withinSpeech,
+  wrongShiftsMs,
+  type Heard,
+} from "./align-audio.ts";
+import type { Pair } from "./evaluate.ts";
+
+export const shiftGridMs = [
+  ...new Set([
+    ...wrongShiftsMs,
+    ...Array.from({ length: 19 }, (_, index) => (index + 2) * 15_000).flatMap((ms) => [-ms, ms]),
+  ]),
+].toSorted((a, b) => a - b);
+
+export const CueSchema = v.object({
+  start: v.number(),
+  end: v.number(),
+  text: v.optional(v.string(), ""),
+});
+
+const HeardSchema = v.object({ spans: v.array(CueSchema), audioMs: v.number() });
+
+const WindowSchema = v.object({ start: v.number(), end: v.number() });
+
+const FitSchema = v.object({
+  speedRatio: v.number(),
+  offsetMs: v.number(),
+  withinScore: v.number(),
+  score: v.number(),
+});
+
+export const primitiveSchemas = {
+  rigid: v.object({
+    audioMs: v.number(),
+    speechSpans: v.number(),
+    speechShare: v.number(),
+    window: WindowSchema,
+    speechWindow: WindowSchema,
+    fits: v.array(FitSchema),
+  }),
+  shifts: v.object({ scores: v.array(v.number()) }),
+  thirds: v.array(v.nullable(v.object({ offsetMs: v.number(), withinScore: v.number() }))),
+  mislisting: v.object({ by: v.nullable(v.string()) }),
+  timing: v.object({ diffsMs: v.array(v.number()) }),
+  split: v.object({
+    withinScore: v.number(),
+    offsetMs: v.number(),
+    cuts: v.number(),
+    diffsMs: v.array(v.number()),
+  }),
+};
+
+export const primitiveVersions = {
+  rigid: 1,
+  shifts: 1,
+  thirds: 1,
+  mislisting: 1,
+  timing: 1,
+  split: 1,
+} satisfies Record<keyof typeof primitiveSchemas, number>;
+
+export type Primitive = keyof typeof primitiveSchemas;
+
+type Values = { [P in Primitive]: v.InferOutput<(typeof primitiveSchemas)[P]> };
+
+export type Rigid = Values["rigid"];
+
+export type Cache = { [P in Primitive]: Map<string, Values[P]> };
+
+export type Features = Pair & Pick<Values, "rigid" | "shifts" | "thirds"> & Partial<Values>;
+
+const primitives = Object.keys(primitiveVersions) as Primitive[];
+
+type Target = { key: string; file: string; trusted?: string; negative: boolean };
+
+const appliesTo: Record<Primitive, (target: Target) => boolean> = {
+  rigid: () => true,
+  shifts: () => true,
+  thirds: () => true,
+  mislisting: (target) => target.negative,
+  timing: (target) => target.trusted !== undefined,
+  split: (target) => target.trusted !== undefined,
+};
+
+export type Job = {
+  subtitle: string;
+  targets: (Target & { needs: Primitive[]; rigid?: Rigid })[];
+};
+
+export type Computed = { key: string; values: Partial<Values> };
+
+type Labelled = { id: string; lines: Set<string> };
+
+export type Loader = {
+  heard: (file: string) => Promise<Heard>;
+  cues: (subtitle: string) => Promise<Cue[]>;
+  trusted: (path: string) => Promise<Cue[]>;
+  labelled: (file: string) => Promise<Labelled[]>;
+};
+
+export const readJSON = async <T extends v.GenericSchema>(path: string, schema: T) =>
+  v.parse(schema, JSON.parse(await readFile(path, "utf8")));
+
+export const featureKey = (pair: Pick<Pair, "subtitleSha" | "file">) =>
+  `${pair.subtitleSha} ${pair.file}`;
+
+export const featurePath = (root: string, split: string, primitive: Primitive) =>
+  join(root, "features", split, `${primitive}-v${primitiveVersions[primitive]}.jsonl`);
+
+const memoized = <T>(load: (key: string) => Promise<T>) => {
+  const loaded = new Map<string, Promise<T>>();
+
+  return (key: string) => {
+    const known = loaded.get(key) ?? load(key);
+
+    loaded.set(key, known);
+
+    return known;
+  };
+};
+
+export const labelledByFile = (pairs: Pair[]) =>
+  new Map(
+    [
+      ...Map.groupBy(
+        pairs.filter((pair) => pair.truth === "positive"),
+        (pair) => pair.file,
+      ),
+    ].map(([file, positives]) => [file, positives.map((pair) => pair.subtitle)]),
+  );
+
+export const loaderOf = (root: string, labelled: Map<string, string[]>): Loader => {
+  const cues = async (subtitle: string) =>
+    parseSubtitle(decodeSubtitle(await readFile(join(root, "subs", "norm", `${subtitle}.srt`))));
+  const linesOf = memoized(async (subtitle) => ({
+    id: subtitle,
+    lines: new Set(uniqueLines(await cues(subtitle)).keys()),
+  }));
+
+  return {
+    heard: memoized((file) => readJSON(join(root, "spans", `${file}.json`), HeardSchema)),
+    cues,
+    trusted: async (path) => readJSON(join(root, path), v.array(CueSchema)),
+    labelled: async (file) => Promise.all((labelled.get(file) ?? []).map(linesOf)),
+  };
+};
+
+export const readCache = async (root: string, split: string): Promise<Cache> => {
+  const read = async <P extends Primitive>(primitive: P) => {
+    const text = await readFile(featurePath(root, split, primitive), "utf8").catch(() => "");
+    const lines = text.split("\n").flatMap((line) => {
+      try {
+        return [JSON.parse(line) as { key: string; value: unknown }];
+      } catch {
+        return [];
+      }
+    });
+
+    return new Map(
+      lines.map(({ key, value }) => [key, v.parse(primitiveSchemas[primitive], value)] as const),
+    ) as Cache[P];
+  };
+
+  return {
+    rigid: await read("rigid"),
+    shifts: await read("shifts"),
+    thirds: await read("thirds"),
+    mislisting: await read("mislisting"),
+    timing: await read("timing"),
+    split: await read("split"),
+  };
+};
+
+export const jobsOf = (pairs: Pair[], cache: Cache): Job[] => {
+  const planned = [...Map.groupBy(pairs, featureKey)].flatMap(([key, group]) => {
+    const [first] = group;
+
+    if (first === undefined) {
+      return [];
+    }
+
+    const trusted = group.find((pair) => pair.trusted !== undefined)?.trusted;
+    const rigid = cache.rigid.get(key);
+    const target: Target = {
+      key,
+      file: first.file,
+      ...(trusted === undefined ? {} : { trusted }),
+      negative: group.some((pair) => pair.truth === "negative"),
+    };
+    const needs = primitives.filter(
+      (primitive) => appliesTo[primitive](target) && !cache[primitive].has(key),
+    );
+
+    return needs.length === 0
+      ? []
+      : [{ first, target: { ...target, needs, ...(rigid === undefined ? {} : { rigid }) } }];
+  });
+
+  return [...Map.groupBy(planned, ({ first }) => first.subtitleSha).values()].map((group) => ({
+    subtitle: group[0]?.first.subtitle ?? "",
+    targets: group.map(({ target }) => target),
+  }));
+};
+
+export const bestFit = (rigid: Rigid) => {
+  const speedRatio = bestScoredRatio(
+    rigid.fits.map((fit) => ({ speedRatio: fit.speedRatio, score: fit.withinScore })),
+  );
+  const fit = rigid.fits.find((candidate) => candidate.speedRatio === speedRatio);
+
+  if (fit === undefined) {
+    throw new Error("No rigid fit");
+  }
+
+  return fit;
+};
+
+export const startDiffsOf = (aligned: Cue[], trusted: Cue[]) => {
+  if (aligned.length !== trusted.length) {
+    throw new Error(`${aligned.length} cues against ${trusted.length} trusted cues`);
+  }
+
+  return aligned.map((cue, index) => Math.round(cue.start - (trusted[index]?.start ?? 0)));
+};
+
+export const mislistedBy = (lines: string[], labelled: Labelled[]) =>
+  labelled.find(
+    ({ lines: own }) =>
+      lines.length > 0 && lines.filter((line) => own.has(line)).length / lines.length >= 0.5,
+  )?.id;
+
+const rigidOf = (heard: Heard, cues: Cue[]): Rigid => ({
+  audioMs: heard.audioMs,
+  speechSpans: heard.spans.length,
+  speechShare: speechShareOf(heard),
+  window: windowOf(cues),
+  speechWindow: windowOf(heard.spans),
+  fits: speedRatios.map((speedRatio) => {
+    const fit = alignOffset(heard.spans, cues, { ...withinSpeech, speedRatio });
+
+    return {
+      speedRatio,
+      offsetMs: fit.offsetMs,
+      withinScore: fit.score,
+      score: scoreOf(heard.spans, fit.cues),
+    };
+  }),
+});
+
+const thirdsOf = (cues: Cue[]) =>
+  [0, 1, 2].map((third) =>
+    cues.slice(Math.floor((third * cues.length) / 3), Math.floor(((third + 1) * cues.length) / 3)),
+  );
+
+export const featuresFor = async (job: Job, load: Loader): Promise<Computed[]> => {
+  const cues = await load.cues(job.subtitle);
+  const lines = [...uniqueLines(cues).keys()];
+
+  return Promise.all(
+    job.targets.map(async (target) => {
+      const heard = await load.heard(target.file);
+      const rigid = target.rigid ?? rigidOf(heard, cues);
+      const { speedRatio, offsetMs } = bestFit(rigid);
+      const rigidCues = offsetCues(cues, speedRatio, offsetMs);
+      const trusted = async () => {
+        if (target.trusted === undefined) {
+          throw new Error(`No trusted cues for ${target.key}`);
+        }
+
+        return load.trusted(target.trusted);
+      };
+      const compute: { [P in Primitive]: () => Promise<Values[P]> | Values[P] } = {
+        rigid: () => rigid,
+        shifts: () => ({
+          scores: shiftGridMs.map((shift) => scoreOf(heard.spans, shifted(rigidCues, shift))),
+        }),
+        thirds: () =>
+          thirdsOf(cues).map((third) => {
+            if (third.length === 0) {
+              return null;
+            }
+
+            const fit = alignOffset(heard.spans, third, { ...withinSpeech, speedRatio });
+
+            return { offsetMs: fit.offsetMs, withinScore: fit.score };
+          }),
+        mislisting: async () => ({
+          by: mislistedBy(lines, await load.labelled(target.file)) ?? null,
+        }),
+        timing: async () => ({ diffsMs: startDiffsOf(rigidCues, await trusted()) }),
+        split: async () => {
+          const split = await alignCues(heard.spans, cues, { ...withinSpeech, speedRatio });
+          const { offsetMs: splitOffsetMs, cuts } = shiftOf(cues, split.cues, speedRatio);
+
+          return {
+            withinScore: split.score,
+            offsetMs: splitOffsetMs,
+            cuts,
+            diffsMs: startDiffsOf(split.cues, await trusted()),
+          };
+        },
+      };
+      const values = await Promise.all(
+        target.needs.map(async (primitive) => [primitive, await compute[primitive]()] as const),
+      );
+
+      return { key: target.key, values: Object.fromEntries(values) };
+    }),
+  );
+};
+
+export const featuresOf = (pairs: Pair[], cache: Cache): Features[] => {
+  const features = pairs.flatMap((pair) => {
+    const key = featureKey(pair);
+    const rigid = cache.rigid.get(key);
+    const shifts = cache.shifts.get(key);
+    const thirds = cache.thirds.get(key);
+    const mislisting = cache.mislisting.get(key);
+    const timing = cache.timing.get(key);
+    const split = cache.split.get(key);
+    const complete =
+      pair.truth === "negative"
+        ? mislisting !== undefined
+        : timing !== undefined && split !== undefined;
+
+    if (rigid === undefined || shifts === undefined || thirds === undefined || !complete) {
+      return [];
+    }
+
+    return [
+      {
+        ...pair,
+        rigid,
+        shifts,
+        thirds,
+        ...(mislisting === undefined ? {} : { mislisting }),
+        ...(timing === undefined ? {} : { timing }),
+        ...(split === undefined ? {} : { split }),
+      },
+    ];
+  });
+
+  if (features.length < pairs.length) {
+    throw new Error(
+      `${pairs.length - features.length} pairs lack features: run the features stage first.`,
+    );
+  }
+
+  return features;
+};

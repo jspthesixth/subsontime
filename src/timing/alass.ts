@@ -53,25 +53,33 @@ export const alignCues = async (
   );
 };
 
+export const offsetCues = (subtitle: Cue[], speedRatio: number, offsetMs: number) =>
+  subtitle.map((cue) => ({
+    ...cue,
+    start: Math.round(cue.start / speedRatio + offsetMs),
+    end: Math.round(cue.end / speedRatio + offsetMs),
+  }));
+
 export const alignOffset = (
   reference: Cue[],
   subtitle: Cue[],
   options?: AlignOptions,
-): Alignment => {
+): Alignment & { offsetMs: number } => {
   const speedRatio = options?.speedRatio ?? 1;
   const referenceSpans = flatten(reference);
-  const delta = Number(align_offset(referenceSpans, flatten(subtitle), speedRatio));
+  const offsetMs = Number(align_offset(referenceSpans, flatten(subtitle), speedRatio));
 
-  return scored(
-    referenceSpans,
-    subtitle.map((cue) => ({
-      ...cue,
-      start: Math.round(cue.start / speedRatio + delta),
-      end: Math.round(cue.end / speedRatio + delta),
-    })),
-    options,
-  );
+  return {
+    ...scored(referenceSpans, offsetCues(subtitle, speedRatio, offsetMs), options),
+    offsetMs,
+  };
 };
+
+export const bestScoredRatio = (candidates: readonly { speedRatio: number; score: number }[]) =>
+  candidates.reduce((best, candidate) => (candidate.score > best.score ? candidate : best), {
+    speedRatio: candidates[0]?.speedRatio ?? 1,
+    score: -Infinity,
+  }).speedRatio;
 
 export const bestSpeedRatio = (
   reference: Cue[],
@@ -79,12 +87,9 @@ export const bestSpeedRatio = (
   ratios: readonly number[],
   options?: AlignOptions,
 ) =>
-  ratios
-    .map((speedRatio) => ({
+  bestScoredRatio(
+    ratios.map((speedRatio) => ({
       speedRatio,
       score: alignOffset(reference, subtitle, { ...options, speedRatio }).score,
-    }))
-    .reduce((best, candidate) => (candidate.score > best.score ? candidate : best), {
-      speedRatio: ratios[0] ?? 1,
-      score: -Infinity,
-    }).speedRatio;
+    })),
+  );

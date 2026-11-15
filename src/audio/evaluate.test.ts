@@ -3,21 +3,36 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Cue } from "../subtitles/cue.ts";
+import { uniqueLines } from "../subtitles/lines.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
+import { alignToSpeech, audioDecisionOf } from "./align-audio.ts";
 import {
-  evaluateSubtitle,
+  headContrastOf,
+  headRule,
   judgeEnvironmentKey,
-  labelledByFile,
-  loaderOf,
-  mislistedBy,
   outcomeOf,
   pairsOf,
+  rowsOf,
   summaryOf,
   upperBound95,
   type Pair,
   type Row,
 } from "./evaluate.ts";
+import {
+  featureKey,
+  featurePath,
+  featuresFor,
+  featuresOf,
+  jobsOf,
+  labelledByFile,
+  loaderOf,
+  mislistedBy,
+  primitiveVersions,
+  readCache,
+  type Cache,
+  type Computed,
+} from "./features.ts";
 
 const speechA = syntheticTrack(1, 400);
 const speechB = syntheticTrack(2, 400);
@@ -44,6 +59,7 @@ const subtitles: Record<string, { titles: string[]; cues: Cue[] }> = {
   },
   sequelOfA: { titles: ["tt9"], cues: russian(speechA, "первая") },
   excludedOnB: { titles: ["tt8"], cues: russian(speechC, "пятая") },
+  clipOfA: { titles: ["tt7"], cues: russian(speechA.slice(0, 20), "седьмая") },
   ownC: { titles: ["tt3"], cues: russian(speechC, "шестая") },
 };
 
@@ -74,6 +90,8 @@ const hardNegatives = {
   excluded: [{ subtitle: "excludedOnB", file: "b" }],
 };
 
+const heardOf = (speech: Cue[]) => ({ spans: speech, audioMs: (speech.at(-1)?.end ?? 0) + 2000 });
+
 let root = "";
 
 const writeJSON = async (path: string, value: unknown) => {
@@ -96,6 +114,7 @@ beforeAll(async () => {
         id,
         titles,
         normalized: `subs/norm/${id}.srt`,
+        normalizedSha256: `sha-${id}`,
       })),
       { id: "broken", titles: ["tt1"] },
     ],
@@ -104,10 +123,7 @@ beforeAll(async () => {
   await writeJSON(join(root, "hard-negatives.json"), hardNegatives);
   await Promise.all([
     ...files.map(({ sha256, speech }) =>
-      writeJSON(join(root, "spans", `${sha256}.json`), {
-        spans: speech,
-        audioMs: (speech.at(-1)?.end ?? 0) + 2000,
-      }),
+      writeJSON(join(root, "spans", `${sha256}.json`), heardOf(speech)),
     ),
     ...Object.entries(subtitles).map(async ([id, { cues }]) => {
       await mkdir(join(root, "subs", "norm"), { recursive: true });
@@ -121,14 +137,40 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const evaluated = async (pairs: Pair[]) => {
-  const load = loaderOf(root, labelledByFile(pairs));
-  const bySubtitle = Map.groupBy(pairs, (pair) => pair.subtitle);
-  const rows = await Promise.all(
-    [...bySubtitle.values()].map((group) => evaluateSubtitle(group, load)),
+const emptyCache = (): Cache => ({
+  rigid: new Map(),
+  shifts: new Map(),
+  thirds: new Map(),
+  mislisting: new Map(),
+  timing: new Map(),
+  split: new Map(),
+});
+
+const cacheOf = (computed: Computed[]) => {
+  const cache = emptyCache();
+
+  computed.forEach(({ key, values }) =>
+    Object.entries(values).forEach(([primitive, value]) =>
+      (cache[primitive as keyof Cache] as Map<string, unknown>).set(key, value),
+    ),
   );
 
-  return rows.flat();
+  return cache;
+};
+
+const computedFor = async (pairs: Pair[], cache = emptyCache()) => {
+  const load = loaderOf(root, labelledByFile(pairs));
+  const computed = await Promise.all(jobsOf(pairs, cache).map((job) => featuresFor(job, load)));
+
+  return computed.flat();
+};
+
+const trainPairs = async () => (await pairsOf(root, "train", {})).pairs;
+
+const decidedRows = async () => {
+  const pairs = await trainPairs();
+
+  return rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), headRule);
 };
 
 const rowFor = (rows: Row[], subtitle: string, file: string) =>
@@ -136,11 +178,15 @@ const rowFor = (rows: Row[], subtitle: string, file: string) =>
 
 const row = (fields: Partial<Row>): Row => ({
   subtitle: "s",
+  subtitleSha: "sha-s",
   file: "f",
   fileTitle: "tt1",
   truth: "negative",
   decision: "not-clear",
-  alignment: "aligned",
+  score: 0.5,
+  offsetScore: 0.5,
+  speedRatio: 1,
+  offsetMs: 0,
   speechShare: 0.5,
   coverage: 0.9,
   ...fields,
@@ -164,15 +210,15 @@ describe("pairsOf", () => {
         "sequelOfA b negative",
         "untimedA b negative",
         "excludedOnB a negative",
+        "clipOfA a negative",
+        "clipOfA b negative",
       ].toSorted(),
     );
     expect(skipped).toEqual({ unlabelled: 1, excluded: 1 });
   });
 
   it("tags hard negatives by kind and keeps the identity flag", async () => {
-    const { pairs } = await pairsOf(root, "train", {});
-
-    expect(pairs.filter((pair) => pair.category !== undefined)).toEqual([
+    expect((await trainPairs()).filter((pair) => pair.category !== undefined)).toEqual([
       expect.objectContaining({ subtitle: "sequelOfA", file: "a", category: "sequel" }),
       expect.objectContaining({
         subtitle: "sequelOfA",
@@ -200,42 +246,133 @@ describe("pairsOf", () => {
   });
 });
 
-describe("evaluateSubtitle", () => {
-  it("accepts an own subtitle with the label's timing", async () => {
-    const rows = await evaluated((await pairsOf(root, "train", {})).pairs);
+describe("headRule over cached features", () => {
+  it("decides every pair with the contrast alignToSpeech gives", async () => {
+    const pairs = await trainPairs();
+    const rows = rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), headRule);
+    const speeches: Record<string, Cue[]> = { a: speechA, b: speechB };
+    const expected = await Promise.all(
+      rows.map(async ({ subtitle, file }) => {
+        const alignment = await alignToSpeech(
+          heardOf(speeches[file] ?? []),
+          subtitles[subtitle]?.cues ?? [],
+        );
 
-    expect(rowFor(rows, "ownA", "a")).toMatchObject({ decision: "accept", offsetMs: -2000 });
-    expect(outcomeOf(rowFor(rows, "ownA", "a") ?? row({}), 0)).toBe("accept");
+        return {
+          decision: audioDecisionOf(alignment),
+          contrast: alignment.kind === "aligned" ? alignment.contrast : undefined,
+        };
+      }),
+    );
+
+    expect(rows.map(({ decision, contrast }) => ({ decision, contrast }))).toEqual(expected);
+  });
+
+  it("calls a clip too short to judge as alignToSpeech does", async () => {
+    const speech = syntheticTrack(5, 15);
+    const load = {
+      heard: async () => heardOf(speech),
+      cues: async () => speech,
+      trusted: async () => [],
+      labelled: async () => [],
+    };
+    const [computed] = await featuresFor(
+      {
+        subtitle: "clip",
+        targets: [{ key: "k", file: "f", negative: true, needs: ["rigid", "shifts", "thirds"] }],
+      },
+      load,
+    );
+    const { rigid, shifts, thirds } = computed?.values ?? {};
+
+    expect(await alignToSpeech(heardOf(speech), speech)).toEqual({ kind: "too-short" });
+    expect(
+      rigid !== undefined && shifts !== undefined && thirds !== undefined
+        ? headContrastOf({ ...row({}), rigid, shifts, thirds })
+        : "missing",
+    ).toBeUndefined();
+  });
+
+  it("accepts an own subtitle with the label's timing", async () => {
+    const owned = rowFor(await decidedRows(), "ownA", "a") ?? row({});
+
+    expect(owned).toMatchObject({ decision: "accept", offsetMs: -2000 });
+    expect(outcomeOf(owned, 0)).toBe("accept");
   });
 
   it("does not accept a subtitle of another film", async () => {
-    const rows = await evaluated((await pairsOf(root, "train", {})).pairs);
-
-    expect(rowFor(rows, "ownB", "a")?.decision).not.toBe("accept");
+    expect(rowFor(await decidedRows(), "ownB", "a")?.decision).not.toBe("accept");
   });
 
   it("names the labelled subtitle a mislisted negative shares its lines with", async () => {
-    const rows = await evaluated((await pairsOf(root, "train", {})).pairs);
+    const mislisted = rowFor(await decidedRows(), "sequelOfA", "a") ?? row({});
 
-    expect(rowFor(rows, "sequelOfA", "a")).toMatchObject({
-      decision: "accept",
-      mislistedBy: "ownA",
-    });
-    expect(outcomeOf(rowFor(rows, "sequelOfA", "a") ?? row({}), 0)).toBe("mislisted");
+    expect(mislisted).toMatchObject({ decision: "accept", mislistedBy: "ownA" });
+    expect(outcomeOf(mislisted, 0)).toBe("mislisted");
   });
 });
 
+describe("the feature cache", () => {
+  it("computes only the primitives a pair lacks and reuses its rigid fit", async () => {
+    const pairs = (await trainPairs()).filter((pair) => pair.subtitle === "ownA");
+    const cache = cacheOf(await computedFor(pairs));
+    const ownOnA = featureKey({ subtitleSha: "sha-ownA", file: "a" });
+    const rigid = cache.rigid.get(ownOnA);
+
+    cache.split.delete(ownOnA);
+
+    expect(jobsOf(pairs, cache)).toEqual([
+      {
+        subtitle: "ownA",
+        targets: [expect.objectContaining({ key: ownOnA, needs: ["split"], rigid })],
+      },
+    ]);
+  });
+
+  it("refuses to decide pairs without features", async () => {
+    const pairs = await trainPairs();
+    const cache = cacheOf(await computedFor(pairs));
+
+    cache.mislisting.clear();
+
+    expect(() => featuresOf(pairs, cache)).toThrow("lack features");
+  });
+
+  it("reads a versioned cache file and skips a line cut short", async () => {
+    const pairs = (await trainPairs()).filter((pair) => pair.subtitle === "ownA");
+    const [first] = await computedFor(pairs);
+    const path = featurePath(root, "train", "rigid");
+
+    expect(path).toContain(`rigid-v${primitiveVersions.rigid}.jsonl`);
+
+    await mkdir(join(path, ".."), { recursive: true });
+    await writeFile(
+      path,
+      `${JSON.stringify({ key: first?.key, value: first?.values.rigid })}\n{"key":`,
+    );
+
+    expect([...(await readCache(root, "train")).rigid.keys()]).toEqual([first?.key]);
+  });
+});
+
+const linesOf = (cues: Cue[]) => new Set(uniqueLines(cues).keys());
+
 describe("mislistedBy", () => {
   const lines = russian(speechA.slice(0, 10), "общая");
+  const subtitleLines = [...linesOf(lines)];
 
   it("flags a subtitle sharing half its unique lines", () => {
     expect(
-      mislistedBy(lines, [{ id: "own", cues: [...lines.slice(0, 5), ...russian(speechB, "x")] }]),
+      mislistedBy(subtitleLines, [
+        { id: "own", lines: linesOf([...lines.slice(0, 5), ...russian(speechB, "x")]) },
+      ]),
     ).toBe("own");
   });
 
   it("keeps a subtitle sharing less than half", () => {
-    expect(mislistedBy(lines, [{ id: "own", cues: lines.slice(0, 4) }])).toBeUndefined();
+    expect(
+      mislistedBy(subtitleLines, [{ id: "own", lines: linesOf(lines.slice(0, 4)) }]),
+    ).toBeUndefined();
   });
 });
 

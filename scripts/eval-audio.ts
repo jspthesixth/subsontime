@@ -1,22 +1,32 @@
 import { execFileSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import {
-  evaluateSubtitle,
+  headRule,
   labelOffsetMs,
-  labelledByFile,
-  loaderOf,
   offsetsOf,
   pairsOf,
+  rowsOf,
   summaryOf,
-  type Pair,
-  type Row,
 } from "../src/audio/evaluate.ts";
+import {
+  featurePath,
+  featuresFor,
+  featuresOf,
+  jobsOf,
+  labelledByFile,
+  loaderOf,
+  primitiveVersions,
+  readCache,
+  type Computed,
+  type Job,
+  type Primitive,
+} from "../src/audio/features.ts";
 
-const usage = "usage: node scripts/eval-audio.ts <cache dir> <train|test>";
+const usage = "usage: node scripts/eval-audio.ts <features|decide> <cache dir> <train|test>";
 
 type Shared = { root: string; labelled: [string, string[]][] };
 
@@ -24,8 +34,8 @@ const serve = () => {
   const { root, labelled } = workerData as Shared;
   const load = loaderOf(root, new Map(labelled));
 
-  parentPort?.on("message", async (pairs: Pair[]) => {
-    parentPort?.postMessage(await evaluateSubtitle(pairs, load), []);
+  parentPort?.on("message", async (job: Job) => {
+    parentPort?.postMessage(await featuresFor(job, load), []);
   });
 };
 
@@ -38,24 +48,44 @@ const revision = () => {
   return `${git("rev-parse", "--short", "HEAD")}${dirty}`;
 };
 
-const main = async () => {
-  const [root, split] = process.argv.slice(2);
+const appender = async (path: string) => {
+  const existing = await readFile(path, "utf8").catch(() => "");
 
-  if (root === undefined || split === undefined) {
-    throw new Error(usage);
+  await mkdir(dirname(path), { recursive: true });
+
+  const stream = createWriteStream(path, { flags: "a" });
+
+  if (existing !== "" && !existing.endsWith("\n")) {
+    stream.write("\n");
   }
 
-  const { pairs, skipped } = await pairsOf(root, split, process.env);
-  const path = join(root, "results", `${split}-${revision()}.jsonl`);
+  return stream;
+};
 
-  await mkdir(join(root, "results"), { recursive: true });
-
-  const output = createWriteStream(path);
-  const queue = [...Map.groupBy(pairs, (pair) => pair.subtitle).values()];
+const computeFeatures = async (root: string, split: string) => {
+  const { pairs } = await pairsOf(root, split, process.env);
+  const queue = jobsOf(pairs, await readCache(root, split));
+  const targets = queue.reduce((sum, job) => sum + job.targets.length, 0);
+  const streams = new Map(
+    await Promise.all(
+      (Object.keys(primitiveVersions) as Primitive[]).map(
+        async (primitive) =>
+          [primitive, await appender(featurePath(root, split, primitive))] as const,
+      ),
+    ),
+  );
   const shared: Shared = { root, labelled: [...labelledByFile(pairs)] };
-  const rows: Row[] = [];
   const started = performance.now();
-  const pace = () => rows.length / ((performance.now() - started) / 1000);
+  let done = 0;
+
+  const write = (computed: Computed[]) =>
+    computed.forEach(({ key, values }) =>
+      Object.entries(values).forEach(([primitive, value]) =>
+        streams.get(primitive as Primitive)?.write(`${JSON.stringify({ key, value })}\n`),
+      ),
+    );
+
+  const pace = () => done / ((performance.now() - started) / 1000);
 
   const work = () =>
     new Promise<void>((resolve, reject) => {
@@ -72,26 +102,40 @@ const main = async () => {
         worker.postMessage(job, []);
       };
 
-      worker.on("message", (done: Row[]) => {
-        done.forEach((row) => output.write(`${JSON.stringify(row)}\n`));
-        rows.push(...done);
-        process.stderr.write(
-          `\r${rows.length} / ${pairs.length} pairs, ${pace().toFixed(1)} pairs/s`,
-        );
+      worker.on("message", (computed: Computed[]) => {
+        done += computed.length;
+        process.stderr.write(`\r${done} / ${targets} pairs, ${pace().toFixed(1)} pairs/s`);
+        write(computed);
         next();
       });
       worker.on("error", reject);
       next();
     });
 
-  await Promise.all(Array.from({ length: Math.max(availableParallelism() - 1, 1) }, work));
-  await new Promise((resolve) => output.end(resolve));
+  await Promise.all(Array.from({ length: availableParallelism() }, work));
+  await Promise.all([...streams.values()].map((stream) => new Promise((end) => stream.end(end))));
+
+  console.log(JSON.stringify({ pairs: targets, pairsPerSecond: pace() }, null, 2));
+};
+
+const decide = async (root: string, split: string) => {
+  const started = performance.now();
+  const { pairs, skipped } = await pairsOf(root, split, process.env);
+  const rows = rowsOf(featuresOf(pairs, await readCache(root, split)), headRule);
+  const path = join(root, "results", `${split}-${revision()}.jsonl`);
+
+  await mkdir(dirname(path), { recursive: true });
+
+  const output = createWriteStream(path);
+
+  rows.forEach((row) => output.write(`${JSON.stringify(row)}\n`));
+  await new Promise((end) => output.end(end));
 
   console.log(
     JSON.stringify(
       {
         results: path,
-        pairsPerSecond: pace(),
+        seconds: (performance.now() - started) / 1000,
         skipped,
         offsets: offsetsOf(rows),
         summary: summaryOf(rows, labelOffsetMs),
@@ -100,6 +144,28 @@ const main = async () => {
       2,
     ),
   );
+};
+
+const main = async () => {
+  const [stage, root, split] = process.argv.slice(2);
+
+  if (root === undefined || split === undefined) {
+    throw new Error(usage);
+  }
+
+  if (stage === "features") {
+    await computeFeatures(root, split);
+
+    return;
+  }
+
+  if (stage === "decide") {
+    await decide(root, split);
+
+    return;
+  }
+
+  throw new Error(usage);
 };
 
 if (isMainThread) {

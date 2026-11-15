@@ -35,14 +35,17 @@ export const audioAcceptContrast = 3.5;
 export const audioMismatchContrast = 1.5;
 export const plausibleSpeechShare = { min: 0.15, max: 0.9 };
 
-const wrongShiftsMs = [37, 71, 113, 149].flatMap((seconds) => [-seconds * 1000, seconds * 1000]);
+export const wrongShiftsMs = [37, 71, 113, 149].flatMap((seconds) => [
+  -seconds * 1000,
+  seconds * 1000,
+]);
 const minimumBaseline = 0.03;
 const shortClipMs = 300_000;
 const minimumShifts = 4;
 
-const withinSpeech = { withinReference: true };
+export const withinSpeech = { withinReference: true };
 
-const shifted = (cues: Cue[], ms: number) =>
+export const shifted = (cues: Cue[], ms: number) =>
   cues.map((cue) => ({ ...cue, start: cue.start + ms, end: cue.end + ms }));
 
 export const windowOf = (cues: Cue[]) => ({
@@ -50,10 +53,9 @@ export const windowOf = (cues: Cue[]) => ({
   end: Math.max(...cues.map((cue) => cue.end)),
 });
 
-const usableShifts = (spans: Cue[], cues: Cue[]) => {
-  const subtitle = windowOf(cues);
-  const speech = windowOf(spans);
+type Window = ReturnType<typeof windowOf>;
 
+export const usableShifts = (subtitle: Window, speech: Window) => {
   if (subtitle.end - subtitle.start >= shortClipMs) {
     return wrongShiftsMs;
   }
@@ -63,18 +65,18 @@ const usableShifts = (spans: Cue[], cues: Cue[]) => {
   );
 };
 
-export const contrastOf = (spans: Cue[], cues: Cue[], score: number) => {
-  const shifts = usableShifts(spans, cues);
+export const contrastFrom = (score: number, shifts: number[], scoreAt: (shift: number) => number) =>
+  shifts.length < minimumShifts
+    ? undefined
+    : score / Math.max(...shifts.map(scoreAt), minimumBaseline);
 
-  if (shifts.length < minimumShifts) {
-    return undefined;
-  }
-
-  return (
-    score /
-    Math.max(...shifts.map((shift) => scoreOf(spans, shifted(cues, shift))), minimumBaseline)
+export const contrastOf = (spans: Cue[], cues: Cue[], score: number) =>
+  contrastFrom(score, usableShifts(windowOf(cues), windowOf(spans)), (shift) =>
+    scoreOf(spans, shifted(cues, shift)),
   );
-};
+
+export const prefersSplit = (rigidScore: number, splitScore: number) =>
+  rigidScore < splitWorthScore && splitScore > rigidScore;
 
 const refined = async (speech: Cue[], rigid: Alignment, cues: Cue[], speedRatio: number) => {
   if (rigid.score >= splitWorthScore) {
@@ -83,20 +85,23 @@ const refined = async (speech: Cue[], rigid: Alignment, cues: Cue[], speedRatio:
 
   const split = await alignCues(speech, cues, { ...withinSpeech, speedRatio });
 
-  return split.score > rigid.score ? split.cues : rigid.cues;
+  return prefersSplit(rigid.score, split.score) ? split.cues : rigid.cues;
 };
 
-export const audioDecisionOf = (alignment: AudioAlignment): AudioDecision => {
-  if (alignment.kind !== "aligned") {
+export const decisionOf = (contrast: number | undefined): AudioDecision => {
+  if (contrast === undefined) {
     return "not-clear";
   }
 
-  if (alignment.contrast < audioMismatchContrast) {
+  if (contrast < audioMismatchContrast) {
     return "mismatch";
   }
 
-  return alignment.contrast >= audioAcceptContrast ? "accept" : "not-clear";
+  return contrast >= audioAcceptContrast ? "accept" : "not-clear";
 };
+
+export const audioDecisionOf = (alignment: AudioAlignment) =>
+  decisionOf(alignment.kind === "aligned" ? alignment.contrast : undefined);
 
 export const speechShareOf = ({ spans, audioMs }: Heard) =>
   spans.reduce((sum, span) => sum + span.end - span.start, 0) / Math.max(audioMs, 1);

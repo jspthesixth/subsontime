@@ -1,34 +1,30 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as v from "valibot";
-import type { Cue } from "../subtitles/cue.ts";
-import { decodeSubtitle } from "../subtitles/decode.ts";
-import { uniqueLines } from "../subtitles/lines.ts";
-import { parseSubtitle } from "../subtitles/parse.ts";
-import { shiftOf } from "../timing/retime.ts";
 import {
-  alignToSpeech,
-  audioDecisionOf,
-  speechShareOf,
-  windowOf,
-  type AudioAlignment,
+  contrastFrom,
+  decisionOf,
+  isPlausibleSpeech,
+  prefersSplit,
+  usableShifts,
   type AudioDecision,
-  type Heard,
 } from "./align-audio.ts";
+import { bestFit, readJSON, shiftGridMs, type Features } from "./features.ts";
 
 export const judgeEnvironmentKey = "SUBSONTIME_EVAL_SPLIT_TEST";
 export const labelOffsetMs = 0;
 export const correctTiming = { medianMs: 250, p90Ms: 1000 };
-export const mislistedShare = 0.5;
-
-const CueSchema = v.object({ start: v.number(), end: v.number(), text: v.optional(v.string(), "") });
 
 const ManifestSchema = v.object({
   files: v.array(
     v.object({ sha256: v.string(), split: v.string(), imdbId: v.string(), spans: v.string() }),
   ),
   subtitles: v.array(
-    v.object({ id: v.string(), titles: v.array(v.string()), normalized: v.optional(v.string()) }),
+    v.object({
+      id: v.string(),
+      titles: v.array(v.string()),
+      normalized: v.optional(v.string()),
+      normalizedSha256: v.optional(v.string()),
+    }),
   ),
 });
 
@@ -55,10 +51,9 @@ const HardNegativesSchema = v.object({
   excluded: v.array(v.object({ subtitle: v.string(), file: v.string() })),
 });
 
-const HeardSchema = v.object({ spans: v.array(CueSchema), audioMs: v.number() });
-
 export type Pair = {
   subtitle: string;
+  subtitleSha: string;
   file: string;
   fileTitle: string;
   truth: "positive" | "negative";
@@ -67,16 +62,17 @@ export type Pair = {
   identityUnverified?: boolean;
 };
 
+export type Rule = (features: Features) => AudioDecision;
+
 export type Row = Pair & {
   decision: AudioDecision;
-  alignment: AudioAlignment["kind"];
+  contrast?: number;
+  score: number;
+  offsetScore: number;
+  speedRatio: number;
+  offsetMs: number;
   speechShare: number;
   coverage: number;
-  contrast?: number;
-  score?: number;
-  offsetScore?: number;
-  speedRatio?: number;
-  offsetMs?: number;
   startDiffsMs?: number[];
   mislistedBy?: string;
 };
@@ -88,18 +84,6 @@ export type Outcome =
   | "mismatch"
   | "not-clear"
   | "mislisted";
-
-type Labelled = { id: string; cues: Cue[] };
-
-type Loader = {
-  heard: (file: string) => Promise<Heard>;
-  cues: (subtitle: string) => Promise<Cue[]>;
-  trusted: (path: string) => Promise<Cue[]>;
-  labelled: (file: string) => Promise<Labelled[]>;
-};
-
-const readJSON = async <T extends v.GenericSchema>(path: string, schema: T) =>
-  v.parse(schema, JSON.parse(await readFile(path, "utf8")));
 
 const splitOf = (name: string, env: NodeJS.ProcessEnv) => {
   if (name === "test" && env[judgeEnvironmentKey] !== "judge") {
@@ -124,13 +108,18 @@ export const pairsOf = async (root: string, name: string, env: NodeJS.ProcessEnv
   const labels = new Map(entries.map((label) => [pairKey(label.subtitle, label.file), label]));
   const hardPairs = new Map(hard.pairs.map((pair) => [pairKey(pair.subtitle, pair.file), pair]));
   const excluded = new Set(hard.excluded.map((pair) => pairKey(pair.subtitle, pair.file)));
-  const usable = manifest.subtitles.filter((subtitle) => subtitle.normalized !== undefined);
+  const usable = manifest.subtitles.flatMap(({ normalized, normalizedSha256, ...subtitle }) =>
+    normalized === undefined || normalizedSha256 === undefined
+      ? []
+      : [{ ...subtitle, sha: normalizedSha256 }],
+  );
 
   const all = manifest.files
     .filter((file) => file.split === split)
     .flatMap((file) =>
       usable.map((subtitle) => ({
         subtitle: subtitle.id,
+        subtitleSha: subtitle.sha,
         file: file.sha256,
         fileTitle: file.imdbId,
         own: subtitle.titles.includes(file.imdbId),
@@ -170,117 +159,70 @@ export const pairsOf = async (root: string, name: string, env: NodeJS.ProcessEnv
   };
 };
 
-export const labelledByFile = (pairs: Pair[]) =>
-  new Map(
-    [
-      ...Map.groupBy(
-        pairs.filter((pair) => pair.truth === "positive"),
-        (pair) => pair.file,
-      ),
-    ].map(([file, positives]) => [file, positives.map((pair) => pair.subtitle)]),
-  );
-
-const memoized = <T>(load: (key: string) => Promise<T>) => {
-  const loaded = new Map<string, Promise<T>>();
-
-  return (key: string) => {
-    const known = loaded.get(key) ?? load(key);
-
-    loaded.set(key, known);
-
-    return known;
-  };
-};
-
-export const loaderOf = (root: string, labelled: Map<string, string[]>): Loader => {
-  const cues = async (subtitle: string) =>
-    parseSubtitle(decodeSubtitle(await readFile(join(root, "subs", "norm", `${subtitle}.srt`))));
-  const labelledCues = memoized(async (subtitle) => ({ id: subtitle, cues: await cues(subtitle) }));
-
-  return {
-    heard: memoized((file) => readJSON(join(root, "spans", `${file}.json`), HeardSchema)),
-    cues,
-    trusted: async (path) => readJSON(join(root, path), v.array(CueSchema)),
-    labelled: async (file) => Promise.all((labelled.get(file) ?? []).map(labelledCues)),
-  };
-};
-
 const quantile = (values: number[], q: number) => {
   const sorted = values.toSorted((a, b) => a - b);
 
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? Infinity;
 };
 
-const startDiffsOf = (aligned: Cue[], trusted: Cue[]) => {
-  if (aligned.length !== trusted.length) {
-    throw new Error(`${aligned.length} cues against ${trusted.length} trusted cues`);
+const shiftScoreOf = (features: Features, shift: number) => {
+  const score = features.shifts.scores[shiftGridMs.indexOf(shift)];
+
+  if (score === undefined) {
+    throw new Error(`No score at ${shift} ms`);
   }
 
-  return aligned.map((cue, index) => Math.round(cue.start - (trusted[index]?.start ?? 0)));
+  return score;
 };
 
-export const mislistedBy = (cues: Cue[], labelled: Labelled[]) => {
-  const lines = [...uniqueLines(cues).keys()];
+export const headContrastOf = (features: Features) => {
+  const { rigid } = features;
+  const { speedRatio, offsetMs, score } = bestFit(rigid);
 
-  return labelled.find(({ cues: own }) => {
-    const ownLines = uniqueLines(own);
+  if (rigid.speechSpans === 0 || !isPlausibleSpeech(rigid.speechShare)) {
+    return undefined;
+  }
 
-    return (
-      lines.length > 0 &&
-      lines.filter((line) => ownLines.has(line)).length / lines.length >= mislistedShare
-    );
-  })?.id;
-};
-
-const measured = async (pair: Pair, heard: Heard, cues: Cue[], load: Loader): Promise<Row> => {
-  const alignment = await alignToSpeech(heard, cues);
-  const decision = audioDecisionOf(alignment);
-  const { start, end } = windowOf(cues);
-  const row: Row = {
-    ...pair,
-    decision,
-    alignment: alignment.kind,
-    speechShare: speechShareOf(heard),
-    coverage: (end - start) / Math.max(heard.audioMs, 1),
+  const window = {
+    start: Math.round(rigid.window.start / speedRatio + offsetMs),
+    end: Math.round(rigid.window.end / speedRatio + offsetMs),
   };
 
-  if (alignment.kind !== "aligned") {
-    return row;
-  }
-
-  const { contrast, score, offsetScore, speedRatio, cues: aligned } = alignment;
-  const mislisted =
-    pair.truth === "negative" && decision === "accept"
-      ? mislistedBy(cues, await load.labelled(pair.file))
-      : undefined;
-
-  return {
-    ...row,
-    contrast,
-    score,
-    offsetScore,
-    speedRatio,
-    offsetMs: shiftOf(cues, aligned, speedRatio).offsetMs,
-    ...(pair.trusted === undefined
-      ? {}
-      : { startDiffsMs: startDiffsOf(aligned, await load.trusted(pair.trusted)) }),
-    ...(mislisted === undefined ? {} : { mislistedBy: mislisted }),
-  };
-};
-
-export const evaluateSubtitle = async (pairs: Pair[], load: Loader) => {
-  const [first] = pairs;
-
-  if (first === undefined) {
-    return [];
-  }
-
-  const cues = await load.cues(first.subtitle);
-
-  return Promise.all(
-    pairs.map(async (pair) => measured(pair, await load.heard(pair.file), cues, load)),
+  return contrastFrom(score, usableShifts(window, rigid.speechWindow), (shift) =>
+    shiftScoreOf(features, shift),
   );
 };
+
+export const headRule: Rule = (features) => decisionOf(headContrastOf(features));
+
+export const rowsOf = (features: Features[], rule: Rule): Row[] =>
+  features.map(({ rigid, shifts, thirds, mislisting, timing, split, ...pair }) => {
+    const fit = bestFit(rigid);
+    const decision = rule({ ...pair, rigid, shifts, thirds });
+    const refined =
+      decision === "accept" &&
+      split !== undefined &&
+      prefersSplit(fit.withinScore, split.withinScore)
+        ? split
+        : undefined;
+    const startDiffsMs = refined?.diffsMs ?? timing?.diffsMs;
+    const contrast = headContrastOf({ ...pair, rigid, shifts, thirds });
+    const mislistedBy = pair.truth === "negative" && decision === "accept" ? mislisting?.by : null;
+
+    return {
+      ...pair,
+      decision,
+      ...(contrast === undefined ? {} : { contrast }),
+      score: fit.score,
+      offsetScore: fit.withinScore,
+      speedRatio: fit.speedRatio,
+      offsetMs: refined?.offsetMs ?? fit.offsetMs,
+      speechShare: rigid.speechShare,
+      coverage: (rigid.window.end - rigid.window.start) / Math.max(rigid.audioMs, 1),
+      ...(startDiffsMs === undefined ? {} : { startDiffsMs }),
+      ...(mislistedBy === null || mislistedBy === undefined ? {} : { mislistedBy }),
+    };
+  });
 
 const isTimed = (diffs: number[], offsetMs: number) => {
   const errors = diffs.map((diff) => Math.abs(diff - offsetMs));
