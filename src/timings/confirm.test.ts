@@ -7,13 +7,17 @@ import { groupingKeyOf } from "./submitter.ts";
 import {
   alice,
   digest,
+  differentFixes,
   fix,
   fixesOnly,
   hashesOf,
   hashLike,
   idOf,
+  mostlyAgreeingFixes,
+  nearIdenticalFixes,
   nextTime,
   originOf,
+  partlySimilarFixes,
   shifted,
   submitterAt,
   subtitle,
@@ -596,10 +600,26 @@ describe("summarize limits", () => {
     });
     expect(Buffer.byteLength(JSON.stringify(timings))).toBeLessThan(200 * 1024);
   });
+
+  it("confirms 45 agreeing fixes among 500 fixes of 2000 cues", () => {
+    expect(fixesOnly(mostlyAgreeingFixes())).toMatchObject([{ status: "confirmed", agreeing: 45 }]);
+  });
+
+  it("lists 20 groups for 500 crafted near-identical rows of 2000 lines", () => {
+    expect(digest(nearIdenticalFixes(), [], [])).toHaveLength(20);
+  });
 });
 
 describe("summarize grouping bounds", () => {
   const base = subtitle(9, 2000);
+
+  it("lists 20 views for 500 rows about 0.82 similar to each other", () => {
+    expect(fixesOnly(partlySimilarFixes())).toHaveLength(20);
+  });
+
+  it("keeps 64 groups of 500 different subtitles from 500 origins", () => {
+    expect(digest(differentFixes(), [], [])).toHaveLength(64);
+  });
 
   it("lets one origin start at most 8 groups", () => {
     const fixes = Array.from({ length: 20 }, (_, index) =>

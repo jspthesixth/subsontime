@@ -22,6 +22,13 @@ const extras = `videoHash=${video.hash}&videoSize=${video.size}`;
 
 export const hanging = (): Promise<never> => new Promise(() => {});
 
+export const hangingStore = (): TimingsStore => ({
+  ...memoryStore(),
+  fixesFor: hanging,
+  mismatchesFor: hanging,
+  reportsFor: hanging,
+});
+
 export const appWith = (
   sources: SourceSet,
   store: TimingsStore = memoryStore(),

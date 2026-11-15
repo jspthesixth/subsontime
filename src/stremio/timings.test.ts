@@ -17,6 +17,7 @@ import {
   appWith,
   firstURL,
   hanging,
+  hangingStore,
   installed,
   installSalt,
   retimedSources,
@@ -315,6 +316,14 @@ describe("reading Open Timings", () => {
     expect(key).toMatch(/^hid:/);
     expect(afterListingCache).toBeDefined();
     expect(await state.get(key)).toBeUndefined();
+  });
+
+  it("serves the same subtitle when every store read hangs", async () => {
+    const { token } = installed({ share: false });
+    const served = async (store: TimingsStore) =>
+      (await play(appWith(retimedSources(), store), token)).text;
+
+    expect(await served(hangingStore())).toBe(await served(memoryStore()));
   });
 
   it("reads the store again after a read that timed out", async () => {

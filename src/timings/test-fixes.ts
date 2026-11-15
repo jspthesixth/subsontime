@@ -56,3 +56,55 @@ export const digest = (fixes: FixRow[], mismatches: MismatchRow[], reports: Repo
   digestWith(fixes, mismatches, reports, groupingKey);
 
 export const fixesOnly = (fixes: FixRow[]) => summarize(fixes, [], []).fixes;
+
+export const mostlyAgreeingFixes = () => {
+  const cues = subtitle(7, 2000);
+
+  return Array.from({ length: 500 }, (_, index) =>
+    fix(index % 10 === 0 ? shifted(cues, 1000 + index * 250) : shifted(cues, index % 50), {
+      submitter: submitterAt(index),
+    }),
+  );
+};
+
+export const nearIdenticalFixes = () => {
+  const cues = subtitle(8, 2000);
+
+  return Array.from({ length: 500 }, (_, index) => {
+    const edited = cues.map((cue, at) =>
+      at % 20 === index % 20 ? { ...cue, h: hashLike(`${index}-${at}`) } : cue,
+    );
+
+    return fix(shifted(index === 0 ? cues : edited, index * 150), {
+      submitter: submitterAt(index),
+    });
+  });
+};
+
+const edited = (base: FixCue[], index: number, edit: (at: number) => boolean) =>
+  base.map((cue, at) => (edit(at) ? { ...cue, h: hashLike(`${index}-${at}`) } : cue));
+
+export const partlySimilarFixes = () => {
+  const base = subtitle(9, 2000);
+
+  return Array.from({ length: 500 }, (_, index) =>
+    fix(
+      shifted(
+        edited(base, index, (at) => at < 200),
+        index * 150,
+      ),
+      { submitter: submitterAt(index) },
+    ),
+  );
+};
+
+export const differentFixes = () => {
+  const base = subtitle(9, 2000);
+
+  return Array.from({ length: 500 }, (_, index) =>
+    fix(
+      edited(base, index, () => true),
+      { submitter: submitterAt(index) },
+    ),
+  );
+};
