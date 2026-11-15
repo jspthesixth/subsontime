@@ -1,0 +1,10 @@
+{
+  "main": "dist/subsontime.cjs",
+  "output": "dist/subsontime.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false,
+  "assets": {
+    "alass_wasm_bg.wasm": "wasm/alass_wasm_bg.wasm"
+  }
+}

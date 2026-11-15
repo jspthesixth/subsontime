@@ -3,5 +3,7 @@ node_modules/
 .env.local
 .vercel/
 coverage/
-public/
+public/*
+!public/install.sh
+dist/
 crates/*/target/

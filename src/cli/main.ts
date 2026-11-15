@@ -1,10 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
-import * as v from "valibot";
+import packageJSON from "../../package.json" with { type: "json" };
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import type { SourceSettings } from "../config/config.ts";
 import { defaultConfig, openSubtitlesAddonURL } from "../config/default-config.ts";
@@ -79,14 +78,6 @@ const options = {
   help: { type: "boolean", short: "h" },
   version: { type: "boolean" },
 } as const;
-
-const packageSchema = v.object({ version: v.string() });
-
-const versionOf = () =>
-  v.parse(
-    packageSchema,
-    JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")),
-  ).version;
 
 const listOf = (text: string) =>
   text
@@ -176,7 +167,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
   }
 
   if (values.version === true) {
-    deps.print(`${versionOf()}\n`);
+    deps.print(`${packageJSON.version}\n`);
 
     return 0;
   }
