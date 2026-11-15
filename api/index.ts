@@ -16,4 +16,5 @@ export default createApp({
   installSalt: secrets.installSalt,
   timings: database.url ? postgresStore(database.url) : memoryStore(),
   defer: waitUntil,
+  analytics: server.onVercel,
 });

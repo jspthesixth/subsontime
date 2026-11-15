@@ -220,8 +220,9 @@ const content = html`<main>
   </section>
 </main>`;
 
-export const homePage = () =>
+export const homePage = (analytics?: boolean) =>
   layout({
+    analytics,
     title: "Subs On Time",
     description:
       "Subtitles that fit the file you are playing. A Stremio addon that retimes every subtitle to your exact video.",

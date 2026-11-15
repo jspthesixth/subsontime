@@ -36,6 +36,22 @@ describe.each(["/", "/stremio", "/check", "/timings"])("GET %s", (path) => {
 
     expect(page).not.toMatch(/Bazarr|Jellyfin|command line/i);
   });
+
+  it("loads Vercel Web Analytics and says so only on Vercel", async () => {
+    const insights = '<script type="module" src="/client/insights.js"></script>';
+    const notice = "This website counts anonymous page visits with Vercel Web Analytics";
+    const onVercel = createApp({
+      secret: "a-test-secret-that-is-long-enough-1234",
+      analytics: true,
+    });
+    const vercelPage = await (await onVercel.request(path)).text();
+    const page = await (await app.request(path)).text();
+
+    expect(vercelPage).toContain(insights);
+    expect(vercelPage).toContain(notice);
+    expect(page).not.toContain("/client/insights.js");
+    expect(page).not.toContain(notice);
+  });
 });
 
 describe("GET /stremio", () => {

@@ -4,7 +4,8 @@ import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
 import { baseURL } from "./base-url.ts";
 import { ConfigError, type Config } from "./config/config.ts";
-import { invalidLinkMessage, sealedConfigPattern, unseal } from "./config/seal.ts";
+import { invalidLinkMessage, unseal } from "./config/seal.ts";
+import { sealedConfigPattern } from "./config/sealed-config.ts";
 import { memorySingleFlight, sharedSingleFlight, type SingleFlight } from "./jobs/single-flight.ts";
 import { memorySharedState, orMiss, type SharedState } from "./jobs/shared-state.ts";
 import { sourcesFromConfig, type SourceSet } from "./sources/from-config.ts";
@@ -46,6 +47,7 @@ export type AppDeps = {
   installSalt?: string;
   timings?: TimingsStore;
   defer?: (work: Promise<unknown>) => void;
+  analytics?: boolean;
 };
 
 export type AppEnv = { Variables: { config: Config; tokens: TokenCache } };
@@ -142,9 +144,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     app.use(deps.staticFiles);
   }
 
-  app.get("/", (context) => context.html(homePage()));
-  app.get("/stremio", (context) => context.html(setupPage()));
-  app.get("/check", (context) => context.html(checkPage()));
+  app.get("/", (context) => context.html(homePage(deps.analytics)));
+  app.get("/stremio", (context) => context.html(setupPage(deps.analytics)));
+  app.get("/check", (context) => context.html(checkPage(deps.analytics)));
   app.get("/timings", async (context) => {
     const stats =
       openTimings === undefined
@@ -153,7 +155,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
             () => undefined,
           );
 
-    return context.html(timingsPage(stats));
+    return context.html(timingsPage(stats, deps.analytics));
   });
   app.use("/api/v1/*", cors());
   app.use(

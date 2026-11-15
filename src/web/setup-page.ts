@@ -338,8 +338,9 @@ const content = html`<main class="wrap" id="setup" style="padding-top: 72px; pad
   </main>
   ${installBar} ${templates}`;
 
-export const setupPage = () =>
+export const setupPage = (analytics?: boolean) =>
   layout({
+    analytics,
     title: "Set up Subs On Time for Stremio",
     description:
       "Choose your subtitle languages and sources, then install Subs On Time in Stremio.",

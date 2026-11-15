@@ -156,8 +156,9 @@ const content = html`<main class="wrap" style="padding-top: 72px; padding-bottom
   </main>
   ${templates}`;
 
-export const checkPage = () =>
+export const checkPage = (analytics?: boolean) =>
   layout({
+    analytics,
     title: "Check a file with Subs On Time",
     description:
       "See what every source has for one video, how each subtitle would be timed, and what was left out and why.",

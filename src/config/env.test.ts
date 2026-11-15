@@ -17,7 +17,13 @@ const secrets = { SECRET: secret, INSTALL_SALT: installSalt };
 describe("readEnvironment", () => {
   it("reads every group with its defaults", () => {
     expect(readEnvironment(secrets)).toEqual({
-      server: { port: 7000, publicURL: undefined, trustProxy: false, allowLocalAddons: false },
+      server: {
+        port: 7000,
+        publicURL: undefined,
+        trustProxy: false,
+        allowLocalAddons: false,
+        onVercel: false,
+      },
       secrets: { secret, installSalt },
       sources: {
         openSubtitlesAppKey: undefined,
@@ -40,6 +46,7 @@ describe("readEnvironment", () => {
         PUBLIC_URL: "https://subsontime.example",
         TRUST_PROXY: "1",
         ALLOW_LOCAL_ADDONS: "1",
+        VERCEL: "1",
         OPENSUBTITLES_APP_KEY: "app-key",
         OPENSUBTITLES_DAILY_DOWNLOADS: "95",
         TITLOVI_USERNAME: "titlovi-user",
@@ -57,6 +64,7 @@ describe("readEnvironment", () => {
         publicURL: "https://subsontime.example",
         trustProxy: true,
         allowLocalAddons: true,
+        onVercel: true,
       },
       secrets: { secret, installSalt },
       sources: {

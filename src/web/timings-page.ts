@@ -210,8 +210,9 @@ const content = (stats: StoreStats | undefined) =>
     </main>
     ${templates}`;
 
-export const timingsPage = (stats: StoreStats | undefined) =>
+export const timingsPage = (stats: StoreStats | undefined, analytics?: boolean) =>
   layout({
+    analytics,
     title: "Open Timings",
     description:
       "The shared record of subtitle fixes: how to fix a subtitle's timing, file by file, found once and used by everyone.",

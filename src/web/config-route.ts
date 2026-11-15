@@ -3,7 +3,8 @@ import * as v from "valibot";
 import { baseURL } from "../base-url.ts";
 import { formSchema, type Config } from "../config/config.ts";
 import { formOf } from "../config/default-config.ts";
-import { invalidLinkMessage, seal, sealedConfigPattern, unseal } from "../config/seal.ts";
+import { invalidLinkMessage, seal, unseal } from "../config/seal.ts";
+import { sealedConfigPattern } from "../config/sealed-config.ts";
 
 type ConfigRouteDeps = { secret: string; publicURL?: string };
 

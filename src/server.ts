@@ -23,6 +23,7 @@ const app = createApp({
   installSalt: secrets.installSalt,
   timings: database.url ? postgresStore(database.url) : memoryStore(),
   defer: detached,
+  analytics: server.onVercel,
   clientKey: (context) =>
     addressKey(proxiedClient(context) || getConnInfo(context).remote.address || "unknown"),
 });

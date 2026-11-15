@@ -18,12 +18,14 @@ export const serverSchema = v.pipe(
     PUBLIC_URL: text,
     TRUST_PROXY: text,
     ALLOW_LOCAL_ADDONS: text,
+    VERCEL: text,
   }),
-  v.transform(({ PORT, PUBLIC_URL, TRUST_PROXY, ALLOW_LOCAL_ADDONS }) => ({
+  v.transform(({ PORT, PUBLIC_URL, TRUST_PROXY, ALLOW_LOCAL_ADDONS, VERCEL }) => ({
     port: Number(PORT ?? 7000),
     publicURL: PUBLIC_URL,
     trustProxy: TRUST_PROXY === "1",
     allowLocalAddons: ALLOW_LOCAL_ADDONS === "1",
+    onVercel: VERCEL === "1",
   })),
 );
 
