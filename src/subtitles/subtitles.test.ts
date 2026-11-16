@@ -32,7 +32,7 @@ describe("decodeSubtitle", () => {
   });
 
   it("drops the UTF-8 byte order mark", () => {
-    expect(decodeSubtitle(fixture("utf8-bom.srt")).startsWith("﻿")).toBe(false);
+    expect(decodeSubtitle(fixture("utf8-bom.srt")).startsWith("\uFEFF")).toBe(false);
   });
 
   it("decodes UTF-16 with a byte order mark", () => {

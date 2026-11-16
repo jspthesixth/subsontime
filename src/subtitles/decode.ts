@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import iconv from "iconv-lite";
 import { SubtitleError } from "./cue.ts";
 
@@ -9,16 +10,14 @@ const magicNumbers = [
 ];
 const balkanLanguages = new Set(["hrv", "bos", "slv", "srp", "mkd", "cnr"]);
 const codePageByLanguage: Record<string, string> = Object.fromEntries(
-  [
-    ["windows-1251", ["rus", "ukr", "bel", "bul"]],
-    ["windows-1253", ["ell", "gre"]],
-    ["windows-1254", ["tur"]],
-    ["windows-1255", ["heb"]],
-    ["windows-1256", ["ara", "per", "fas"]],
-    ["windows-1250", ["pol", "ces", "cze", "slk", "slo", "hun", "ron", "rum"]],
-  ].flatMap(([codePage, languages]) =>
-    (languages as string[]).map((language) => [language, codePage as string]),
-  ),
+  Object.entries({
+    "windows-1251": ["rus", "ukr", "bel", "bul"],
+    "windows-1253": ["ell", "gre"],
+    "windows-1254": ["tur"],
+    "windows-1255": ["heb"],
+    "windows-1256": ["ara", "per", "fas"],
+    "windows-1250": ["pol", "ces", "cze", "slk", "slo", "hun", "ron", "rum"],
+  }).flatMap(([codePage, languages]) => languages.map((language) => [language, codePage])),
 );
 
 const startsWith = (bytes: Uint8Array, prefix: number[]) =>
@@ -27,16 +26,6 @@ const startsWith = (bytes: Uint8Array, prefix: number[]) =>
 const isBinary = (bytes: Uint8Array) =>
   magicNumbers.some((magic) => startsWith(bytes, magic)) ||
   bytes.subarray(0, binaryProbeSize).includes(0);
-
-const isValidUTF8 = (bytes: Uint8Array) => {
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 const bomEncoding = (bytes: Uint8Array) => {
   if (startsWith(bytes, [0xef, 0xbb, 0xbf])) {
@@ -56,13 +45,11 @@ const bomEncoding = (bytes: Uint8Array) => {
 
 const decodeWith = (bytes: Uint8Array, pickEncoding: () => string) => {
   try {
-    return stripBOM(iconv.decode(Buffer.from(bytes), pickEncoding()));
+    return iconv.decode(Buffer.from(bytes), pickEncoding());
   } catch {
     throw new SubtitleError("Could not decode subtitle");
   }
 };
-
-const stripBOM = (text: string) => (text.startsWith("\uFEFF") ? text.slice(1) : text);
 
 const cyrillicShare = (text: string) => {
   const letters = text.match(/\p{L}/gu) ?? [];
@@ -99,7 +86,7 @@ export const decodeSubtitle = (bytes: Uint8Array, lang?: string): string => {
     throw new SubtitleError("Subtitle file is binary");
   }
 
-  if (isValidUTF8(bytes)) {
+  if (isUtf8(bytes)) {
     return new TextDecoder("utf-8").decode(bytes);
   }
 

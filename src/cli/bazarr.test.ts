@@ -60,7 +60,7 @@ const aligned = (cues: Cue[], contrast: number, speedRatio = 1): AudioAlignment 
   }),
 });
 
-const crlfWithBOM = (cues: Cue[]) => `﻿${writeSRT(cues).replaceAll("\n", "\r\n")}`;
+const crlfWithBOM = (cues: Cue[]) => `\uFEFF${writeSRT(cues).replaceAll("\n", "\r\n")}`;
 
 const prepare = async (subtitleText = crlfWithBOM(track), name = "Film.2001.en.srt") => {
   const video = join(work, "Film.2001.mkv");
