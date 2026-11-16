@@ -10,6 +10,7 @@ export const candidateRefSchema = v.object({
   h: v.optional(v.literal(1)),
   p: v.optional(v.number()),
   e: v.optional(v.literal(1)),
+  m: v.optional(v.literal(1)),
 });
 
 const subtitleRefSchema = v.object({

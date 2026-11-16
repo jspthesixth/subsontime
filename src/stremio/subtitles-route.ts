@@ -60,6 +60,7 @@ export const toCandidateRef = (candidate: Candidate): CandidateRef => ({
   l: candidate.lang,
   h: candidate.hashMatch ? 1 : undefined,
   p: candidate.fps,
+  m: candidate.metered === true ? 1 : undefined,
 });
 
 const familySources = new Set([openSubtitlesV3Name, openSubtitlesAPIName]);

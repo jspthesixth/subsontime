@@ -9,7 +9,7 @@ import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import { parseJSON } from "../json.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
-import { isCapitals, recase } from "../subtitles/capitals.ts";
+import { isCapitals, isMostlyCapitals, recase } from "../subtitles/capitals.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
 import { mergeDual } from "../subtitles/dual.ts";
@@ -180,13 +180,15 @@ export const warmAnchor = async (
   await fileAnchor(deps, ref, download, await sharedFor(deps, config, ref));
 };
 
-export const downloader = (sources: SourceSet, signal?: AbortSignal): Download => {
+export type Downloader = Download & { has: (candidate: CandidateRef) => boolean };
+
+export const downloader = (sources: SourceSet, signal?: AbortSignal): Downloader => {
   const byName = new Map(
     [...sources.listed, ...sources.references].map((source) => [source.name, source]),
   );
   const downloads = new Map<string, Promise<Track>>();
 
-  return (candidate) => {
+  const download = (candidate: CandidateRef) => {
     const key = candidateKey(candidate.n, candidate.r);
     const track = downloads.get(key) ?? fetchTrack(byName, candidate, signal);
 
@@ -194,6 +196,10 @@ export const downloader = (sources: SourceSet, signal?: AbortSignal): Download =
 
     return track;
   };
+
+  return Object.assign(download, {
+    has: (candidate: CandidateRef) => downloads.has(candidateKey(candidate.n, candidate.r)),
+  });
 };
 
 export const servedCues = ({ track, result }: Attempt, config: Config): Cue[] | undefined => {
@@ -373,30 +379,27 @@ const shareAfterResponse = (
 
 type Cased = (cues: Cue[], served: CandidateRef) => Promise<Cue[]>;
 
-const vocabularyDownloads = 2;
-
 const keyOf = ({ n, r }: CandidateRef) => candidateKey(n, r);
 
-const mixedCaseOf = async (
-  pool: CandidateRef[],
-  download: Download,
-  tries = vocabularyDownloads,
-): Promise<Cue[][]> => {
-  const [next, ...rest] = pool;
+const mixedCaseOf = async (candidates: CandidateRef[], download: Download) =>
+  (await settledTracks(candidates.map(download)))
+    .map((track) => track.cues)
+    .filter((cues) => !isMostlyCapitals(cues));
 
-  if (next === undefined || tries === 0) {
-    return [];
-  }
+const vocabularyOf = async (pool: CandidateRef[], download: Downloader) => {
+  const free = pool.filter(({ m }) => m !== 1);
+  const [fresh] = free.filter((candidate) => !download.has(candidate));
 
-  const [track] = await settledTracks([download(next)]);
+  const known = await mixedCaseOf(
+    free.filter((candidate) => download.has(candidate)),
+    download,
+  );
 
-  return track === undefined || isCapitals(track.cues)
-    ? mixedCaseOf(rest, download, tries - 1)
-    : [track.cues];
+  return known.length > 0 || fresh === undefined ? known : mixedCaseOf([fresh], download);
 };
 
 const casedFor =
-  (ref: SubtitleRef, download: Download): Cased =>
+  (ref: SubtitleRef, download: Downloader): Cased =>
   async (cues, served) => {
     if (!isCapitals(cues)) {
       return cues;
@@ -407,7 +410,7 @@ const casedFor =
     );
     const others = [...new Map(pool.map((candidate) => [keyOf(candidate), candidate])).values()];
 
-    return recase(cues, await mixedCaseOf(others, download), served.l);
+    return recase(cues, await vocabularyOf(others, download), served.l);
   };
 
 const firstServed = (attempts: Attempt[], config: Config, cuesOf = servedCues) =>

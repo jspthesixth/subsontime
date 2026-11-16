@@ -702,6 +702,60 @@ describe("captions in capitals", () => {
     expect(metered.download).not.toHaveBeenCalled();
   });
 
+  it("never downloads a metered subtitle of the same entry for the casing", async () => {
+    const metered = fakeSource("OpenSubtitles API", [{ ref: "m", metered: true, cues: mixed }]);
+    const { app, subtitles } = await listedFor(
+      {
+        listed: [
+          fakeSource("OpenSubtitles", [{ ref: "a", hashMatch: true, cues: capitals }]),
+          metered,
+        ],
+        references: [],
+      },
+      { timing: "off" },
+    );
+
+    const served = parseSubtitle((await fetched(app, urlOf(subtitles, "eng-best"))).text);
+
+    expect(refOf(urlOf(subtitles, "eng-best")).c.map(({ r }) => r)).toEqual(["a", "m"]);
+    expect(served[14]?.text).toBe("Lopupa, zivaba. We're caloco\nrazomef to mr. Zosuzuku.");
+    expect(metered.download).not.toHaveBeenCalled();
+  });
+
+  it("downloads at most one more subtitle for the casing", async () => {
+    const source = fakeSource("Fake", [
+      { ref: "a", hashMatch: true, cues: capitals },
+      { ref: "b", cues: capitals },
+      { ref: "c", cues: mixed },
+    ]);
+    const { app, subtitles } = await listedFor(
+      { listed: [source], references: [] },
+      { timing: "off" },
+    );
+
+    const served = parseSubtitle((await fetched(app, urlOf(subtitles, "eng-best"))).text);
+
+    expect(served[14]?.text).toBe("Lopupa, zivaba. We're caloco\nrazomef to mr. Zosuzuku.");
+    expect(source.download.mock.calls.map(([ref]) => ref)).toEqual(["a", "b"]);
+  });
+
+  it("adds no download when a subtitle already downloaded gives the casing", async () => {
+    const source = fakeSource("Fake", [
+      { ref: "a", cues: shifted.map((cue) => ({ ...cue, text: cue.text.toUpperCase() })) },
+      { ref: "b", cues: track },
+    ]);
+    const { references } = retimedSources();
+
+    const { app, subtitles } = await listedFor({ listed: [source], references });
+
+    expect(await fetched(app, urlOf(subtitles, "eng-best"))).toEqual({
+      status: 200,
+      text: writeSRT(track),
+    });
+    expect(source.download.mock.calls.map(([ref]) => ref)).toEqual(["a", "b"]);
+    expect(references[0]?.download.mock.calls.map(([ref]) => ref)).toEqual(["r"]);
+  });
+
   it("serves a retimed caption with the casing of its reference and its timing", async () => {
     const { app, subtitles } = await listedFor({
       ...retimedSources(),

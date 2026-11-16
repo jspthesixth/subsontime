@@ -19,6 +19,14 @@ describe("isCapitals", () => {
   it("leaves a short subtitle of signs in capitals alone", () => {
     expect(isCapitals(capitals.slice(0, 49))).toBe(false);
   });
+
+  it("counts 50 cues in capitals", () => {
+    expect(isCapitals(Array.from({ length: 50 }, () => cue("ABCD")))).toBe(true);
+  });
+
+  it("leaves a subtitle with exactly 80 percent capitals alone", () => {
+    expect(isCapitals(Array.from({ length: 50 }, () => cue("ABCDe")))).toBe(false);
+  });
 });
 
 describe("recase", () => {
@@ -118,6 +126,28 @@ describe("recase", () => {
 
   it("writes I as a word of another language in lowercase", () => {
     expect(recase([cue("TI I JA.")], [], "hrv")).toEqual([cue("Ti i ja.")]);
+  });
+
+  it("learns no casing from a short subtitle in capitals", () => {
+    expect(recase([cue("WELL, ZOSUZUKU.")], [capitals.slice(0, 20)], "eng")).toEqual([
+      cue("Well, zosuzuku."),
+    ]);
+  });
+
+  it("gives Serbian capitals the casing of a Cyrillic subtitle", () => {
+    expect(
+      recase([cue("ЗДРАВО, МАРКО. ДА ЛИ ДОЛАЗИШ?")], [[cue("Рекао је Марко да долази.")]], "srp"),
+    ).toEqual([cue("Здраво, Марко. Да ли долазиш?")]);
+  });
+
+  it("keeps German nouns in capitals", () => {
+    expect(
+      recase(
+        [cue("ICH HABE DEN HUND IM GARTEN GESEHEN.")],
+        [[cue("Der Hund schläft im Garten.")]],
+        "deu",
+      ),
+    ).toEqual([cue("Ich habe den Hund im Garten gesehen.")]);
   });
 
   it("learns no casing from another subtitle in capitals", () => {

@@ -1,57 +1,52 @@
 import type { Cue } from "./cue.ts";
 
-type Word = { word: string; startsSentence: boolean };
+type Word = { word: string; at: number; startsSentence: boolean };
 
 const capitalsShareMinimum = 0.8;
 const capitalsCuesMinimum = 50;
 const sentenceBreak = /[.?!:)\]♪♫]["”’']*(\s|$)|\n\s*-/u;
 const wordPattern = /(?:\p{L}\.){2,}|\p{L}+/gu;
 
-export const isCapitals = (cues: Cue[]) => {
+export const isMostlyCapitals = (cues: Cue[]) => {
   const text = cues.map((cue) => cue.text).join("\n");
   const letters = text.match(/\p{L}/gu)?.length ?? 0;
   const capitals = text.match(/\p{Lu}/gu)?.length ?? 0;
 
-  return cues.length >= capitalsCuesMinimum && capitals > letters * capitalsShareMinimum;
+  return capitals > letters * capitalsShareMinimum;
 };
 
-const rewriteWords = (cues: Cue[], rewrite: (word: Word) => string): Cue[] => {
+export const isCapitals = (cues: Cue[]) =>
+  cues.length >= capitalsCuesMinimum && isMostlyCapitals(cues);
+
+const wordsOf = (cues: Cue[]): Word[][] => {
   let gap = ".";
 
-  return cues.map((cue) => {
+  return cues.map(({ text }) => {
     let end = 0;
 
     gap += "\n";
 
-    const text = cue.text.replace(wordPattern, (word: string, at: number) => {
-      const startsSentence = sentenceBreak.test(gap + cue.text.slice(end, at));
+    const words = [...text.matchAll(wordPattern)].map(({ 0: word, index: at }) => {
+      const startsSentence = sentenceBreak.test(gap + text.slice(end, at));
 
       gap = "";
       end = at + word.length;
 
-      return rewrite({ word, startsSentence });
+      return { word, at, startsSentence };
     });
 
-    gap += cue.text.slice(end);
+    gap += text.slice(end);
 
-    return { ...cue, text };
+    return words;
   });
 };
 
 const vocabularyOf = (subtitles: Cue[][]) => {
-  const words = subtitles.flatMap((cues) => {
-    const inside: string[] = [];
-
-    rewriteWords(cues, ({ word, startsSentence }) => {
-      if (!startsSentence) {
-        inside.push(word);
-      }
-
-      return word;
-    });
-
-    return inside;
-  });
+  const words = subtitles
+    .flatMap(wordsOf)
+    .flat()
+    .filter(({ startsSentence }) => !startsSentence)
+    .map(({ word }) => word);
 
   return new Map(
     [...Map.groupBy(words, (word) => word.toLowerCase())].map(([lower, forms]) => {
@@ -66,10 +61,9 @@ const vocabularyOf = (subtitles: Cue[][]) => {
 const capitalized = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
 
 export const recase = (cues: Cue[], others: Cue[][], lang: string): Cue[] => {
-  const vocabulary = vocabularyOf(others.filter((other) => !isCapitals(other)));
+  const vocabulary = vocabularyOf(others.filter((other) => !isMostlyCapitals(other)));
   const turns = cues.map((cue) => ({ ...cue, text: cue.text.replace(/>>\s*/g, "- ") }));
-
-  return rewriteWords(turns, ({ word, startsSentence }) => {
+  const casedOf = ({ word, startsSentence }: Word) => {
     if (word !== word.toUpperCase() || word.includes(".")) {
       return word;
     }
@@ -78,5 +72,16 @@ export const recase = (cues: Cue[], others: Cue[][], lang: string): Cue[] => {
     const cased = lang === "eng" && lower === "i" ? "I" : (vocabulary.get(lower) ?? lower);
 
     return startsSentence ? capitalized(cased) : cased;
-  });
+  };
+
+  const words = wordsOf(turns);
+
+  return turns.map((cue, index) => ({
+    ...cue,
+    text: (words[index] ?? []).reduceRight(
+      (text, word) =>
+        text.slice(0, word.at) + casedOf(word) + text.slice(word.at + word.word.length),
+      cue.text,
+    ),
+  }));
 };
