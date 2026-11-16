@@ -1,7 +1,9 @@
 import { basename, extname } from "node:path";
 import { filenameParse } from "@ctrl/video-filename-parser";
 import type { VideoQuery } from "../sources/source.ts";
+import { normalizedLine } from "../subtitles/lines.ts";
 import { searchCatalog } from "../web/catalog.ts";
+import { searchKey } from "../web/search-key.ts";
 
 export type Title = Pick<VideoQuery, "type" | "imdbId" | "season" | "episode">;
 
@@ -11,13 +13,7 @@ export type Identified =
 
 const episodePattern = /\bs(\d{1,2})e(\d{1,3})\b/i;
 
-const folded = (text: string) =>
-  text
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
+const folded = (text: string) => normalizedLine(searchKey(text));
 
 export const cleanName = (fileName: string) => {
   const name = basename(fileName, extname(fileName));
