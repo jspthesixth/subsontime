@@ -61,17 +61,21 @@ const pad = (value: number) => String(value).padStart(2, "0");
 
 const episodeTag = (season: number, episode: number) => `S${pad(season)}E${pad(episode)}`;
 
-const zagrebOffset = (instant: number) =>
-  new Intl.DateTimeFormat("en", { timeZone: "Europe/Zagreb", timeZoneName: "longOffset" })
-    .formatToParts(instant)
-    .find(({ type }) => type === "timeZoneName")
-    ?.value.replace("GMT", "") ?? "Z";
+const expiryOf = (expirationDate: string) => {
+  if (/(Z|[+-]\d{2}:?\d{2})$/.test(expirationDate)) {
+    return Date.parse(expirationDate);
+  }
+
+  try {
+    return Temporal.PlainDateTime.from(expirationDate).toZonedDateTime("Europe/Zagreb")
+      .epochMilliseconds;
+  } catch {
+    return Number.NaN;
+  }
+};
 
 const ttlSeconds = (expirationDate: string) => {
-  const zoned = /(Z|[+-]\d{2}:?\d{2})$/.test(expirationDate)
-    ? expirationDate
-    : `${expirationDate}${zagrebOffset(Date.now())}`;
-  const seconds = Math.floor((Date.parse(zoned) - Date.now()) / 1000) - expiryMarginSeconds;
+  const seconds = Math.floor((expiryOf(expirationDate) - Date.now()) / 1000) - expiryMarginSeconds;
 
   return Math.max(Number.isNaN(seconds) ? 0 : seconds, minimumTtlSeconds);
 };

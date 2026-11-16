@@ -241,6 +241,21 @@ describe("titloviSource search", () => {
     expect(set).toHaveBeenCalledWith(cacheKey, expect.any(String), 1200);
   });
 
+  it("reads the expiry in Zagreb summer time when the clocks change before it", async () => {
+    vi.useFakeTimers({ now: new Date("2030-03-30T12:00:00Z"), toFake: ["Date"] });
+
+    const set = vi.fn<TokenCache["set"]>(async () => {});
+
+    stubFetch(
+      json({ ...loginFixture, ExpirationDate: "2030-03-31T12:00:00" }),
+      json(searchFixture),
+    );
+
+    await titloviSource(credentials, { get: async () => undefined, set }).search(movie, signal());
+
+    expect(set).toHaveBeenCalledWith(cacheKey, expect.any(String), 78600);
+  });
+
   it("logs in again when the cached value is not valid JSON", async () => {
     const tokens = memoryTokenCache();
     const fetchMock = stubFetch(json(loginFixture), json(searchFixture));
