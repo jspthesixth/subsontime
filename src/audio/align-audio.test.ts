@@ -371,6 +371,21 @@ const withDenseBurst = () => {
   return [...before, ...burst, ...after(syntheticTrack(17, 30), endOf(burst))];
 };
 
+const withShortBlock = (from: number, count: number) => {
+  const random = seededRandom(21);
+  const between = (min: number, max: number) => Math.round(min + random() * (max - min));
+
+  return Array.from({ length: 300 }).reduce<Cue[]>((cues, _, index) => {
+    const start = (cues.at(-1)?.end ?? 0) + between(300, 3000);
+    const short = index >= from && index < from + count;
+
+    return [
+      ...cues,
+      { start, end: start + (short ? between(400, 800) : between(2500, 4500)), text: `L${index}` },
+    ];
+  }, []);
+};
+
 const decisionFor = async (speech: Cue[], isMoved: (index: number) => boolean) => {
   const subtitle = speech.map((cue, index) => {
     const shift = isMoved(index) ? 3500 : 2000;
@@ -400,6 +415,21 @@ describe("alignToSpeech with a block of cues 1.5 s later", () => {
       (index: number) => index < 16,
     ],
     [
+      "31 of 300 cues straddling two windows from cue 74",
+      syntheticTrack(3, 300),
+      (index: number) => index >= 74 && index < 105,
+    ],
+    [
+      "31 of 300 cues straddling two windows from cue 164",
+      syntheticTrack(3, 300),
+      (index: number) => index >= 164 && index < 195,
+    ],
+    [
+      "36 short cues of 300 straddling cue 150",
+      withShortBlock(132, 36),
+      (index: number) => index >= 132 && index < 168,
+    ],
+    [
       "28 of 220 cues inside a dense stretch",
       withDenseBurst(),
       (index: number) => index >= 162 && index < 190,
@@ -407,6 +437,35 @@ describe("alignToSpeech with a block of cues 1.5 s later", () => {
   ])("does not accept %s", async (_, speech, isMoved) => {
     expect(await decisionFor(speech, () => false)).toBe("accept");
     expect(await decisionFor(speech, isMoved)).toBe("not-clear");
+  });
+});
+
+describe("alignToSpeech with a subtitle listed out of order", () => {
+  it("does not accept a block of 31 cues 1.5 s later when the cues are shuffled", async () => {
+    const speech = syntheticTrack(3, 300);
+    const random = seededRandom(5);
+    const shuffled = speech
+      .map((cue, index) => {
+        const shift = index >= 74 && index < 105 ? 3500 : 2000;
+
+        return { cue: { ...cue, start: cue.start + shift, end: cue.end + shift }, key: random() };
+      })
+      .toSorted((a, b) => a.key - b.key)
+      .map(({ cue }) => cue);
+    const result = await alignToSpeech({ spans: speech, audioMs: endOf(speech) + 2000 }, shuffled);
+
+    expect(result).toMatchObject({ kind: "aligned", decision: "not-clear" });
+  });
+});
+
+describe("alignToSpeech with cues moved one by one", () => {
+  it("accepts 20 % of the cues moved 1.5 s at random, a known limit outside the guarantee", async () => {
+    const random = seededRandom(42);
+    const moved = syntheticTrack(3, 300).map(() => random() < 0.2);
+
+    expect(await decisionFor(syntheticTrack(3, 300), (index) => moved[index] === true)).toBe(
+      "accept",
+    );
   });
 });
 

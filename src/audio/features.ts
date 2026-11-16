@@ -59,7 +59,7 @@ export const primitiveSchemas = {
 export const primitiveVersions = {
   rigid: 1,
   shifts: 1,
-  windows: 2,
+  windows: 3,
   mislisting: 1,
   timing: 1,
 } satisfies Record<keyof typeof primitiveSchemas, number>;

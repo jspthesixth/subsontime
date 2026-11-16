@@ -28,8 +28,9 @@ export const audioAcceptContrast = 3.5;
 export const audioMismatchContrast = 0.9;
 export const audioSkipContrast = 1.5;
 export const windowAgreementMs = 250;
-export const windowCount = 10;
-export const minimumCues = 10 * windowCount;
+export const windowStrides = 20;
+export const windowCount = windowStrides - 1;
+export const minimumCues = 100;
 export const plausibleSpeechShare = { min: 0.15, max: 0.9 };
 
 export const wrongShiftsMs = [37, 71, 113, 149].flatMap((seconds) => [
@@ -82,17 +83,18 @@ export const windowFitsOf = (
   speedRatio: number,
   offsetMs: number,
 ): WindowFits => {
-  const aligned = offsetCues(cues, speedRatio, offsetMs);
-  const boundOf = (index: number) => Math.floor((index * cues.length) / windowCount);
+  const sorted = cues.toSorted((a, b) => a.start - b.start);
+  const aligned = offsetCues(sorted, speedRatio, offsetMs);
+  const boundOf = (stride: number) => Math.floor((stride * sorted.length) / windowStrides);
 
   const windowOffsetsMs = Array.from({ length: windowCount }, (_, index) => {
-    const own = cues.slice(boundOf(index), boundOf(index + 1));
+    const own = sorted.slice(boundOf(index), boundOf(index + 2));
 
     if (own.length === 0) {
       return null;
     }
 
-    const { start, end } = windowOf(aligned.slice(boundOf(index), boundOf(index + 1)));
+    const { start, end } = windowOf(aligned.slice(boundOf(index), boundOf(index + 2)));
 
     const near = speech.filter(
       (span) => span.end > start - windowMarginMs && span.start < end + windowMarginMs,
