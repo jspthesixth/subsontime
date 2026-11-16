@@ -1088,7 +1088,10 @@ const familyCacheSecondsOf = async (entries: Entry[]) => {
 describe("timing families", () => {
   it("offers one entry per timing family when the candidates disagree", async () => {
     const { body } = await list(
-      appWith({ listed: [fakeSource("OpenSubtitles", episodeFamilies())], references: [] }),
+      appWith(
+        { listed: [fakeSource("OpenSubtitles", episodeFamilies())], references: [] },
+        { timingFamilyTimeBoxMs: 60_000 },
+      ),
       sealed({ languages: ["hrv"] }),
       portrait,
     );
@@ -1290,7 +1293,7 @@ describe("timing families", () => {
         cues: disc,
       },
     ]);
-    const app = appWith({ listed: [source], references: [] });
+    const app = appWith({ listed: [source], references: [] }, { timingFamilyTimeBoxMs: 60_000 });
     const token = sealed({ languages: ["hrv"] });
     const name = encodeURIComponent(
       "Modern Family S01E24 Family Portrait  (1080p x265 10bit Joy).mkv",
@@ -1353,7 +1356,7 @@ describe("timing families", () => {
     ]);
 
     const { body } = await list(
-      appWith({ listed: [source], references: [] }),
+      appWith({ listed: [source], references: [] }, { timingFamilyTimeBoxMs: 60_000 }),
       sealed(),
       "movie/tt0111161/filename=Film.1999.1080p.x265-CCC.mkv.json",
     );
@@ -1441,7 +1444,10 @@ describe("timing families", () => {
 
   it("offers the dialogue-only copy of the first timing family", async () => {
     const { body } = await list(
-      appWith({ listed: [fakeSource("OpenSubtitles", episodeFamilies())], references: [] }),
+      appWith(
+        { listed: [fakeSource("OpenSubtitles", episodeFamilies())], references: [] },
+        { timingFamilyTimeBoxMs: 60_000 },
+      ),
       sealed({
         languages: ["hrv"],
         extras: { hideMismatches: true, dialogueOnly: true, foreignParts: false },
