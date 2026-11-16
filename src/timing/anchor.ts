@@ -15,23 +15,46 @@ import {
 export const agreementShare = 0.9;
 export const guardChecks = 8;
 
-export const sameTiming = async (reference: Cue[], subtitle: Cue[]) => {
-  if (bestSpeedRatio(reference, subtitle, speedRatios) !== 1) {
-    return false;
-  }
+const agrees = (deltas: number[]) => {
+  const shift = median(deltas);
+  const within = deltas.filter((delta) => Math.abs(delta - shift) <= agreementMs).length;
 
+  return Math.abs(shift) <= agreementMs && within / Math.max(deltas.length, 1) >= agreementShare;
+};
+
+// ponytail: O(n x m) scan, about a million steps for two episodes; binary search if films get slow
+const nearestShift = (starts: number[], time: number) =>
+  starts.reduce(
+    (best, start) => (Math.abs(start - time) < Math.abs(best) ? start - time : best),
+    Number.POSITIVE_INFINITY,
+  );
+
+const otherSpeedRatios = speedRatios.filter((speedRatio) => speedRatio !== 1);
+
+export const sameTiming = async (reference: Cue[], subtitle: Cue[]) => {
   const rigid = alignOffset(reference, subtitle);
 
   if (rigid.score < retimedMinimumScore || Math.abs(rigid.offsetMs) > agreementMs) {
     return false;
   }
 
-  const split = await alignCues(reference, subtitle);
-  const deltas = deltasOf(subtitle, split.cues, 1);
-  const shift = median(deltas);
-  const within = deltas.filter((delta) => Math.abs(delta - shift) <= agreementMs).length;
+  if (
+    otherSpeedRatios.some(
+      (speedRatio) => alignOffset(reference, subtitle, { speedRatio }).score > rigid.score,
+    )
+  ) {
+    return false;
+  }
 
-  return Math.abs(shift) <= agreementMs && within / Math.max(deltas.length, 1) >= agreementShare;
+  const starts = reference.map(({ start }) => start);
+
+  if (agrees(subtitle.map(({ start }) => nearestShift(starts, start)))) {
+    return true;
+  }
+
+  const split = await alignCues(reference, subtitle);
+
+  return agrees(deltasOf(subtitle, split.cues, 1));
 };
 
 export type Guarded = { partner?: number; failed: boolean; cut: boolean };
