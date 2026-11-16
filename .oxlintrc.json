@@ -5,11 +5,12 @@
     "suspicious": "error"
   },
   "plugins": ["typescript", "unicorn", "import", "vitest"],
-  "jsPlugins": ["@stylistic/eslint-plugin"],
+  "jsPlugins": ["@stylistic/eslint-plugin", "./lint/plugin.ts"],
   "rules": {
     "eqeqeq": "error",
     "no-nested-ternary": "error",
     "typescript/no-explicit-any": "error",
+    "subsontime/blank-line-after-destructuring": "warn",
     "@stylistic/padding-line-between-statements": [
       "error",
       { "blankLine": "always", "prev": "*", "next": "return" },

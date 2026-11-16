@@ -14,5 +14,5 @@
     "typeRoots": ["./node_modules/@types"],
     "types": ["node"]
   },
-  "include": ["src", "api", "scripts", "e2e", "vitest.config.ts", "vitest.perf.config.ts"]
+  "include": ["src", "api", "lint", "scripts", "e2e", "vitest.config.ts", "vitest.perf.config.ts"]
 }
