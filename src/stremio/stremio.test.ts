@@ -959,6 +959,41 @@ describe("a file that looks like a disc or web rip", () => {
   });
 });
 
+describe("minimum score", () => {
+  const episodePath =
+    "series/tt1442437:1:24/filename=Modern.Family.S01E24.720p.HDTV.x264-LOL.mkv.json";
+
+  it("keeps a subtitle named after another episode out of the best slot", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "other-episode", releaseName: "Modern.Family.S01E25.1080p.WEB-DL.x265-NTb" },
+      { ref: "this-episode", releaseName: "Modern.Family.S01E24.HDTV.XviD-2HD" },
+    ]);
+
+    const { ref } = await firstRefAt(
+      appWith({ listed: [source], references: [] }),
+      sealed(),
+      episodePath,
+    );
+
+    expect(ref.c.map(({ r }) => r)).toEqual(["this-episode"]);
+  });
+
+  it("still offers a subtitle under the minimum score when nothing else exists", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "other-episode", releaseName: "Modern.Family.S01E25.1080p.WEB-DL.x265-NTb" },
+    ]);
+
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed(),
+      episodePath,
+    );
+
+    expect(body.subtitles.map(({ label }) => label)).toEqual(["OpenSubtitles"]);
+    expect(refOf(body.subtitles[0]?.url ?? "").c.map(({ r }) => r)).toEqual(["other-episode"]);
+  });
+});
+
 describe("refs", () => {
   const key = refKey(secret);
   const ref: SubtitleRef = {

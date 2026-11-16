@@ -15,10 +15,9 @@ import {
   looksLikeRip,
   parseRelease,
   releaseFamilyOf,
-  releaseSimilarity,
-  sameRelease,
   type ReleaseFamily,
 } from "../subtitles/release.ts";
+import { minimumScoreOf, scoreOf } from "../subtitles/score.ts";
 import { freeFirst, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
@@ -75,7 +74,10 @@ export const searchVideo = async (
   const guessed = ({ release }: Candidate) => ripGuess && isDiscOrWeb(release);
   const fromGuess = learned.length === 0 && ripGuess;
   const references = fromGuess ? freeFirst(all.filter(guessed)) : learned;
-  const exact = ({ release }: Candidate) => sameRelease(release, fileRelease);
+  const scored = new Map(
+    listed.map((candidate) => [candidate, scoreOf(candidate, { video: query, family, ripGuess })]),
+  );
+  const scoreOfListed = (candidate: Candidate) => scored.get(candidate) ?? 0;
 
   return {
     references,
@@ -98,14 +100,13 @@ export const searchVideo = async (
     ranked: (lang: string) =>
       listed
         .filter((candidate) => candidate.lang === lang)
-        .toSorted(
-          (a, b) =>
-            Number(b.hashMatch) - Number(a.hashMatch) ||
-            Number(exact(b)) - Number(exact(a)) ||
-            Number(inFamily(b)) - Number(inFamily(a)) ||
-            Number(guessed(b)) - Number(guessed(a)) ||
-            releaseSimilarity(b.release, fileRelease) - releaseSimilarity(a.release, fileRelease),
-        ),
+        .toSorted((a, b) => scoreOfListed(b) - scoreOfListed(a)),
+    passing: (candidates: Candidate[]) => {
+      const minimum = minimumScoreOf(query.type);
+      const kept = candidates.filter((candidate) => scoreOfListed(candidate) >= minimum);
+
+      return kept.length > 0 ? kept : candidates;
+    },
   };
 };
 
@@ -237,7 +238,7 @@ export const subtitlesRoute =
         return [];
       }
 
-      const best = candidates.slice(0, bestSlotSize);
+      const best = found.passing(candidates).slice(0, bestSlotSize);
       const entries = config.bestOnly
         ? [{ id: `${lang}-best`, lang, label: labelOf(best), url: subURL(best) }]
         : candidates.slice(0, perLanguageLimit).map((candidate, index) => ({
