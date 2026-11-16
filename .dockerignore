@@ -2,7 +2,8 @@ node_modules
 .git
 .superpowers
 coverage
-public
+public/*
+!public/install.sh
 crates/*/target
 .env*
 docs

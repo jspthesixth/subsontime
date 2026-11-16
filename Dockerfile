@@ -1,7 +1,7 @@
 FROM node:24-alpine AS base
-RUN corepack enable && corepack prepare pnpm@11.18.0 --activate
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack enable && corepack install
 
 FROM base AS install
 RUN pnpm install --prod --frozen-lockfile
@@ -10,11 +10,14 @@ FROM base AS build
 RUN pnpm install --frozen-lockfile
 COPY scripts scripts
 COPY src src
+COPY public public
 RUN pnpm build
 
 FROM install AS runtime
 COPY src src
 COPY wasm wasm
+COPY migrations migrations
+COPY scripts/migrate.ts scripts/migrate.ts
 COPY plugins/jellyfin/releases.json plugins/jellyfin/releases.json
 COPY --from=build /app/public public
 

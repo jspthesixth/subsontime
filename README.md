@@ -78,10 +78,10 @@ volumes:
   postgres-data:
 ```
 
-The image does not carry the database migrations. Apply them from a checkout of the same release, with `compose.yaml` in that folder, before the first start and after each upgrade:
+Apply the database migrations from the image before the first start and after each upgrade:
 
 ```sh
-docker compose run --rm -v "$PWD/migrations:/app/migrations:ro" -v "$PWD/scripts:/app/scripts:ro" subsontime node --experimental-strip-types scripts/migrate.ts
+docker compose run --rm subsontime node --experimental-strip-types scripts/migrate.ts
 docker compose up -d
 ```
 
