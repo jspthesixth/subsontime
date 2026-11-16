@@ -11,7 +11,7 @@ import { memorySharedState, type SharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
 import type { TokenCache } from "../sources/token-cache.ts";
-import { decodeRef, refKey, type SubtitleRef } from "../stremio/refs.ts";
+import { decodeRef, refKey, type CandidateRef, type SubtitleRef } from "../stremio/refs.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
@@ -40,7 +40,14 @@ export type Run = {
   downloads: number;
   wallMs: number;
   cpuMs: number;
+  candidates: Listed[];
+  servedRef?: Pick<CandidateRef, "n" | "r">;
 };
+
+export type Listed = Pick<
+  Candidate,
+  "sourceName" | "ref" | "lang" | "releaseName" | "hashMatch" | "fps"
+>;
 
 export type Fingerprint = { hash: string; size: number };
 
@@ -446,17 +453,26 @@ export const benchFile = async ({
       downloads: downloads.length,
       wallMs,
       cpuMs: process.cpuUsage(cpu).user / 1000,
+      candidates: [...seen.values()].map(
+        ({ sourceName, ref, lang: listedLang, releaseName, hashMatch, fps }): Listed => ({
+          sourceName,
+          ref,
+          lang: listedLang,
+          releaseName,
+          hashMatch,
+          fps,
+        }),
+      ),
     };
 
     if (path === undefined || served.length === 0) {
       return { lang, outcome: "nothing", ...measured };
     }
 
-    const tier = tierOf(
-      decodeRef((path.split("/").at(-1) ?? "").replace(/\.srt$/, ""), key),
-      seen,
-      filename,
-    );
+    const ref = decodeRef((path.split("/").at(-1) ?? "").replace(/\.srt$/, ""), key);
+    const tier = tierOf(ref, seen, filename);
+    const [first] = ref.c;
+
     const judged = await truthOf(served, lang, file.verified);
 
     return {
@@ -465,6 +481,7 @@ export const benchFile = async ({
       tier,
       truth: judged,
       served: createHash("sha256").update(srt).digest("hex"),
+      servedRef: first === undefined ? undefined : { n: first.n, r: first.r },
       ...measured,
     };
   };

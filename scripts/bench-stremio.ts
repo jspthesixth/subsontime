@@ -14,14 +14,18 @@ import {
   summaryTable,
   validateTruth,
   type FileResult,
+  type Listed,
 } from "../src/bench/stremio-bench.ts";
+import { availabilityOf, judgeCandidates, oracleTables, signalsOf } from "../src/bench/oracle.ts";
+import { openSubtitlesAddonURL } from "../src/config/default-config.ts";
+import { stremioAddonSource } from "../src/sources/stremio-addon.ts";
 import { timingErrorOf } from "../src/audio/evaluate.ts";
 import { fileFingerprint } from "../src/cli/video-hash.ts";
 import { openSubtitlesBudgetSchema, readGroup, sourcesSchema } from "../src/config/env.ts";
 import { sourcesFromConfig } from "../src/sources/from-config.ts";
 
 const usage =
-  "usage: node scripts/bench-stremio.ts <run|validate> <train|test> [--root dir] [--only text] [--rest-downloads n] [--settled]";
+  "usage: node scripts/bench-stremio.ts <run|validate|oracle> <train|test> [bench json for oracle] [--root dir] [--only text] [--rest-downloads n] [--settled]";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -75,15 +79,8 @@ const validate = async () => {
   console.log(lines.join("\n"));
 };
 
-const run = async () => {
-  const { openSubtitlesAppKey } = readGroup(
-    sourcesSchema,
-    parseEnv(await readFile(join(import.meta.dirname, "..", ".env.local"), "utf8")),
-  );
-
-  const { openSubtitlesDailyDownloads } = readGroup(openSubtitlesBudgetSchema, process.env);
-
-  const cached = cachingFetch({
+const cachedFetch = () =>
+  cachingFetch({
     dir: join(cache, "http"),
     seeds: dataset.seeds,
     restDownloadsLeft: dailyLedger(
@@ -92,6 +89,77 @@ const run = async () => {
     ),
     upstream: globalThis.fetch,
   });
+
+const oracle = async () => {
+  const from = positionals[2] ?? "";
+  const { results } = JSON.parse(await readFile(from, "utf8")) as { results: FileResult[] };
+
+  const addon = stremioAddonSource(openSubtitlesAddonURL, "OpenSubtitles");
+  const download = (candidate: Listed) =>
+    /^\d+$/.test(candidate.ref)
+      ? Promise.reject(new Error("Metered REST subtitles are not judged"))
+      : addon.download(candidate.ref, AbortSignal.timeout(8000));
+
+  globalThis.fetch = cachedFetch().fetch;
+
+  const truthsByFile = new Map(
+    await results.reduce<Promise<[string, Awaited<ReturnType<typeof judgeCandidates>>][]>>(
+      async (done, result) => {
+        const file = files.find(({ sha256 }) => sha256 === result.file);
+        const judged =
+          file === undefined
+            ? new Map()
+            : await judgeCandidates({
+                file,
+                candidates: result.runs.flatMap(({ candidates }) => candidates),
+                download,
+                cacheDir: join(cache, "candidates"),
+              });
+
+        console.log(`${result.filename}: ${judged.size} candidates judged`);
+
+        return [...(await done), [result.file, judged]];
+      },
+      Promise.resolve([]),
+    ),
+  );
+  const rows = results.flatMap((result) => {
+    const truths = truthsByFile.get(result.file) ?? new Map();
+    const fileCandidates = result.runs.flatMap(({ candidates }) => candidates);
+
+    return result.runs.map((each) => {
+      const availability = availabilityOf(each, truths, fileCandidates);
+
+      return {
+        filename: result.filename,
+        lang: each.lang,
+        outcome: each.outcome,
+        availability,
+        shape: each.truth?.shape,
+        signals:
+          availability === "correct-not-chosen"
+            ? signalsOf(each, truths, result.filename)
+            : undefined,
+      };
+    });
+  });
+  const table = oracleTables(results, truthsByFile);
+  const base = from.replace(/\.json$/, "");
+
+  await writeFile(`${base}-oracle.json`, JSON.stringify(rows, null, 1));
+  await writeFile(`${base}-oracle.md`, `${table}\n`);
+  console.log(table);
+};
+
+const run = async () => {
+  const { openSubtitlesAppKey } = readGroup(
+    sourcesSchema,
+    parseEnv(await readFile(join(import.meta.dirname, "..", ".env.local"), "utf8")),
+  );
+
+  const { openSubtitlesDailyDownloads } = readGroup(openSubtitlesBudgetSchema, process.env);
+
+  const cached = cachedFetch();
   const fingerprintOf = cachedFingerprint(join(cache, "fingerprints.json"), fileFingerprint);
   const sha = revision();
   const results: FileResult[] = [];
@@ -149,7 +217,7 @@ const run = async () => {
   console.log(table);
 };
 
-const commands: Record<string, () => Promise<void>> = { run, validate };
+const commands: Record<string, () => Promise<void>> = { run, validate, oracle };
 const chosen = commands[command ?? ""];
 
 if (chosen === undefined) {

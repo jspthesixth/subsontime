@@ -6,7 +6,8 @@ import { parseRelease } from "../subtitles/release.ts";
 import { retimedSources, shifted, track } from "../stremio/test-app.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { benchFile, cachingFetch, countOutcomes, dailyLedger, tierOf } from "./stremio-bench.ts";
-import { truthOf } from "./truth.ts";
+import { availabilityOf, candidateKey, signalsOf } from "./oracle.ts";
+import { shapeOf, truthOf } from "./truth.ts";
 
 const verified = [{ id: "v", lang: "eng", cues: track }];
 const french = track.map((cue, index) => ({ ...cue, text: `Réplique numéro ${index}` }));
@@ -148,5 +149,65 @@ describe("cachingFetch", () => {
     const left = dailyLedger(join(dir, "ledger.json"), 1, () => new Date("2026-11-16T10:00:00Z"));
 
     expect([await left(), await left()]).toEqual([true, false]);
+  });
+});
+
+describe("shapeOf", () => {
+  const at = Array.from({ length: 200 }, (_, index) => index * 30_000);
+
+  it("names a constant offset, a frame rate and steps", () => {
+    expect(shapeOf(at.map((time) => ({ at: time, diff: 2000 })))).toEqual({
+      kind: "offset",
+      offsetMs: 2000,
+      speedRatio: 1,
+      steps: 0,
+    });
+    expect(
+      shapeOf(at.map((time) => ({ at: time, diff: time - time / (25 / 23.976) }))),
+    ).toMatchObject({ kind: "frame-rate", speedRatio: expect.closeTo(25 / 23.976, 4) });
+    expect(
+      shapeOf(at.map((time, index) => ({ at: time, diff: index < 100 ? 0 : 5000 }))),
+    ).toMatchObject({ kind: "steps", steps: 1 });
+  });
+});
+
+const listed = (ref: string, releaseName: string, fps?: number) => ({
+  sourceName: "OpenSubtitles",
+  ref,
+  lang: "eng",
+  releaseName,
+  hashMatch: false,
+  fps,
+});
+
+describe("oracle", () => {
+  const served = listed("served", "Film.2020.720p.WEB-DL.x264-OTHER", 25);
+  const right = listed("right", "Film.2020.1080p.BluRay.x264-GRP", 23.976);
+  const truths = new Map([
+    [candidateKey(served), { outcome: "wrong-timing" as const }],
+    [candidateKey(right), { outcome: "correct" as const }],
+  ]);
+  const run = { outcome: "wrong-timing" as const, candidates: [right, served] };
+
+  it("finds a correct candidate that was not chosen and the signals that pick it", () => {
+    expect(availabilityOf(run, truths, [right, served])).toBe("correct-not-chosen");
+    expect(availabilityOf({ ...run, candidates: [served] }, truths, [right, served])).toBe(
+      "cross-language-only",
+    );
+    expect(availabilityOf({ ...run, candidates: [served] }, truths, [served])).toBe("none-correct");
+    expect(
+      signalsOf(
+        { ...run, servedRef: { n: "OpenSubtitles", r: "served" } },
+        truths,
+        "Film.2020.1080p.BluRay.x264-GRP.mkv",
+      ),
+    ).toEqual([
+      "release name",
+      "group",
+      "source",
+      "resolution",
+      "fps 25 served, 23.976 correct",
+      "listed earlier",
+    ]);
   });
 });
