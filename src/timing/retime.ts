@@ -149,8 +149,23 @@ const alignAll = async (subtitle: Track, references: Track[]) => {
   return aligned;
 };
 
+const similarSpeed = (a: number, b: number) => sameSpeed(a, b) || (nearOne(a) && nearOne(b));
+
+const atSpeedOfMost = (aligned: Aligned[]) => {
+  const voters = aligned.filter(({ score }) => score >= mismatchMaximumScore);
+  const most = voters.find(
+    ({ speedRatio }) =>
+      voters.filter((other) => similarSpeed(other.speedRatio, speedRatio)).length * 2 >
+      voters.length,
+  );
+
+  return most === undefined
+    ? aligned
+    : aligned.filter(({ speedRatio }) => similarSpeed(speedRatio, most.speedRatio));
+};
+
 const choose = (aligned: Aligned[]) => {
-  const passing = aligned
+  const passing = atSpeedOfMost(aligned)
     .filter((result) => result.score >= retimedMinimumScore)
     .toSorted((a, b) => b.score - a.score);
   const center = median(passing.map((result) => result.offsetMs));

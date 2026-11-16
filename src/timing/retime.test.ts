@@ -127,6 +127,18 @@ describe("retime", () => {
     expect(result.kind === "retimed" && Math.abs(result.offsetMs + 2000)).toBeLessThanOrEqual(150);
   });
 
+  it("keeps the speed most references share over a better-scoring one at another speed", async () => {
+    const pal = transform(track, (time) => (time * 23.976) / 25);
+
+    const result = await retime(subtitleOf(track), [
+      byReleaseName(resegment(track, 7)),
+      byReleaseName(track.filter((_, index) => index % 2 === 0)),
+      byReleaseName(pal),
+    ]);
+
+    expect(result).toMatchObject({ kind: "retimed", speedRatio: 1 });
+  });
+
   it("measures offset and cuts on the speed-scaled times", async () => {
     const scaled = transform(resegment(withSilence, 7), (time) => ((time + 2000) * 23.976) / 25);
 
