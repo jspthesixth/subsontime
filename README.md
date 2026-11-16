@@ -127,6 +127,8 @@ pnpm build:wasm
 
 `pnpm dev` reads `.env.local`. To run against Redis locally, start `docker compose --profile redis up -d` and set `UPSTASH_REDIS_REST_URL=http://localhost:8079` and `UPSTASH_REDIS_REST_TOKEN=local-dev-token`. The shared state tests run against it when both are set. `pnpm build:wasm` rebuilds the committed alass module and needs Rust 1.100 and wasm-pack 0.15.1.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks, the conventions and how releases are cut.
+
 ## License
 
 GPL-3.0-or-later
