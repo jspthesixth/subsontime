@@ -338,7 +338,12 @@ accountRows.forEach((row) => {
   });
 
   form.addEventListener("submit", async (event) => {
-    const account = { kind, ...Object.fromEntries(new FormData(form)) } as Account;
+    const fields = Object.fromEntries(new FormData(form));
+    const account = {
+      kind,
+      ...fields,
+      ...(typeof fields["username"] === "string" ? { username: fields["username"].trim() } : {}),
+    } as Account;
 
     const current = attempt;
 

@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { configSchema } from "./config.ts";
+import { configSchema, sourceSchema } from "./config.ts";
 import { defaultConfig } from "./default-config.ts";
 
 afterEach(() => {
@@ -22,6 +22,21 @@ const withAddon = (url: string) => ({
 });
 
 describe("configSchema", () => {
+  it.each(["titlovi", "opensubtitles"])(
+    "trims a pasted %s username and keeps the password",
+    (kind) => {
+      expect(
+        v.parse(sourceSchema, { kind, username: " someone\t", password: " hunter2\t" }),
+      ).toEqual({ kind, username: "someone", password: " hunter2\t" });
+    },
+  );
+
+  it("refuses a username of only spaces", () => {
+    expect(
+      v.safeParse(sourceSchema, { kind: "titlovi", username: " \t", password: "hunter2" }).success,
+    ).toBe(false);
+  });
+
   it("rejects an empty language list", () => {
     const result = v.safeParse(configSchema, { ...defaultConfig(["eng"]), languages: [] });
 

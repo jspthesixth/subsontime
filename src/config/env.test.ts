@@ -84,6 +84,19 @@ describe("readEnvironment", () => {
     });
   });
 
+  it("trims a pasted Titlovi.com username and keeps the password", () => {
+    const { sources } = readEnvironment({
+      ...secrets,
+      TITLOVI_USERNAME: "titlovi-user\t",
+      TITLOVI_PASSWORD: " titlovi-password\t",
+    });
+
+    expect([sources.titloviUsername, sources.titloviPassword]).toEqual([
+      "titlovi-user",
+      " titlovi-password\t",
+    ]);
+  });
+
   it("treats empty variables as unset", () => {
     const { sources, database, server, dumps } = readEnvironment({
       ...secrets,

@@ -9,6 +9,11 @@ const text = v.pipe(
   v.transform((value) => value || undefined),
 );
 
+const username = v.pipe(
+  v.optional(v.string()),
+  v.transform((value) => value?.trim() || undefined),
+);
+
 const secretText = (message: string) =>
   v.pipe(v.optional(v.string(), ""), v.minLength(minimumKeyLength, message));
 
@@ -58,7 +63,7 @@ export const openSubtitlesBudgetSchema = v.pipe(
 export const sourcesSchema = v.pipe(
   v.object({
     OPENSUBTITLES_APP_KEY: text,
-    TITLOVI_USERNAME: text,
+    TITLOVI_USERNAME: username,
     TITLOVI_PASSWORD: text,
     SUBDL_API_KEY: text,
     SUBSOURCE_API_KEY: text,

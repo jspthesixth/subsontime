@@ -19,10 +19,12 @@ const credential = v.pipe(
   v.minLength(1, "Fill in every username, password and API key"),
 );
 
+const username = v.pipe(v.string(), v.trim(), credential);
+
 export const sourceSchema = v.variant("kind", [
   v.object({ kind: v.literal("stremio-addon"), url: manifestURL }),
-  v.object({ kind: v.literal("opensubtitles"), username: credential, password: credential }),
-  v.object({ kind: v.literal("titlovi"), username: credential, password: credential }),
+  v.object({ kind: v.literal("opensubtitles"), username, password: credential }),
+  v.object({ kind: v.literal("titlovi"), username, password: credential }),
   v.object({ kind: v.literal("subdl"), apiKey: credential }),
   v.object({ kind: v.literal("subsource"), apiKey: credential }),
 ]);

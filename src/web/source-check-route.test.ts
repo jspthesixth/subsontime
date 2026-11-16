@@ -85,6 +85,17 @@ describe("POST /api/sources/check", () => {
     });
   });
 
+  it("signs in with a pasted username trimmed and the password as typed", async () => {
+    const fetchMock = stubFetch(json({ token: "token" }));
+
+    await check(newApp("app-key"), { ...openSubtitles, username: "someone-secret\t" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      username: "someone-secret",
+      password: "hunter2-secret",
+    });
+  });
+
   it("says OpenSubtitles refused the sign-in, without echoing it", async () => {
     stubFetch(json({ message: "Error, invalid username/password  ", status: 401 }, 401));
 
