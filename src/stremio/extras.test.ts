@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import type { SourceSet } from "../sources/from-config.ts";
-import { fakeSource } from "../sources/test-sources.ts";
+import { fakeSource, type Entry } from "../sources/test-sources.ts";
 import { writeSRT } from "../subtitles/write.ts";
+import { retime } from "../timing/retime.ts";
 import { syntheticTrack } from "../timing/test-tracks.ts";
 import { decodeRef, refKey } from "./refs.ts";
 import {
@@ -13,9 +14,14 @@ import {
   secret,
   shifted,
   track,
+  video,
   type App,
   type Listing,
 } from "./test-app.ts";
+
+vi.mock("../timing/retime.ts", { spy: true });
+
+const retimeSpy = vi.mocked(retime);
 
 const dialogueOnly = { ...defaultConfig(["eng"]).extras, dialogueOnly: true };
 
@@ -271,6 +277,202 @@ describe("foreign parts only", () => {
     expect(await fetched(app, urlOf(subtitles, "eng-forced"))).toEqual({
       status: 200,
       text: writeSRT(sparse(track)),
+    });
+  });
+});
+
+const longRef = (name: string) => `https://subs.example.com/download/${name}/${"x".repeat(160)}`;
+
+const many = (lang: string) =>
+  Array.from({ length: 6 }, (_, index) => ({ ref: longRef(`${lang}-${index}`), lang }));
+
+const croatian = (cues: typeof track) => cues.map((cue) => ({ ...cue, text: `Hrv ${cue.text}` }));
+
+const dualSources = (hrv: Partial<Entry> = {}) => {
+  const { listed, references } = retimedSources();
+
+  return {
+    listed: [
+      ...listed,
+      fakeSource("Croatian", [{ ref: "h", lang: "hrv", cues: croatian(shifted), ...hrv }]),
+    ],
+    references,
+  };
+};
+
+describe("dual subtitles", () => {
+  const dual = { ...defaultConfig(["eng"]).extras, dualLanguage: "hrv" };
+
+  beforeEach(() => {
+    retimeSpy.mockClear();
+  });
+
+  it("lists one dual entry after the first language's best entry and searches the second language", async () => {
+    const source = fakeSource("Fake", [
+      { ref: "e", lang: "eng" },
+      { ref: "f", lang: "fra" },
+      { ref: "h", lang: "hrv" },
+    ]);
+
+    const { subtitles } = await listedFor(
+      { listed: [source], references: [] },
+      { languages: ["eng", "fra"], extras: { ...dual, dialogueOnly: true } },
+    );
+
+    expect(subtitles.map((entry) => [entry.id, entry.lang, entry.label])).toEqual([
+      ["eng-best", "eng", "Fake"],
+      ["eng-dialogue", "eng", "Fake (dialogue only)"],
+      ["eng+hrv-dual", "eng", "Fake (with Croatian)"],
+      ["fra-best", "fra", "Fake"],
+      ["fra-dialogue", "fra", "Fake (dialogue only)"],
+    ]);
+    expect(source.search.mock.calls.map(([query]) => query.languages)).toEqual([
+      ["eng", "fra", "hrv"],
+    ]);
+    expect(refOf(urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+      ...refOf(urlOf(subtitles, "eng-best")),
+      s: [{ n: "Fake", r: "h", l: "hrv" }],
+    });
+  });
+
+  it("keeps a dual entry with the best four of each language under 8 KiB", async () => {
+    const { subtitles } = await listedFor(
+      {
+        listed: [fakeSource("Fake", [...many("eng"), ...many("hrv")])],
+        references: [
+          fakeSource(
+            "Reference",
+            Array.from({ length: 4 }, (_, index) => ({
+              ref: longRef(`r-${index}`),
+              hashMatch: true,
+            })),
+          ),
+        ],
+      },
+      { extras: dual },
+    );
+
+    const url = urlOf(subtitles, "eng+hrv-dual");
+
+    expect([refOf(url).c.length, refOf(url).s?.length]).toEqual([4, 4]);
+    expect(url.length).toBeLessThan(8 * 1024);
+  });
+
+  it("lists no dual entry when the second language has no subtitle", async () => {
+    const source = fakeSource("Fake", [{ ref: "e", lang: "eng" }]);
+
+    const { subtitles } = await listedFor({ listed: [source], references: [] }, { extras: dual });
+
+    expect(subtitles.map((entry) => entry.id)).toEqual(["eng-best"]);
+  });
+
+  it("lists no dual entry when the first language has no subtitle", async () => {
+    const source = fakeSource("Fake", [{ ref: "h", lang: "hrv" }]);
+
+    const { subtitles } = await listedFor(
+      { listed: [source], references: [] },
+      { languages: ["eng", "hrv"], extras: dual },
+    );
+
+    expect(subtitles.map((entry) => entry.id)).toEqual(["hrv-best"]);
+  });
+
+  it("serves both languages retimed to the same reference, the second below the first", async () => {
+    const sources = dualSources();
+    const { app, subtitles } = await listedFor(sources, { extras: dual });
+
+    expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+      status: 200,
+      text: writeSRT(track.map((cue) => ({ ...cue, text: `${cue.text}\n<i>Hrv ${cue.text}</i>` }))),
+    });
+    expect(
+      retimeSpy.mock.calls
+        .map(([subtitle, references]) => [
+          subtitle.candidate.lang,
+          references.map(({ candidate }) => [candidate.sourceName, candidate.ref]),
+        ])
+        .toSorted(),
+    ).toEqual([
+      ["eng", [["Reference", "r"]]],
+      ["hrv", [["Reference", "r"]]],
+    ]);
+    expect(retimeSpy.mock.calls[0]?.[1][0]).toBe(retimeSpy.mock.calls[1]?.[1][0]);
+  });
+
+  it("serves the second language made for the file from a listing that came before the hash", async () => {
+    const fake = fakeSource("Fake", [
+      { ref: "a", cues: track },
+      {
+        ref: "other",
+        lang: "hrv",
+        cues: track.map((cue) => ({ ...cue, text: `Druga ${cue.text}` })),
+      },
+      { ref: "h", lang: "hrv", cues: croatian(track) },
+    ]);
+    const app = appWith({
+      listed: [
+        {
+          ...fake,
+          search: async (query, signal) =>
+            (await fake.search(query, signal)).map((candidate) => ({
+              ...candidate,
+              hashMatch: query.videoHash === video.hash && candidate.ref !== "other",
+            })),
+        },
+      ],
+      references: [],
+    });
+    const { token } = installed({ extras: dual });
+
+    const listing = async (more: string) => {
+      const response = await app.request(
+        `/${token}/subtitles/movie/tt0111161/filename=Movie.mkv${more}.json`,
+      );
+
+      return ((await response.json()) as Listing).subtitles;
+    };
+
+    const first = await listing("");
+
+    await listing(`&videoHash=${video.hash}&videoSize=${video.size}`);
+
+    expect(await fetched(app, urlOf(first, "eng+hrv-dual"))).toEqual({
+      status: 200,
+      text: writeSRT(track.map((cue) => ({ ...cue, text: `${cue.text}\n<i>Hrv ${cue.text}</i>` }))),
+    });
+    expect(retimeSpy).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 when the second language is made for another video", async () => {
+    const unrelated = syntheticTrack(2, 200).map((cue) => ({ ...cue, text: `Krivo ${cue.text}` }));
+    const { app, subtitles } = await listedFor(dualSources({ cues: unrelated }), {
+      extras: { ...dual, hideMismatches: false },
+    });
+
+    expect((await fetched(app, urlOf(subtitles, "eng-best"))).status).toBe(200);
+    expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+      status: 404,
+      text: "No subtitle fits this file",
+    });
+  });
+
+  it("answers 404 when the first language cannot be downloaded", async () => {
+    const { references } = retimedSources();
+
+    const { app, subtitles } = await listedFor(
+      {
+        listed: [
+          fakeSource("Fake", [{ ref: "a" }]),
+          fakeSource("Croatian", [{ ref: "h", lang: "hrv", cues: croatian(shifted) }]),
+        ],
+        references,
+      },
+      { extras: dual },
+    );
+
+    expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+      status: 404,
+      text: "No subtitle fits this file",
     });
   });
 });

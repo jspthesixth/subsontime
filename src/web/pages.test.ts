@@ -101,6 +101,21 @@ describe("GET /stremio", () => {
     );
   });
 
+  it("has a Dual subtitles switch, off, with a hidden second language choice", async () => {
+    const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
+
+    expect(page).toContain(
+      '<span class="h4" id="x-dual">Dual subtitles</span><span class="small">Your first language on top, a second one below, both timed to the same reference so they never drift apart.</span>',
+    );
+    expect(page).toMatch(
+      /<button[^>]*role="switch"[^>]*id="dual"[^>]*aria-checked="false"[^>]*aria-labelledby="x-dual"/,
+    );
+    expect(page).toMatch(
+      /<div class="row-wrap gap-12" id="dual-row" style="padding-top: 12px;" hidden> <label class="small ink-2" for="dual-lang">Second language<\/label> <select id="dual-lang" class="select">/,
+    );
+    expect(page).toContain('<option value="hrv">Hrvatski</option>');
+  });
+
   it("has an Open Timings section with both switches on", async () => {
     const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
 

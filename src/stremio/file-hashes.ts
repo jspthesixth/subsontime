@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import { parseJSON } from "../json.ts";
-import { candidateKey, candidateRefSchema, type SubtitleRef } from "./refs.ts";
+import { candidateKey, candidateRefSchema, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 const recordSeconds = 4 * 60 * 60;
 
@@ -35,16 +35,19 @@ export const recalledFileHash = async (state: SharedState, key: string) => {
 
 export const withFileHash = (ref: SubtitleRef, { w, x, a, m, d }: FileHash): SubtitleRef => {
   const matched = new Set(m.map(([source, id]) => candidateKey(source, id)));
-
-  return {
-    ...ref,
-    c: ref.c
+  const flagged = (candidates: CandidateRef[]) =>
+    candidates
       .map((candidate) =>
         matched.has(candidateKey(candidate.n, candidate.r))
           ? { ...candidate, h: 1 as const }
           : { ...candidate, h: undefined },
       )
-      .toSorted((left, right) => Number(right.h === 1) - Number(left.h === 1)),
+      .toSorted((left, right) => Number(right.h === 1) - Number(left.h === 1));
+
+  return {
+    ...ref,
+    c: flagged(ref.c),
+    s: ref.s === undefined ? undefined : flagged(ref.s),
     x,
     a: a ?? ref.a,
     w,

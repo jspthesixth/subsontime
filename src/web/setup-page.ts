@@ -201,12 +201,19 @@ const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
   </div>
 </section>`;
 
-type Switch = { id: string; labelId: string; title: string; body: string; checked: boolean };
+type Switch = {
+  id: string;
+  labelId: string;
+  title: string;
+  body: string;
+  checked: boolean;
+  more?: ReturnType<typeof html>;
+};
 
-const switchRow = ({ id, labelId, title, body, checked }: Switch) =>
+const switchRow = ({ id, labelId, title, body, checked, more }: Switch) =>
   html`<div class="list-row" style="align-items: flex-start; flex-wrap: nowrap;">
     <div class="list-main">
-      <span class="h4" id="${labelId}">${title}</span><span class="small">${body}</span>
+      <span class="h4" id="${labelId}">${title}</span><span class="small">${body}</span>${more}
     </div>
     <button
       type="button"
@@ -241,6 +248,19 @@ const extraSwitches: Switch[] = [
     title: "Foreign parts only",
     body: "For films in your language: a subtitle that shows only the lines spoken in another language, when a source has one.",
     checked: false,
+  },
+  {
+    id: "dual",
+    labelId: "x-dual",
+    title: "Dual subtitles",
+    body: "Your first language on top, a second one below, both timed to the same reference so they never drift apart.",
+    checked: false,
+    more: html`<div class="row-wrap gap-12" id="dual-row" style="padding-top: 12px;" hidden>
+      <label class="small ink-2" for="dual-lang">Second language</label>
+      <select id="dual-lang" class="select">
+        ${languageOptions.map(({ code, name }) => html`<option value="${code}">${name}</option>`)}
+      </select>
+    </div>`,
   },
 ];
 

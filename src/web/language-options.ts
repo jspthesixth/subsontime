@@ -1,7 +1,5 @@
-import { languageCodes, toISO6391 } from "../languages.ts";
+import { englishNameOf, languageCodes, toISO6391 } from "../languages.ts";
 import { searchKey } from "./search-key.ts";
-
-const englishNames = new Intl.DisplayNames(["en"], { type: "language" });
 
 const nativeName = (code6391: string) => {
   const name = new Intl.DisplayNames([code6391], { type: "language" }).of(code6391) ?? code6391;
@@ -14,6 +12,6 @@ export const languageOptions = languageCodes
     const code6391 = toISO6391(code) ?? code;
     const name = nativeName(code6391);
 
-    return { code, name, search: searchKey(`${name} ${englishNames.of(code6391)} ${code}`) };
+    return { code, name, search: searchKey(`${name} ${englishNameOf(code)} ${code}`) };
   })
   .toSorted((first, second) => first.name.localeCompare(second.name, "en"));

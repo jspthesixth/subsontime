@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { baseURL } from "../base-url.ts";
+import { englishNameOf } from "../languages.ts";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import { searchAll } from "../sources/search-all.ts";
 import {
@@ -184,12 +185,17 @@ export const subtitlesRoute =
         : await recalledFileHash(state, fileKey);
     const fingerprint =
       listed ?? (recalled === undefined ? undefined : { hash: recalled.w.h, size: recalled.w.z });
+    const { dualLanguage } = config.extras;
+
     const query = {
       ...video,
       videoHash: fingerprint?.hash ?? extras.get("videoHash") ?? undefined,
       videoSize: fingerprint?.size ?? (Number.isFinite(videoSize) ? videoSize : undefined),
       filename,
-      languages: config.languages,
+      languages:
+        dualLanguage === undefined
+          ? config.languages
+          : [...new Set([...config.languages, dualLanguage])],
     };
     const [found, hiddenKey] = await Promise.all([
       searchVideo(sourcesFor(config, context.get("tokens")), query, family),
@@ -211,7 +217,7 @@ export const subtitlesRoute =
               w: { h: listed.hash, z: listed.size },
               x: references,
               a: anchors.length === 0 ? undefined : anchors,
-              m: config.languages.flatMap((lang) =>
+              m: query.languages.flatMap((lang) =>
                 found
                   .ranked(lang)
                   .filter(({ hashMatch }) => hashMatch)
@@ -250,26 +256,53 @@ export const subtitlesRoute =
       }
     }
 
-    const subURL = (candidates: Candidate[], t?: SubtitleRef["t"]) => {
+    const candidateRefsOf = (candidates: Candidate[]) =>
+      candidates.map((candidate) => ({
+        ...unflagged(toCandidateRef(candidate)),
+        e: found.asGoodAsAnchor(candidate) ? (1 as const) : undefined,
+      }));
+    const subURL = (
+      candidates: Candidate[],
+      { t, second }: { t?: SubtitleRef["t"]; second?: Candidate[] } = {},
+    ) => {
       const ref = encodeRef(
         {
           v: 1,
           q,
-          c: candidates.map((candidate) => ({
-            ...unflagged(toCandidateRef(candidate)),
-            e: found.asGoodAsAnchor(candidate) ? (1 as const) : undefined,
-          })),
-          x: found.referencesFor(candidates).map(toCandidateRef).map(unflagged),
+          c: candidateRefsOf(candidates),
+          x: found
+            .referencesFor([...candidates, ...(second ?? [])])
+            .map(toCandidateRef)
+            .map(unflagged),
           a: anchors.length === 0 ? undefined : anchors,
           w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
           k: listed === undefined ? fileKey : undefined,
           d: hiddenKey,
           t,
+          s: second === undefined ? undefined : candidateRefsOf(second),
         },
         refKey,
       );
 
       return `${baseURL(context, publicURL)}/${context.req.param("config")}/sub/${ref}.srt`;
+    };
+    const dualEntriesOf = (lang: string, best: Candidate[]) => {
+      if (dualLanguage === undefined) {
+        return [];
+      }
+
+      const second = found.passing(found.ranked(dualLanguage)).slice(0, bestSlotSize);
+
+      return second.length === 0
+        ? []
+        : [
+            {
+              id: `${lang}+${dualLanguage}-dual`,
+              lang,
+              label: labelOf(best, `with ${englishNameOf(dualLanguage)}`),
+              url: subURL(best, { second }),
+            },
+          ];
     };
     const entriesOf = (lang: string) => {
       const candidates = found.ranked(lang);
@@ -288,14 +321,21 @@ export const subtitlesRoute =
             url: subURL([candidate]),
           }));
 
-      return config.extras.dialogueOnly
-        ? entries.toSpliced(1, 0, {
-            id: `${lang}-dialogue`,
-            lang,
-            label: labelOf(best, "dialogue only"),
-            url: subURL(best, "dialogue"),
-          })
-        : entries;
+      const extraEntries = [
+        ...(config.extras.dialogueOnly
+          ? [
+              {
+                id: `${lang}-dialogue`,
+                lang,
+                label: labelOf(best, "dialogue only"),
+                url: subURL(best, { t: "dialogue" }),
+              },
+            ]
+          : []),
+        ...(lang === config.languages[0] ? dualEntriesOf(lang, best) : []),
+      ];
+
+      return entries.toSpliced(1, 0, ...extraEntries);
     };
     const foreignPartsEntriesOf = (lang: string) => {
       const flagged = config.extras.foreignParts ? found.foreignPartsOnly(lang) : [];

@@ -11,6 +11,7 @@ import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
+import { mergeDual } from "../subtitles/dual.ts";
 import { stripHearingImpaired } from "../subtitles/hearing-impaired.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
@@ -356,10 +357,11 @@ const shareAfterResponse = (
     })
     .catch(logWrite);
 
+const firstServed = (attempts: Attempt[], config: Config) =>
+  attempts.map((attempt) => servedCues(attempt, config)).find((each) => each !== undefined);
+
 const servedOf = (attempts: Attempt[], config: Config, dialogueOnly: boolean): Served => {
-  const cues = attempts
-    .map((attempt) => servedCues(attempt, config))
-    .find((each) => each !== undefined);
+  const cues = firstServed(attempts, config);
   const shown = dialogueOnly && cues !== undefined ? stripHearingImpaired(cues) : cues;
 
   if (shown !== undefined && shown.length > 0) {
@@ -373,6 +375,14 @@ const servedOf = (attempts: Attempt[], config: Config, dialogueOnly: boolean): S
       !dialogueOnly,
     srt: "",
   };
+};
+
+const dualServedOf = (attempts: Attempt[][], config: Config): Served => {
+  const [primary = [], secondary = []] = attempts.map((each) => firstServed(each, config) ?? []);
+
+  return primary.length === 0 || secondary.length === 0
+    ? { found: false, srt: "" }
+    : { found: true, srt: writeSRT(mergeDual(primary, secondary)) };
 };
 
 const srtResponse = (context: Context<AppEnv>, srt: string) =>
@@ -436,18 +446,32 @@ export const fileRoute =
         sharedFor({ state, singleFlight, openTimings }, config, ref),
       );
       const download = downloader(sourcesFor(config, context.get("tokens")));
-      const attempts = await recordAttempts(
-        resolveAttempts(ref, config, download, undefined, shared, {
-          anchorOf: () =>
-            timed("anchor", () =>
-              fileAnchor({ state, singleFlight, openTimings }, ref, download, shared),
-            ),
-        }),
+      let anchoring: Promise<Anchor | undefined> | undefined;
+      const anchorOf = () => {
+        anchoring ??= timed("anchor", () =>
+          fileAnchor({ state, singleFlight, openTimings }, ref, download, shared),
+        );
+
+        return anchoring;
+      };
+      const resolving =
+        ref.s === undefined
+          ? config
+          : { ...config, extras: { ...config.extras, hideMismatches: true } };
+      const attempts = await Promise.all(
+        [ref.c, ...(ref.s === undefined ? [] : [ref.s])].map((c) =>
+          recordAttempts(
+            resolveAttempts({ ...ref, c }, resolving, download, undefined, shared, { anchorOf }),
+          ),
+        ),
       );
-      const fresh = servedOf(attempts, config, ref.t === "dialogue");
+      const fresh =
+        ref.s === undefined
+          ? servedOf(attempts.flat(), config, ref.t === "dialogue")
+          : dualServedOf(attempts, resolving);
 
       if (config.share && video !== undefined) {
-        shares.push(...sharesOf(attempts, video));
+        shares.push(...sharesOf(attempts.flat(), video));
       }
 
       if (fresh.srt !== "") {

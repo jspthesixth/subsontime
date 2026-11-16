@@ -27,6 +27,7 @@ const subtitleRefSchema = v.object({
   k: v.optional(v.string()),
   d: v.optional(v.string()),
   t: v.optional(v.literal("dialogue")),
+  s: v.optional(v.array(candidateRefSchema)),
 });
 
 export const candidateKey = (sourceName: string, ref: string) => JSON.stringify([sourceName, ref]);

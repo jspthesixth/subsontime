@@ -59,6 +59,11 @@ export const toISO6391 = (code6392: string) => {
   return to6392.has(code6391) ? code6391 : undefined;
 };
 
+const englishNames = new Intl.DisplayNames(["en"], { type: "language" });
+
+export const englishNameOf = (code6392: string) =>
+  englishNames.of(toISO6391(code6392) ?? code6392) ?? code6392;
+
 export const toISO6392 = (code6391: string) => to6392.get(code6391.toLowerCase());
 
 export const fromLocales = (locales: readonly string[]) => {

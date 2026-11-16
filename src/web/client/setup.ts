@@ -24,6 +24,9 @@ const timingInputs = [...document.querySelectorAll<HTMLInputElement>("input[name
 const hideMismatchesSwitch = find(document, "#hide-mismatches");
 const dialogueOnlySwitch = find(document, "#dialogue-only");
 const foreignPartsSwitch = find(document, "#foreign-parts");
+const dualSwitch = find(document, "#dual");
+const dualRow = find(document, "#dual-row");
+const dualSelect = find<HTMLSelectElement>(document, "#dual-lang");
 const useSharedSwitch = find(document, "#use-shared");
 const shareSwitch = find(document, "#share");
 const sourceList = find(document, "#source-list");
@@ -182,6 +185,12 @@ const render = () => {
   hideMismatchesSwitch.setAttribute("aria-checked", String(state.extras.hideMismatches));
   dialogueOnlySwitch.setAttribute("aria-checked", String(state.extras.dialogueOnly));
   foreignPartsSwitch.setAttribute("aria-checked", String(state.extras.foreignParts));
+  dualSwitch.setAttribute("aria-checked", String(state.extras.dualLanguage !== undefined));
+  dualRow.hidden = state.extras.dualLanguage === undefined;
+  [...dualSelect.options].forEach((option) => {
+    option.disabled = option.value === state.languages[0];
+  });
+  dualSelect.value = state.extras.dualLanguage ?? "";
   useSharedSwitch.setAttribute("aria-checked", String(state.useShared));
   shareSwitch.setAttribute("aria-checked", String(state.share));
   accountRows.forEach(renderAccountRow);
@@ -268,6 +277,23 @@ dialogueOnlySwitch.addEventListener("click", () =>
 
 foreignPartsSwitch.addEventListener("click", () =>
   update({ extras: { ...state.extras, foreignParts: !state.extras.foreignParts } }),
+);
+
+dualSwitch.addEventListener("click", () =>
+  update({
+    extras: {
+      ...state.extras,
+      dualLanguage:
+        state.extras.dualLanguage === undefined
+          ? (state.languages[1] ??
+            [...dualSelect.options].find((option) => !option.disabled)?.value)
+          : undefined,
+    },
+  }),
+);
+
+dualSelect.addEventListener("change", () =>
+  update({ extras: { ...state.extras, dualLanguage: dualSelect.value } }),
 );
 
 useSharedSwitch.addEventListener("click", () => update({ useShared: !state.useShared }));
