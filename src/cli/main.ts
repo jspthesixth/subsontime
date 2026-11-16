@@ -2,7 +2,6 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename } from "node:path";
-import { parseArgs } from "node:util";
 import packageJSON from "../../package.json" with { type: "json" };
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import type { SourceSettings } from "../config/config.ts";
@@ -12,12 +11,12 @@ import { memorySharedState } from "../jobs/shared-state.ts";
 import { fromLocales, knownCode3Of } from "../languages.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
 import { tokenCacheFor } from "../sources/token-cache.ts";
+import { messageOf, parseOptions, UsageError } from "./args.ts";
 import { bazarrCommand } from "./bazarr-command.ts";
 import { bazarr } from "./bazarr.ts";
 import {
   abandonWrites,
   ansiPaint,
-  exists,
   field,
   findVideos,
   fixVideo,
@@ -39,8 +38,6 @@ export type CLIDeps = {
   locales: readonly string[];
   sources?: SourceSet;
 };
-
-class UsageError extends Error {}
 
 const sourceNames = ["opensubtitles", "titlovi", "subdl", "subsource"];
 const missingFFmpeg = "ffmpeg is needed for --audio. Install it and try again.";
@@ -168,18 +165,16 @@ const sharingOf = (values: { offline?: boolean; private?: boolean }): Sharing =>
   return values.private === true ? "private" : "on";
 };
 
-const parse = (argv: string[]) => {
-  try {
-    return parseArgs({ args: argv, options, allowPositionals: true });
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : "Unreadable arguments");
-  }
-};
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
 
 const isFolder = async (path: string) => (await stat(path)).isDirectory();
 
 const run = async (argv: string[], deps: CLIDeps) => {
-  const { values, positionals } = parse(argv);
+  const { values, positionals } = parseOptions(argv, options, true);
 
   if (values.help === true) {
     deps.print(usage);
@@ -270,10 +265,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
 
   for (const video of videos) {
     const result = await fixVideo(video, context).catch((error: unknown) => ({
-      text: [
-        basename(video),
-        field(paint, "skipped", error instanceof Error ? error.message : "Failed"),
-      ].join("\n"),
+      text: [basename(video), field(paint, "skipped", messageOf(error, "Failed"))].join("\n"),
       written: 0,
     }));
 
@@ -308,7 +300,7 @@ export const main = async (argv: string[], deps: CLIDeps = defaultDeps()) => {
       return 2;
     }
 
-    deps.printError(`subsontime: ${error instanceof Error ? error.message : "failed"}\n`);
+    deps.printError(`subsontime: ${messageOf(error, "failed")}\n`);
 
     return 1;
   }

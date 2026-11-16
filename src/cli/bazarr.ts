@@ -1,6 +1,5 @@
 import { chmod, copyFile, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { parseArgs } from "node:util";
 import { alignToAudio, audioDecisionOf } from "../audio/align-audio.ts";
 import { ffmpegFound } from "../audio/ffmpeg.ts";
 import { code3Of } from "../languages.ts";
@@ -21,11 +20,10 @@ import {
   timingOf,
   unusedReason,
 } from "./fix.ts";
+import { messageOf, parseOptions, UsageError } from "./args.ts";
 import type { CLIDeps } from "./main.ts";
 import { defaultAPIURL, timingsClient } from "./timings-client.ts";
 import { fileFingerprint } from "./video-hash.ts";
-
-class UsageError extends Error {}
 
 const usage = "usage: subsontime bazarr --video <path> --subtitle <path> --lang <code3>";
 const left = "left as it is";
@@ -39,16 +37,7 @@ const options = {
   api: { type: "string" },
 } as const;
 
-const parse = (argv: string[]) => {
-  try {
-    return parseArgs({ args: argv, options }).values;
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : "Unreadable arguments");
-  }
-};
-
-const firstLine = (error: unknown) =>
-  (error instanceof Error ? error.message : "failed").split("\n")[0];
+const firstLine = (error: unknown) => messageOf(error, "failed").split("\n")[0];
 
 const notSharedText = (isPrivate: boolean) =>
   isPrivate ? "not shared, --private" : `not shared, ${audioNotShared}`;
@@ -81,7 +70,13 @@ const rewrite = async (subtitle: string, lang: string | undefined, cues: Cue[], 
 };
 
 const run = async (argv: string[]) => {
-  const { video: videoPath, subtitle, lang, api, private: isPrivate } = parse(argv);
+  const {
+    video: videoPath,
+    subtitle,
+    lang,
+    api,
+    private: isPrivate,
+  } = parseOptions(argv, options, false).values;
 
   if (videoPath === undefined || subtitle === undefined) {
     throw new UsageError("Give --video and --subtitle");

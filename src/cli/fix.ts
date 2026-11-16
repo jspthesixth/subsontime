@@ -37,6 +37,7 @@ import { shiftOf, type RetimeResult } from "../timing/retime.ts";
 import type { FixWithCues } from "../timings/confirm.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { reasonOf } from "../stremio/attempts.ts";
+import { messageOf } from "./args.ts";
 import { identify, type Identified } from "./identify.ts";
 import type { TimingsClient } from "./timings-client.ts";
 import { fileFingerprint } from "./video-hash.ts";
@@ -52,7 +53,7 @@ const errorReasonOf = (error: unknown) => {
     return error.code;
   }
 
-  return error instanceof Error ? error.message : "unknown error";
+  return messageOf(error, "unknown error");
 };
 
 export type Paint = { value: (text: string) => string; dim: (text: string) => string };
@@ -163,8 +164,6 @@ export const ratioOf = (original: Cue[], applied: Cue[]) => {
 const errorCode = (error: unknown) =>
   error instanceof Error && "code" in error ? String(error.code) : "";
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : "Failed");
-
 const shortReason = (reason: string) => {
   const [first = reason] = reason.split(". ");
 
@@ -172,12 +171,6 @@ const shortReason = (reason: string) => {
 
   return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
 };
-
-export const exists = (path: string) =>
-  stat(path).then(
-    () => true,
-    () => false,
-  );
 
 export const abandonWrites = () => {
   inFlight.forEach((path) => rmSync(path, { force: true }));
@@ -268,7 +261,7 @@ const writeSubtitle = async (
     } catch (error) {
       await rm(target, { force: true });
 
-      return { problem: messageOf(error) };
+      return { problem: messageOf(error, "Failed") };
     } finally {
       inFlight.delete(target);
     }
