@@ -1,19 +1,23 @@
-FROM node:24-alpine AS base
+FROM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS base
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN corepack enable && corepack install
+COPY package.json ./
 
-FROM base AS install
+FROM base AS pnpm
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN npm install --global "$(node -p 'require("./package.json").packageManager')"
+
+FROM pnpm AS install
 RUN pnpm install --prod --frozen-lockfile
 
-FROM base AS build
+FROM pnpm AS build
 RUN pnpm install --frozen-lockfile
 COPY scripts scripts
 COPY src src
 COPY public public
 RUN pnpm build
 
-FROM install AS runtime
+FROM base AS runtime
+COPY --from=install /app/node_modules node_modules
 COPY src src
 COPY wasm wasm
 COPY migrations migrations

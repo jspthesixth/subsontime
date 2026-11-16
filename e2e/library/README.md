@@ -12,10 +12,10 @@ Radarr and Bazarr share one media folder with two public-domain films. Bazarr ru
 Bazarr runs the linux-musl build for your machine's architecture. Build it in a glibc Node container with the Node binary from the Alpine image (this is the arm64 one; on x64, name the output `subsontime-linux-musl-x64`):
 
 ```sh
-docker create --name alpine-node node:24.14.0-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114
+docker create --name alpine-node node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5
 docker cp alpine-node:/usr/local/bin/node <build>/alpine-node && docker rm alpine-node
 git archive HEAD | tar -x -C <build>
-docker run --rm -v <build>:/src -w /src node:24.14.0-bookworm-slim sh -c 'corepack enable && corepack prepare pnpm@11.18.0 --activate && pnpm install --frozen-lockfile && node scripts/build-sea.ts --node ./alpine-node --out subsontime-linux-musl-arm64'
+docker run --rm -v <build>:/src -w /src node:26.13.1-bookworm-slim sh -c 'npm install --global "$(node -p "require(\"./package.json\").packageManager")" && pnpm install --frozen-lockfile && node scripts/build-sea.ts --node ./alpine-node --out subsontime-linux-musl-arm64'
 ```
 
 ## Run

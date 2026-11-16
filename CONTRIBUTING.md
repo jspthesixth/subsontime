@@ -2,7 +2,7 @@
 
 ## Setup
 
-You need Node 24 and pnpm 11 (`corepack enable` picks the version from `package.json`).
+You need the Node version in `.node-version` and pnpm 11 (`npm install --global pnpm@11`, it runs the version `package.json` pins).
 
 ```sh
 pnpm install
