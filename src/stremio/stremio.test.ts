@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJSON from "../../package.json" with { type: "json" };
+import gilmoreFixture from "../../test/fixtures/subtitles/gilmore-s05e17.json" with { type: "json" };
 import familyFixture from "../../test/fixtures/subtitles/act-breaks-s01e24.json" with { type: "json" };
 import restHashFixture from "../../test/fixtures/sources/opensubtitles-rest-hash-search.json" with { type: "json" };
 import v3HashFixture from "../../test/fixtures/sources/opensubtitles-v3-hash-movie.json" with { type: "json" };
@@ -16,7 +17,7 @@ import { memorySharedState } from "../jobs/shared-state.ts";
 import { memorySingleFlight } from "../jobs/single-flight.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
-import { retime } from "../timing/retime.ts";
+import { median, retime } from "../timing/retime.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { decodeRef, encodeRef, refKey, type SubtitleRef } from "./refs.ts";
 
@@ -434,6 +435,8 @@ describe("subtitle file", () => {
     const source = fakeSource("Fake", [{ ref: "broken" }, { ref: "a", cues: track }]);
     const { app, url } = await firstSlot({ listed: [source], references: [] });
 
+    source.download.mockClear();
+
     const response = await app.request(url);
 
     expect(await response.text()).toBe(writeSRT(track));
@@ -689,7 +692,7 @@ const namedFilm = (hash: string) =>
 const episode23 = `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`;
 
 const namedEpisode = (season: number) =>
-  `series/tt1442437:${season}:24/filename=${encodeURIComponent(`Modern Family S0${season}E24 Family Portrait  (1080p BluRay x265 10bit Joy).mkv`)}${withHashOf(24)}.json`;
+  `series/tt1442437:${season}:24/filename=${encodeURIComponent(`Modern Family S0${season}E24 Family Portrait  (1080p HDTV x265 10bit Joy).mkv`)}${withHashOf(24)}.json`;
 
 const familyWrites = (state: ReturnType<typeof memorySharedState>) => {
   const set = vi.spyOn(state, "set");
@@ -844,7 +847,7 @@ describe("release families", () => {
     const { ref } = await firstRefAt(
       app,
       token,
-      `series/tt1442437:1:24/filename=${encodeURIComponent("Modern Family S01E24 Family Portrait  (1080p BluRay x265 10bit Other).mkv")}${withHashOf(24)}.json`,
+      `series/tt1442437:1:24/filename=${encodeURIComponent("Modern Family S01E24 Family Portrait  (1080p HDTV x265 10bit Other).mkv")}${withHashOf(24)}.json`,
     );
 
     expect(ref.c[0]?.r).toBe("e24-hdtv");
@@ -900,17 +903,36 @@ describe("a file that looks like a disc or web rip", () => {
 
     const served = parseSubtitle(await (await app.request(url)).text());
 
-    expect(ref.c.map(({ r }) => r)).toEqual(["e24-dvd", "e24-hdtv"]);
+    expect(ref.c.map(({ r }) => r)).toEqual(["e24-dvd"]);
     expect(served.map(({ start }) => start)).toEqual(disc.map(({ start }) => start));
   });
 
-  it("retimes a broadcast subtitle against a disc one in another language", async () => {
-    const app = appWith(byQuery(familyEntries({ discLang: "eng" })));
-    const token = sealed({ languages: ["hrv"] });
+  it("retimes a broadcast subtitle against two agreeing disc ones in another language", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "e24-hdtv",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.HDTV.XviD-LOL",
+        cues: broadcast,
+      },
+      {
+        ref: "e24-dvd",
+        lang: "eng",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+      },
+      {
+        ref: "e24-dvd-again",
+        lang: "eng",
+        releaseName: "Modern.Family.S01E24.DVDRip.XviD-REWARD",
+        cues: disc,
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
 
     const { url, ref } = await firstRefAt(
       app,
-      token,
+      sealed({ languages: ["hrv"] }),
       `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
     );
 
@@ -919,7 +941,7 @@ describe("a file that looks like a disc or web rip", () => {
       .slice(0, -1)
       .filter((cue, index) => Math.abs((served[index]?.start ?? 0) - cue.start) <= 100);
 
-    expect(ref.x.map(({ r }) => r)).toEqual(["e24-dvd"]);
+    expect(ref.x.map(({ r }) => r)).toEqual(["e24-dvd", "e24-dvd-again"]);
     expect(close.length / (disc.length - 1)).toBeGreaterThan(0.95);
   });
 
@@ -997,6 +1019,321 @@ describe("minimum score", () => {
 
     expect(body.subtitles.map(({ label }) => label)).toEqual(["OpenSubtitles"]);
     expect(refOf(body.subtitles[0]?.url ?? "").c.map(({ r }) => r)).toEqual(["other-episode"]);
+  });
+});
+
+const filmCues = syntheticTrack(5, 600);
+const filmWithActBreaks = filmCues.map((cue, index) => {
+  const shift = (index >= 200 ? 1200 : 0) + (index >= 400 ? 1200 : 0);
+
+  return { ...cue, start: cue.start + shift, end: cue.end + shift };
+});
+
+const deferred = () => {
+  const work: Promise<unknown>[] = [];
+
+  return {
+    defer: (promise: Promise<unknown>) => work.push(promise),
+    settled: () => Promise.all(work),
+  };
+};
+
+const entriesOf = (body: Listing) =>
+  body.subtitles.map(({ id, label, url }) => ({
+    id,
+    label,
+    c: refOf(url).c.map(({ r }) => r),
+    x: refOf(url).x.map(({ r }) => r),
+  }));
+
+const portrait = `series/tt1442437:1:24/filename=${encodeURIComponent("Modern Family S01E24 Family Portrait  (1080p x265 10bit Joy).mkv")}.json`;
+
+const gilmoreSpans = (key: keyof typeof gilmoreFixture) => timed(gilmoreFixture[key]);
+
+describe("timing families", () => {
+  it("offers one entry per timing family when the candidates disagree", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "broadcast",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.HDTV.XviD-LOL",
+        cues: broadcast,
+      },
+      {
+        ref: "disc",
+        lang: "hrv",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+      },
+    ]);
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed({ languages: ["hrv"] }),
+      portrait,
+    );
+
+    expect(entriesOf(body)).toEqual([
+      { id: "hrv-best", label: "OpenSubtitles, DVD/Blu-ray timing", c: ["disc"], x: [] },
+      { id: "hrv-best-2", label: "OpenSubtitles, TV timing", c: ["broadcast"], x: [] },
+    ]);
+  });
+
+  it("retimes a language without a family member to that family's best subtitle", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "broadcast",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.HDTV.XviD-LOL",
+        cues: broadcast,
+      },
+      {
+        ref: "disc",
+        lang: "eng",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+      },
+      {
+        ref: "disc-again",
+        lang: "eng",
+        releaseName: "Modern.Family.S01E24.DVDRip.XviD-REWARD",
+        cues: transform(disc, (time) => time + 120),
+      },
+    ]);
+
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed({ languages: ["hrv", "eng"] }),
+      portrait,
+    );
+
+    expect(entriesOf(body).filter(({ id }) => id.startsWith("hrv"))).toEqual([
+      {
+        id: "hrv-best",
+        label: "OpenSubtitles, DVD/Blu-ray timing",
+        c: ["broadcast"],
+        x: ["disc", "disc-again"],
+      },
+      { id: "hrv-best-2", label: "OpenSubtitles, TV timing", c: ["broadcast"], x: [] },
+    ]);
+  });
+
+  it("needs two agreeing subtitles before a family in another language becomes a reference", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "broadcast",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.HDTV.XviD-LOL",
+        cues: broadcast,
+      },
+      {
+        ref: "disc",
+        lang: "eng",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+      },
+    ]);
+
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed({ languages: ["hrv", "eng"] }),
+      portrait,
+    );
+
+    expect(entriesOf(body).filter(({ id }) => id.startsWith("hrv"))).toEqual([
+      { id: "hrv-best", label: "OpenSubtitles", c: ["broadcast"], x: [] },
+    ]);
+  });
+
+  it("retimes to the disc family alone when the file names a disc source", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "broadcast",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.HDTV.XviD-LOL",
+        cues: broadcast,
+      },
+      {
+        ref: "disc",
+        lang: "eng",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+      },
+    ]);
+
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed({ languages: ["hrv", "eng"] }),
+      "series/tt1442437:1:24/filename=Modern.Family.S01E24.1080p.BluRay.x264-GRP.mkv.json",
+    );
+
+    expect(entriesOf(body)).toEqual([
+      { id: "hrv-best", label: "OpenSubtitles", c: ["broadcast"], x: ["disc"] },
+      { id: "eng-best", label: "OpenSubtitles", c: ["disc"], x: [] },
+    ]);
+  });
+
+  it("serves Gilmore Girls S05E17 retimed to its DVD family, plain captions first", async () => {
+    const hrvBroadcast = gilmoreSpans("hrvBroadcast");
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "hrv-broadcast",
+        lang: "hrv",
+        releaseName: "gilmore.girls.517.hdtv-lol.[BT]-hrv",
+        cues: hrvBroadcast,
+      },
+      {
+        ref: "eng-dvd-hi",
+        lang: "eng",
+        releaseName: "Gilmore Girls S05E17 Pulp Friction.DVDRip.HI.cc.en.WB",
+        cues: gilmoreSpans("engDvdHearingImpaired"),
+      },
+      {
+        ref: "eng-dvd-plain",
+        lang: "eng",
+        releaseName: "Gilmore Girls S05E17 Pulp Friction.DVDRip.NonHI.cc.en.WB",
+        cues: gilmoreSpans("engDvdPlain"),
+      },
+      {
+        ref: "eng-dvd",
+        lang: "eng",
+        releaseName: "Gilmore Girls s05e17 Pulp Friction Dvdrip Xvid-Topaz",
+        cues: gilmoreSpans("engDvd"),
+      },
+      {
+        ref: "eng-broadcast",
+        lang: "eng",
+        releaseName: "Gilmore Girls [5x17] - Pulp Friction - LOL -",
+        cues: gilmoreSpans("engBroadcast"),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] }, { timingFamilyTimeBoxMs: 60_000 });
+
+    const { body } = await list(
+      app,
+      sealed({ languages: ["hrv", "eng"] }),
+      `series/tt0238784:5:17/filename=${encodeURIComponent("Gilmore Girls (2000) - S05E17 - Pulp Friction (1080p BluRay x265 Celdra).mkv")}.json`,
+    );
+
+    const entries = entriesOf(body);
+    const served = parseSubtitle(await (await app.request(body.subtitles[0]?.url ?? "")).text());
+    const shifts = served.map((cue, index) => cue.start - (hrvBroadcast[index]?.start ?? 0));
+
+    expect(entries).toEqual([
+      {
+        id: "hrv-best",
+        label: "OpenSubtitles",
+        c: ["hrv-broadcast"],
+        x: ["eng-dvd-plain", "eng-dvd", "eng-dvd-hi"],
+      },
+      {
+        id: "eng-best",
+        label: "OpenSubtitles",
+        c: ["eng-dvd-plain", "eng-dvd", "eng-dvd-hi"],
+        x: [],
+      },
+    ]);
+    expect(median(shifts.slice(0, 60))).toBeGreaterThan(700);
+    expect(median(shifts.slice(0, 60))).toBeLessThan(1900);
+    expect(median(shifts.slice(-60))).toBeGreaterThan(2700);
+    expect(median(shifts.slice(-60))).toBeLessThan(3800);
+  }, 60_000);
+
+  it("keeps one entry when every candidate agrees", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "disc",
+        lang: "hrv",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+      },
+      {
+        ref: "disc-again",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.DVDRip.XviD-REWARD",
+        cues: transform(disc, (time) => time + 120),
+      },
+    ]);
+
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed({ languages: ["hrv"] }),
+      portrait,
+    );
+
+    expect(entriesOf(body).map(({ id, label }) => ({ id, label }))).toEqual([
+      { id: "hrv-best", label: "OpenSubtitles" },
+    ]);
+  });
+
+  it("splits a film cut for television from the cinema cut", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "cinema", releaseName: "Film.1999.1080p.BluRay.x264-AAA", cues: filmCues },
+      { ref: "television", releaseName: "Film.1999.HDTV.x264-BBB", cues: filmWithActBreaks },
+    ]);
+
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed(),
+      "movie/tt0111161/filename=Film.1999.1080p.x265-CCC.mkv.json",
+    );
+
+    expect(entriesOf(body).map(({ label, c }) => ({ label, c }))).toEqual([
+      { label: "OpenSubtitles, DVD/Blu-ray timing", c: ["cinema"] },
+      { label: "OpenSubtitles, TV timing", c: ["television"] },
+    ]);
+  });
+
+  it("serves today's entry past the time box and offers the families next time", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "broadcast",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.HDTV.XviD-LOL",
+        cues: broadcast,
+        delayMs: 200,
+      },
+      {
+        ref: "disc",
+        lang: "hrv",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+        delayMs: 200,
+      },
+    ]);
+    const { defer, settled } = deferred();
+
+    const app = appWith({ listed: [source], references: [] }, { defer, timingFamilyTimeBoxMs: 20 });
+    const token = sealed({ languages: ["hrv"] });
+
+    const first = await list(app, token, portrait);
+
+    await settled();
+
+    const second = await list(app, token, portrait);
+
+    expect(entriesOf(first.body).map(({ id }) => id)).toEqual(["hrv-best"]);
+    expect(entriesOf(second.body).map(({ id }) => id)).toEqual(["hrv-best", "hrv-best-2"]);
+  });
+
+  it("downloads nothing when a candidate matches the file's hash", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "broadcast", lang: "hrv", hashMatch: true, cues: broadcast },
+      {
+        ref: "disc",
+        lang: "hrv",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+      },
+    ]);
+
+    const { body } = await list(
+      appWith({ listed: [source], references: [] }),
+      sealed({ languages: ["hrv"] }),
+      portrait,
+    );
+
+    expect(entriesOf(body).map(({ id }) => id)).toEqual(["hrv-best"]);
+    expect(source.download).not.toHaveBeenCalled();
   });
 });
 

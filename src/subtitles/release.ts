@@ -211,3 +211,18 @@ export const looksLikeRip = (filename: string) => {
       ripGroups.has(group?.toLowerCase() ?? ""))
   );
 };
+
+export type SourceKind = "disc" | "web" | "tv";
+
+const sourceKinds: Record<NonNullable<Release["source"]>, SourceKind> = {
+  bluray: "disc",
+  dvdrip: "disc",
+  "web-dl": "web",
+  webrip: "web",
+  hdtv: "tv",
+};
+
+export const sourceKindOf = ({ source }: Release) =>
+  source === undefined ? undefined : sourceKinds[source];
+
+export const isHearingImpaired = (name: string) => /(^|[^a-z0-9])(hi|sdh)([^a-z0-9]|$)/i.test(name);

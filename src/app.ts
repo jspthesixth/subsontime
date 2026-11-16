@@ -15,6 +15,7 @@ import { manifest } from "./stremio/manifest.ts";
 import type { OpenTimings } from "./stremio/open-timings.ts";
 import { refKey } from "./stremio/refs.ts";
 import { subtitlesRoute } from "./stremio/subtitles-route.ts";
+import { defaultTimeBoxMs } from "./stremio/timing-families.ts";
 import {
   cachedStats,
   sharedSummaries,
@@ -48,6 +49,7 @@ export type AppDeps = {
   timings?: TimingsStore;
   defer?: (work: Promise<unknown>) => void;
   analytics?: boolean;
+  timingFamilyTimeBoxMs?: number;
 };
 
 export type AppEnv = { Variables: { config: Config; tokens: TokenCache } };
@@ -62,6 +64,7 @@ export type RouteDeps = {
   clientKey: (context: Context) => string;
   openTimings?: OpenTimings;
   defer: (work: Promise<unknown>) => void;
+  timingFamilyTimeBoxMs: number;
 };
 
 const newerLinkMessage = "This install link is from a newer version";
@@ -126,6 +129,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     clientKey,
     openTimings,
     defer: deps.defer ?? detached,
+    timingFamilyTimeBoxMs: deps.timingFamilyTimeBoxMs ?? defaultTimeBoxMs,
   };
 
   app.notFound((context) => context.text("Not found", 404));

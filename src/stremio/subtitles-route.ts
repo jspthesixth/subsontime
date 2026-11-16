@@ -12,6 +12,8 @@ import { parseStremioId } from "../sources/stremio-addon.ts";
 import {
   inReleaseFamily,
   isDiscOrWeb,
+  isHearingImpaired,
+  sourceKindOf,
   looksLikeRip,
   parseRelease,
   releaseFamilyOf,
@@ -21,7 +23,15 @@ import { minimumScoreOf, rankingOf, scoreOf } from "../subtitles/score.ts";
 import { freeFirst, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
+import { downloader } from "./file-route.ts";
+import { confirmedFixFor } from "./open-timings.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
+import {
+  familyKindOf,
+  timingFamiliesFor,
+  timingFamilyKeyOf,
+  timingNamesOf,
+} from "./timing-families.ts";
 import {
   recalledReleaseFamily,
   recordReleaseFamily,
@@ -30,6 +40,8 @@ import {
 
 export const bestSlotSize = 4;
 const perLanguageLimit = 10;
+const familyCandidatesPerLanguage = 3;
+const maximumFamilyCandidates = 8;
 const displayNames = new Map([["OpenSubtitles API", "OpenSubtitles"]]);
 
 export const labelOf = (candidates: Candidate[], dialogueOnly = false) => {
@@ -80,6 +92,8 @@ export const searchVideo = async (
 
   return {
     references,
+    evidence: learned.length > 0 || family !== undefined,
+    ranking,
     referencesFor: (candidates: Candidate[]) => {
       const first = candidates[0];
       const allInFamily = candidates.every(
@@ -107,6 +121,8 @@ export const searchVideo = async (
   };
 };
 
+const hearingImpaired = (candidate: Candidate) => isHearingImpaired(candidate.releaseName ?? "");
+
 const readExtras = (context: Context<AppEnv>) => {
   const extra = context.req.param("extra");
   const raw = new URL(context.req.url).pathname.split("/").at(-1) ?? "";
@@ -116,7 +132,15 @@ const readExtras = (context: Context<AppEnv>) => {
 };
 
 export const subtitlesRoute =
-  ({ sourcesFor, refKey, publicURL, state, openTimings, defer }: RouteDeps) =>
+  ({
+    sourcesFor,
+    refKey,
+    publicURL,
+    state,
+    openTimings,
+    defer,
+    timingFamilyTimeBoxMs,
+  }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const extra = context.req.param("extra");
@@ -169,11 +193,14 @@ export const subtitlesRoute =
       filename,
       languages: config.languages,
     };
-    const [found, hiddenKey] = await Promise.all([
-      searchVideo(sourcesFor(config, context.get("tokens")), query, family),
-      openTimings === undefined || listed === undefined || !config.useShared
-        ? undefined
-        : hiddenKeyFor(openTimings, state, listed, viewerOf(config, openTimings.installSalt)),
+    const sources = sourcesFor(config, context.get("tokens"));
+    const viewer =
+      openTimings === undefined ? undefined : viewerOf(config, openTimings.installSalt);
+    const withoutShared = openTimings === undefined || listed === undefined || !config.useShared;
+    const [found, hiddenKey, fixed] = await Promise.all([
+      searchVideo(sources, query, family),
+      withoutShared ? undefined : hiddenKeyFor(openTimings, state, listed, viewer),
+      withoutShared ? false : confirmedFixFor(openTimings, listed, viewer),
     ]);
 
     const unflagged = (ref: CandidateRef) =>
@@ -212,13 +239,62 @@ export const subtitlesRoute =
       }
     }
 
-    const subURL = (candidates: Candidate[], t?: SubtitleRef["t"]) => {
+    const familyCandidates =
+      found.evidence || fixed === true || !config.bestOnly
+        ? []
+        : [
+            ...new Set([
+              ...config.languages.flatMap((lang) =>
+                found.passing(found.ranked(lang)).slice(0, familyCandidatesPerLanguage),
+              ),
+              ...found.references,
+            ]),
+          ]
+            .filter(({ metered }) => metered !== true)
+            .slice(0, maximumFamilyCandidates);
+    const download = downloader(sources);
+    const families =
+      familyCandidates.length < 2
+        ? []
+        : await timingFamiliesFor({
+            state,
+            key: timingFamilyKeyOf(q, familyCandidates),
+            candidates: familyCandidates,
+            download: (candidate) => download(toCandidateRef(candidate)),
+            defer,
+            timeBoxMs: timingFamilyTimeBoxMs,
+          });
+    const ordered = families
+      .map((members) =>
+        members.toSorted(
+          (a, b) => Number(hearingImpaired(a)) - Number(hearingImpaired(b)) || found.ranking(a, b),
+        ),
+      )
+      .toSorted((a, b) => (a[0] && b[0] ? found.ranking(a[0], b[0]) : 0));
+    const familyNames = timingNamesOf(ordered);
+    const fileKind = sourceKindOf(parseRelease(filename ?? ""));
+    const referenceWorthy = (timingFamily: Candidate[]) =>
+      timingFamily.length >= 2 ||
+      (fileKind === "disc" && timingFamily.some(({ release }) => sourceKindOf(release) === "disc"));
+    const namedFamily =
+      fileKind === undefined
+        ? undefined
+        : ordered.find(
+            (timingFamily) =>
+              familyKindOf(timingFamily) === fileKind && referenceWorthy(timingFamily),
+          );
+
+    const subURL = (
+      candidates: Candidate[],
+      t?: SubtitleRef["t"],
+      entryReferences = found.referencesFor(candidates),
+    ) => {
       const ref = encodeRef(
         {
           v: 1,
           q,
           c: candidates.map(toCandidateRef).map(unflagged),
-          x: found.referencesFor(candidates).map(toCandidateRef).map(unflagged),
+          x: entryReferences.map(toCandidateRef).map(unflagged),
           w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
           k: listed === undefined ? fileKey : undefined,
           d: hiddenKey,
@@ -237,8 +313,65 @@ export const subtitlesRoute =
       }
 
       const best = found.passing(candidates).slice(0, bestSlotSize);
+      const membersOf = (timingFamily: Candidate[]) =>
+        timingFamily.filter((candidate) => best.includes(candidate));
+      const worthyReferences = found
+        .referencesFor(best)
+        .filter((reference) =>
+          ordered.some(
+            (timingFamily) => timingFamily.includes(reference) && referenceWorthy(timingFamily),
+          ),
+        );
+      const single = [
+        {
+          id: `${lang}-best`,
+          lang,
+          label: labelOf(best),
+          url: subURL(best, undefined, ordered.length > 0 ? worthyReferences : undefined),
+        },
+      ];
+      const named = (timingFamily: Candidate[]) => {
+        const members = membersOf(timingFamily);
+
+        return members.length > 0
+          ? [
+              {
+                id: `${lang}-best`,
+                lang,
+                label: labelOf(members),
+                url: subURL(members, undefined, []),
+              },
+            ]
+          : [
+              {
+                id: `${lang}-best`,
+                lang,
+                label: labelOf(best),
+                url: subURL(best, undefined, timingFamily.slice(0, 3)),
+              },
+            ];
+      };
+      const perFamily = ordered
+        .map((timingFamily, index) => ({
+          timingFamily,
+          name: familyNames[index] ?? "",
+          members: membersOf(timingFamily),
+        }))
+        .filter(({ timingFamily, members }) => members.length > 0 || referenceWorthy(timingFamily))
+        .map(({ timingFamily, name, members }, index) => {
+          const chosen = members.length > 0 ? members : best;
+
+          return {
+            id: index === 0 ? `${lang}-best` : `${lang}-best-${index + 1}`,
+            lang,
+            label: `${labelOf(chosen)}, ${name}`,
+            url: subURL(chosen, undefined, members.length > 0 ? [] : timingFamily.slice(0, 3)),
+          };
+        });
+      const unnamed = perFamily.length > 1 && fileKind === undefined ? perFamily : single;
+      const bestEntries = namedFamily === undefined ? unnamed : named(namedFamily);
       const entries = config.bestOnly
-        ? [{ id: `${lang}-best`, lang, label: labelOf(best), url: subURL(best) }]
+        ? bestEntries
         : candidates.slice(0, perLanguageLimit).map((candidate, index) => ({
             id: `${lang}-${index + 1}`,
             lang,

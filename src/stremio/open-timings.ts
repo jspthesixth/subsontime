@@ -105,6 +105,16 @@ const storeHidden = async (
   return key;
 };
 
+export const confirmedFixFor = async (
+  { store, groupingKey, summaries }: OpenTimings,
+  video: VideoKey,
+  viewer: string | undefined,
+) => {
+  const timings = await withinBudget(lookUp(store, video, { groupingKey, viewer, summaries }));
+
+  return (timings?.fixes ?? []).some((fix) => fix.status === "confirmed");
+};
+
 export const hiddenKeyFor = (
   openTimings: OpenTimings,
   state: SharedState,
