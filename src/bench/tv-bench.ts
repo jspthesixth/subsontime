@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as v from "valibot";
 import type { Cue } from "../subtitles/cue.ts";
+import { normalizedLine } from "../subtitles/lines.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import type { BenchFile, FileResult, Fingerprint, Listed, Run } from "./stremio-bench.ts";
@@ -103,6 +104,21 @@ export const truthProblem = (cues: Cue[], durationMs: number) => {
   return lastEnd < durationMs * minimumCoverage
     ? `last cue ends at ${Math.round(lastEnd / 1000)} s of ${Math.round(durationMs / 1000)} s`
     : undefined;
+};
+
+const nameTokenShare = 0.6;
+
+const squashed = (text: string) => text.replaceAll(" ", "");
+
+export const namesMatch = (filename: string, name: string) => {
+  const file = normalizedLine(filename);
+  const tokens = normalizedLine(name).split(" ");
+  const fileTokens = new Set(file.split(" "));
+
+  return (
+    squashed(file).includes(squashed(normalizedLine(name))) ||
+    tokens.filter((token) => fileTokens.has(token)).length >= nameTokenShare * tokens.length
+  );
 };
 
 export const pickEvenly = <T>(items: T[], count: number) =>

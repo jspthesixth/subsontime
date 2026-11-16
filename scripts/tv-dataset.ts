@@ -1,14 +1,14 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { parseArgs } from "node:util";
 import { filenameParse } from "@ctrl/video-filename-parser";
-import { pickEvenly, truthProblem, type Episode } from "../src/bench/tv-bench.ts";
+import { namesMatch, pickEvenly, truthProblem, type Episode } from "../src/bench/tv-bench.ts";
 import { fileFingerprint } from "../src/cli/video-hash.ts";
 import { code3Of } from "../src/languages.ts";
 import { decodeSubtitle } from "../src/subtitles/decode.ts";
-import { normalizedLine } from "../src/subtitles/lines.ts";
 import { parseSubtitle } from "../src/subtitles/parse.ts";
 
 const ffmpegImage =
@@ -161,19 +161,21 @@ const episodes = await shows.reduce<Promise<Episode[]>>(async (done, show) => {
               const lang = tagged === undefined || tagged === "und" ? show.lang : code3Of(tagged);
               const track = join("truth", `${hash}.${index}.${lang}.srt`);
 
-              docker(
-                "ffmpeg",
-                "-v",
-                "error",
-                "-y",
-                "-i",
-                inShare(path),
-                "-map",
-                `0:${index}`,
-                "-c:s",
-                "srt",
-                join("/out", track),
-              );
+              if (!existsSync(join(out, track))) {
+                docker(
+                  "ffmpeg",
+                  "-v",
+                  "error",
+                  "-y",
+                  "-i",
+                  inShare(path),
+                  "-map",
+                  `0:${index}`,
+                  "-c:s",
+                  "srt",
+                  join("/out", track),
+                );
+              }
 
               return {
                 lang,
@@ -206,8 +208,7 @@ const episodes = await shows.reduce<Promise<Episode[]>>(async (done, show) => {
           return problem === undefined ? [] : [`${track.lang} track: ${problem}`];
         }),
       );
-      const named =
-        video?.name === undefined || normalizedLine(filename).includes(normalizedLine(video.name));
+      const named = video?.name === undefined || namesMatch(filename, video.name);
       const excluded = [
         ...(episodeNumbers.length === 1
           ? []

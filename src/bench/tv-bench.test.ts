@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { syntheticTrack } from "../timing/test-tracks.ts";
-import { classOf, loadTVDataset, pickEvenly, truthProblem } from "./tv-bench.ts";
+import { classOf, loadTVDataset, namesMatch, pickEvenly, truthProblem } from "./tv-bench.ts";
 
 const srt = [
   "1",
@@ -120,6 +120,25 @@ describe("classOf", () => {
     expect(wrong("steps")).toBe("partial");
     expect(wrong("other", 0.6)).toBe("partial");
     expect(wrong("other", 0.2)).toBe("other");
+  });
+});
+
+describe("namesMatch", () => {
+  it("matches an episode name written differently in the filename", () => {
+    expect(namesMatch("Show - 11x13 - TRASH.mkv", "T*R*A*S*H")).toBe(true);
+    expect(
+      namesMatch("Show - 04x12 - It's A Bundyful Life (Part 2).mkv", "It's a Bundyful Life (2)"),
+    ).toBe(true);
+    expect(
+      namesMatch(
+        "Show - 03x12 - Can't Dance Dont Ask Me.mkv",
+        "Can't Dance, Don't Ask Me (aka Kelly's Dance)",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects another episode's name", () => {
+    expect(namesMatch("Show - 03x12 - Can't Dance Dont Ask Me.mkv", "The Godfather")).toBe(false);
   });
 });
 
