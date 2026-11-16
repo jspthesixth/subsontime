@@ -208,11 +208,11 @@ export const servedCues = ({ track, result }: Attempt, config: Config): Cue[] | 
 };
 
 const timedCues = (attempt: Attempt, config: Config): Cue[] | undefined => {
-  const { result } = attempt;
+  const { candidate, result } = attempt;
 
-  return result?.kind === "mismatch" || (result?.kind === "not-retimed" && result.noFit === true)
-    ? undefined
-    : servedCues(attempt, config);
+  const unfit = result?.kind === "not-retimed" && result.noFit === true && candidate.e !== 1;
+
+  return result?.kind === "mismatch" || unfit ? undefined : servedCues(attempt, config);
 };
 
 export async function* resolveAttempts(

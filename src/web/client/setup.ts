@@ -4,6 +4,7 @@ import { defaultForm, formOf, openSubtitlesAddonURL } from "../../config/default
 import { fromLocales } from "../../languages.ts";
 import { searchKey } from "../search-key.ts";
 import { combobox } from "./lib/combobox.ts";
+import { withoutFirstAsDual } from "./lib/dual-language.ts";
 import { clone, find } from "./lib/dom.ts";
 import { installLinkOf } from "./lib/install-link.ts";
 import { move } from "./lib/move.ts";
@@ -80,7 +81,7 @@ const checkErrorOf = (result: unknown) =>
     : errorOf(result);
 
 const update = (changes: Partial<ConfigForm>) => {
-  state = { ...state, ...changes };
+  state = withoutFirstAsDual({ ...state, ...changes });
   render();
 };
 

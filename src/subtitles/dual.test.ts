@@ -42,6 +42,23 @@ describe("mergeDual", () => {
     ]);
   });
 
+  it("gives a line past the cap to the next overlapping line with room", () => {
+    const primary = [
+      { start: 0, end: 3000, text: "Long" },
+      { start: 3000, end: 6000, text: "Next" },
+    ];
+    const secondary = [
+      { start: 0, end: 1400, text: "a" },
+      { start: 1400, end: 2800, text: "b" },
+      { start: 2600, end: 3200, text: "c" },
+    ];
+
+    expect(mergeDual(primary, secondary)).toEqual([
+      { start: 0, end: 3000, text: "Long\n<i>a</i>\n<i>b</i>" },
+      { start: 3000, end: 6000, text: "Next\n<i>c</i>" },
+    ]);
+  });
+
   it("keeps a second-language cue that overlaps nothing on its own", () => {
     expect(
       mergeDual(

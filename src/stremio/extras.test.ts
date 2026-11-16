@@ -288,6 +288,11 @@ const many = (lang: string) =>
 
 const croatian = (cues: typeof track) => cues.map((cue) => ({ ...cue, text: `Hrv ${cue.text}` }));
 
+const dualOf = (cues: typeof track) =>
+  cues.map((cue) => ({ ...cue, text: `${cue.text}\n<i>Hrv ${cue.text}</i>` }));
+
+const webRelease = "Movie.2024.1080p.WEB-DL.DDP5.1.H.264-GRP";
+
 const dualSources = (hrv: Partial<Entry> = {}) => {
   const { listed, references } = retimedSources();
 
@@ -383,7 +388,7 @@ describe("dual subtitles", () => {
 
     expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
       status: 200,
-      text: writeSRT(track.map((cue) => ({ ...cue, text: `${cue.text}\n<i>Hrv ${cue.text}</i>` }))),
+      text: writeSRT(dualOf(track)),
     });
     expect(
       retimeSpy.mock.calls
@@ -438,7 +443,7 @@ describe("dual subtitles", () => {
 
     expect(await fetched(app, urlOf(first, "eng+hrv-dual"))).toEqual({
       status: 200,
-      text: writeSRT(track.map((cue) => ({ ...cue, text: `${cue.text}\n<i>Hrv ${cue.text}</i>` }))),
+      text: writeSRT(dualOf(track)),
     });
     expect(retimeSpy).not.toHaveBeenCalled();
   });
@@ -462,9 +467,66 @@ describe("dual subtitles", () => {
 
     expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
       status: 200,
-      text: writeSRT(track.map((cue) => ({ ...cue, text: `${cue.text}\n<i>Hrv ${cue.text}</i>` }))),
+      text: writeSRT(dualOf(track)),
     });
     expect(retimeSpy.mock.calls.map(([subtitle]) => subtitle.candidate.lang)).toEqual([]);
+  });
+
+  it.each([
+    ["alone", []],
+    [
+      "next to an English subtitle of another release",
+      [
+        {
+          ref: "b",
+          releaseName: "Movie.2024.720p.BluRay.x264-OTHER",
+          cues: track.map((cue) => ({ ...cue, text: `Other ${cue.text}` })),
+        },
+      ],
+    ],
+  ])(
+    "follows the best entry's subtitle that is as good as the anchor, %s",
+    async (_, others: Entry[]) => {
+      const app = appWith({
+        listed: [
+          fakeSource("Fake", [
+            { ref: "a", releaseName: webRelease, cues: track },
+            ...others,
+            {
+              ref: "h",
+              lang: "hrv",
+              releaseName: "Movie.2024.HDTV.x264-LOL",
+              cues: croatian(shifted),
+            },
+          ]),
+        ],
+        references: [],
+      });
+      const { token } = installed({ extras: dual });
+
+      const response = await app.request(
+        `/${token}/subtitles/movie/tt0111161/filename=${webRelease}.mkv.json`,
+      );
+      const { subtitles } = (await response.json()) as Listing;
+
+      expect(await fetched(app, urlOf(subtitles, "eng-best"))).toEqual({
+        status: 200,
+        text: writeSRT(track),
+      });
+      expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+        status: 200,
+        text: writeSRT(dualOf(track)),
+      });
+    },
+  );
+
+  it("serves both languages as the sources timed them when timing is off", async () => {
+    const { app, subtitles } = await listedFor(dualSources(), { extras: dual, timing: "off" });
+
+    expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+      status: 200,
+      text: writeSRT(dualOf(shifted)),
+    });
   });
 
   it("answers 404 when the second language is made for another video", async () => {
