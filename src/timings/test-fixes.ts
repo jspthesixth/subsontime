@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { dialogueTrack } from "../timing/test-tracks.ts";
-import { digest as digestWith, summarize as summarizeWith } from "./confirm.ts";
+import { digest as digestWith, present } from "./confirm.ts";
 import { subtitleKey, type FixRow, type MismatchRow, type NewFix, type ReportRow } from "./db.ts";
 import { toFixCues, type FixCue } from "./fingerprint.ts";
 import { groupingKeyOf } from "./submitter.ts";
@@ -44,6 +44,13 @@ export const fix = (cues: FixCue[], overrides: Partial<NewFix> = {}): FixRow => 
 });
 
 const groupingKey = groupingKeyOf("s".repeat(32));
+
+export const summarizeWith = (
+  fixes: FixRow[],
+  mismatches: MismatchRow[],
+  reports: ReportRow[],
+  { groupingKey: key, viewer }: { groupingKey: Buffer; viewer?: string },
+) => present(digestWith(fixes, mismatches, reports, key), viewer);
 
 export const summarize = (
   fixes: FixRow[],

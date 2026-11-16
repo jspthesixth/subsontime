@@ -441,10 +441,3 @@ export const publicTimings = (timings: VideoTimings<FixWithCues>): VideoTimings 
   })),
   hidden: timings.hidden,
 });
-
-export const summarize = (
-  fixes: FixRow[],
-  mismatches: MismatchRow[],
-  reports: ReportRow[],
-  { groupingKey, viewer }: { groupingKey: Buffer; viewer?: string },
-): VideoTimings<FixWithCues> => present(digest(fixes, mismatches, reports, groupingKey), viewer);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seededRandom } from "../timing/test-tracks.ts";
-import { present, publicTimings, summarize as summarizeWith, type Digest } from "./confirm.ts";
+import { present, publicTimings, type Digest } from "./confirm.ts";
 import type { MismatchRow, ReportRow } from "./db.ts";
 import { subtitleSketch, type CueHash } from "./fingerprint.ts";
 import { groupingKeyOf } from "./submitter.ts";
@@ -22,6 +22,7 @@ import {
   submitterAt,
   subtitle,
   summarize,
+  summarizeWith,
   video,
 } from "./test-fixes.ts";
 
