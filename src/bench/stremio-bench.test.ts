@@ -6,6 +6,7 @@ import { parseRelease } from "../subtitles/release.ts";
 import { retimedSources, shifted, track } from "../stremio/test-app.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { benchFile, cachingFetch, countOutcomes, dailyLedger, tierOf } from "./stremio-bench.ts";
+import { clustersOf, retimedTo } from "./anchor.ts";
 import { availabilityOf, candidateKey, signalsOf } from "./oracle.ts";
 import { shapeOf, truthOf } from "./truth.ts";
 
@@ -209,5 +210,25 @@ describe("oracle", () => {
       "fps 25 served, 23.976 correct",
       "listed earlier",
     ]);
+  });
+});
+
+const member = (ref: string, lang: string, cues: typeof track) => ({
+  ...listed(ref, ""),
+  lang,
+  cues,
+});
+
+describe("anchor", () => {
+  it("clusters equal timings across languages and retimes to the anchor", async () => {
+    const counter = { alignments: 0 };
+    const clusters = await clustersOf(
+      [member("a", "eng", track), member("b", "fre", french), member("c", "eng", shifted)],
+      counter,
+    );
+
+    expect(clusters.map((cluster) => cluster.map(({ ref }) => ref))).toEqual([["a", "b"], ["c"]]);
+    expect(counter.alignments).toBe(17);
+    expect(retimedTo(track, shifted, counter)[0]?.start).toBe(track[0]?.start);
   });
 });
