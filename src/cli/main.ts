@@ -9,7 +9,7 @@ import type { SourceSettings } from "../config/config.ts";
 import { defaultConfig, openSubtitlesAddonURL } from "../config/default-config.ts";
 import { cliSchema, openSubtitlesBudgetSchema, readGroup, sourcesSchema } from "../config/env.ts";
 import { memorySharedState } from "../jobs/shared-state.ts";
-import { fromLocales, toISO6391, toISO6392 } from "../languages.ts";
+import { fromLocales, knownCode3Of } from "../languages.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
 import { tokenCacheFor } from "../sources/token-cache.ts";
 import { bazarrCommand } from "./bazarr-command.ts";
@@ -93,7 +93,7 @@ const languagesOf = (text: string | undefined, locales: readonly string[]) => {
     return fromLocales([...locales, "en"]);
   }
 
-  const codes = listOf(text).map((code) => ({ code, lang: toISO6392(toISO6391(code) ?? code) }));
+  const codes = listOf(text).map((code) => ({ code, lang: knownCode3Of(code) }));
   const unknown = codes.find(({ lang }) => lang === undefined);
 
   if (codes.length === 0 || unknown !== undefined) {
