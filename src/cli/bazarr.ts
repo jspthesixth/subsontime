@@ -3,7 +3,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { alignToAudio, audioDecisionOf } from "../audio/align-audio.ts";
 import { ffmpegFound } from "../audio/ffmpeg.ts";
-import { toISO6391, toISO6392 } from "../languages.ts";
+import { code3Of } from "../languages.ts";
 import { sharedFix } from "../stremio/open-timings.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
@@ -49,8 +49,6 @@ const parse = (argv: string[]) => {
 
 const firstLine = (error: unknown) =>
   (error instanceof Error ? error.message : "failed").split("\n")[0];
-
-const code3Of = (lang: string) => toISO6392(toISO6391(lang) ?? lang) ?? lang.toLowerCase();
 
 const notSharedText = (isPrivate: boolean) =>
   isPrivate ? "not shared, --private" : `not shared, ${audioNotShared}`;

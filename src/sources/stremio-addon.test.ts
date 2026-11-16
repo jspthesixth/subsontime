@@ -59,7 +59,7 @@ describe("stremioAddonSource", () => {
     expect(candidates.map(({ ref }) => ref)).toEqual(["https://subs.example.com/42.srt"]);
   });
 
-  it("maps the OpenSubtitles v3 response to candidates in every language", async () => {
+  it("maps the OpenSubtitles v3 response to candidates with the codes the query uses", async () => {
     stubFetch(JSON.stringify(fixture));
 
     const candidates = await openSubtitlesV3.search(movie, AbortSignal.timeout(1000));
@@ -78,9 +78,9 @@ describe("stremioAddonSource", () => {
       ["eng", 23.976],
       ["srp", 23.976],
       ["pob", 29.97],
-      ["cze", undefined],
-      ["fre", undefined],
-      ["slo", 29.97],
+      ["ces", undefined],
+      ["fra", undefined],
+      ["slk", 29.97],
     ]);
   });
 

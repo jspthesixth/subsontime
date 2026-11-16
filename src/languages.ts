@@ -73,6 +73,8 @@ export const nativeNameOf = (code6392: string) => {
 
 export const toISO6392 = (code6391: string) => to6392.get(code6391.toLowerCase());
 
+export const code3Of = (lang: string) => toISO6392(toISO6391(lang) ?? lang) ?? lang.toLowerCase();
+
 export const fromLocales = (locales: readonly string[]) => {
   const codes = locales.flatMap((locale) => {
     const code = toISO6392(locale) ?? toISO6392(locale.split("-")[0] ?? "");

@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
+import { code3Of } from "../languages.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import {
   maximumDownloadBytes,
@@ -81,7 +82,7 @@ const toCandidate = (name: string, entry: v.InferOutput<typeof entrySchema>): Ca
   return {
     sourceName: name,
     ref: entry.url,
-    lang: entry.lang,
+    lang: code3Of(entry.lang),
     release: parseRelease(releaseName ?? ""),
     releaseName,
     hashMatch: entry.m === "h",
