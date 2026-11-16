@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 
-export const baseURL = (context: Context, publicURL: string | undefined) => {
+export const baseURL = (context: Context, publicURL: string | undefined, trustProxy?: boolean) => {
   const [proto] = context.req.header("x-forwarded-proto")?.split(",") ?? [];
 
   const [host] = context.req.header("x-forwarded-host")?.split(",") ?? [];
@@ -9,7 +9,7 @@ export const baseURL = (context: Context, publicURL: string | undefined) => {
     return publicURL.replace(/\/+$/, "");
   }
 
-  return proto !== undefined && host !== undefined
+  return trustProxy === true && proto !== undefined && host !== undefined
     ? `${proto.trim()}://${host.trim()}`
     : new URL(context.req.url).origin;
 };

@@ -370,13 +370,18 @@ describe("subtitle list", () => {
   it.each([
     [{ publicURL: "https://subs.example.com" }, {}, "https://subs.example.com/"],
     [
-      {},
+      { trustProxy: true },
       { "x-forwarded-proto": "https", "x-forwarded-host": "proxy.example.com" },
       "https://proxy.example.com/",
     ],
-    [{}, { "x-forwarded-proto": "https" }, "http://localhost/"],
     [
       {},
+      { "x-forwarded-proto": "https", "x-forwarded-host": "proxy.example.com" },
+      "http://localhost/",
+    ],
+    [{ trustProxy: true }, { "x-forwarded-proto": "https" }, "http://localhost/"],
+    [
+      { trustProxy: true },
       { "x-forwarded-proto": "https, http", "x-forwarded-host": "edge.example.com, internal" },
       "https://edge.example.com/",
     ],

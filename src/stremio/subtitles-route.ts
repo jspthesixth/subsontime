@@ -38,7 +38,16 @@ const readExtras = (context: Context<AppEnv>) => {
 };
 
 export const subtitlesRoute =
-  ({ sourcesFor, refKey, publicURL, state, singleFlight, openTimings, defer }: RouteDeps) =>
+  ({
+    sourcesFor,
+    refKey,
+    publicURL,
+    trustProxy,
+    state,
+    singleFlight,
+    openTimings,
+    defer,
+  }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const extra = context.req.param("extra");
@@ -178,7 +187,7 @@ export const subtitlesRoute =
       s: second === undefined ? undefined : candidateRefsOf(second),
     });
     const urlOf = (ref: SubtitleRef) =>
-      `${baseURL(context, publicURL)}/${context.req.param("config")}/sub/${encodeRef(ref, refKey)}.srt`;
+      `${baseURL(context, publicURL, trustProxy)}/${context.req.param("config")}/sub/${encodeRef(ref, refKey)}.srt`;
     const subURL = (...args: Parameters<typeof refOf>) => urlOf(refOf(...args));
     const dualEntriesOf = (lang: string, best: Candidate[]) => {
       if (dualLanguage === undefined) {

@@ -261,7 +261,7 @@ describe("POST /api/config", () => {
 
   it("does not build or log a link from a malformed forwarded host", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    const response = await app.request("/api/config", {
+    const response = await createApp({ secret, trustProxy: true }).request("/api/config", {
       method: "POST",
       headers: {
         "content-type": "application/json",

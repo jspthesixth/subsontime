@@ -109,7 +109,7 @@ services:
       - redis
 ```
 
-Set `TRUST_PROXY=1` when the server runs behind a reverse proxy, so rate limits apply per client instead of per proxy. Leave it unset when the server is reachable directly, because clients could then spoof the header. Set `PUBLIC_URL` to the address people reach it at.
+Set `TRUST_PROXY=1` when the server runs behind a reverse proxy, so rate limits apply per client instead of per proxy and links follow the proxy's `X-Forwarded-Proto` and `X-Forwarded-Host`. Leave it unset when the server is reachable directly, because clients could then spoof those headers. Behind a proxy, set `PUBLIC_URL` to the address people reach the server at or set `TRUST_PROXY=1`: with neither, the links it hands out carry its internal address.
 
 Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point at addons on your own network.
 
@@ -119,13 +119,13 @@ Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point a
 
 ### Server
 
-| Variable             | Required | Purpose                                                                       |
-| -------------------- | -------- | ----------------------------------------------------------------------------- |
-| `PORT`               | no       | Port to listen on. Defaults to 7000.                                          |
-| `PUBLIC_URL`         | no       | Public address of the server, used for the links it hands out.                |
-| `TRUST_PROXY`        | no       | Set to `1` to take the client address from `X-Forwarded-For`.                 |
-| `ALLOW_LOCAL_ADDONS` | no       | Set to `1` to accept addon URLs on private and local addresses.               |
-| `VERCEL`             | no       | Set by Vercel. `1` turns on Vercel Analytics and Speed Insights on the pages. |
+| Variable             | Required | Purpose                                                                                                                            |
+| -------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`               | no       | Port to listen on. Defaults to 7000.                                                                                               |
+| `PUBLIC_URL`         | no       | Public address of the server, used for the links it hands out.                                                                     |
+| `TRUST_PROXY`        | no       | Set to `1` to take the client address from `X-Forwarded-For` and the link address from `X-Forwarded-Proto` and `X-Forwarded-Host`. |
+| `ALLOW_LOCAL_ADDONS` | no       | Set to `1` to accept addon URLs on private and local addresses.                                                                    |
+| `VERCEL`             | no       | Set by Vercel. `1` turns on Vercel Analytics and Speed Insights on the pages.                                                      |
 
 ### Secrets
 

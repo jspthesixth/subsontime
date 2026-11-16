@@ -250,7 +250,10 @@ describe("GET /integrations", () => {
   it("gives the Jellyfin repository on the server's own address", async () => {
     const hostedPage = await (await hosted.request("/integrations")).text();
     const selfHosted = await (
-      await app.request("/integrations", {
+      await createApp({
+        secret: "a-test-secret-that-is-long-enough-1234",
+        trustProxy: true,
+      }).request("/integrations", {
         headers: { "x-forwarded-proto": "https", "x-forwarded-host": "subs.example.org" },
       })
     ).text();

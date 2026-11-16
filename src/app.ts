@@ -7,10 +7,16 @@ import { bearerAuth } from "hono/bearer-auth";
 import jellyfinReleases from "../plugins/jellyfin/releases.json" with { type: "json" };
 import { baseURL } from "./base-url.ts";
 import { ConfigError, type Config } from "./config/config.ts";
+import type { Environment } from "./config/env.ts";
 import { invalidLinkMessage, unseal } from "./config/seal.ts";
 import { sealedConfigPattern } from "./config/sealed-config.ts";
 import { memorySingleFlight, sharedSingleFlight, type SingleFlight } from "./jobs/single-flight.ts";
-import { memorySharedState, orMiss, type SharedState } from "./jobs/shared-state.ts";
+import {
+  memorySharedState,
+  orMiss,
+  sharedStateFrom,
+  type SharedState,
+} from "./jobs/shared-state.ts";
 import { sourcesFromConfig, type SourceSet } from "./sources/from-config.ts";
 import { installKeyOf, tokenCacheFor, type TokenCache } from "./sources/token-cache.ts";
 import { fileRoute, subtitleCache, type SubtitleCache } from "./stremio/file-route.ts";
@@ -26,7 +32,7 @@ import {
   submitReport,
 } from "./timings/api.ts";
 import { cuesRoute, lookUpRoute, statsRoute, writeRoute } from "./timings/api-route.ts";
-import { memoryStore, type TimingsStore } from "./timings/db.ts";
+import { memoryStore, postgresStore, type TimingsStore } from "./timings/db.ts";
 import { dumpCronRoute, latestDump, latestDumpRoute } from "./timings/dump.ts";
 import { dailyOrigins } from "./timings/origin.ts";
 import { groupingKeyOf } from "./timings/submitter.ts";
@@ -48,6 +54,7 @@ export type AppDeps = {
   openSubtitlesAppKey?: string;
   openSubtitlesDailyDownloads?: number;
   publicURL?: string;
+  trustProxy?: boolean;
   sourcesFor?: (config: Config, tokens: TokenCache) => SourceSet;
   staticFiles?: MiddlewareHandler;
   clientKey?: (context: Context) => string;
@@ -65,6 +72,7 @@ export type RouteDeps = {
   sourcesFor: (config: Config, tokens: TokenCache) => SourceSet;
   refKey: Buffer;
   publicURL?: string;
+  trustProxy?: boolean;
   state: SharedState;
   singleFlight: SingleFlight;
   subtitles?: SubtitleCache;
@@ -94,6 +102,27 @@ const failOpen =
   (allow: (key: string) => Promise<boolean>) =>
   (key: string): Promise<boolean> =>
     orMiss(() => allow(key), true);
+
+export const appDepsOf = ({
+  server,
+  secrets,
+  sources,
+  database,
+  sharedState,
+  dumps,
+}: Environment) => ({
+  secret: secrets.secret,
+  state: sharedStateFrom(sharedState),
+  openSubtitlesAppKey: sources.openSubtitlesAppKey,
+  openSubtitlesDailyDownloads: sources.openSubtitlesDailyDownloads,
+  publicURL: server.publicURL,
+  trustProxy: server.trustProxy || server.onVercel,
+  installSalt: secrets.installSalt,
+  timings: database.url ? postgresStore(database.url) : memoryStore(),
+  analytics: server.onVercel,
+  blobToken: dumps.blobToken,
+  cronSecret: dumps.cronSecret,
+});
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -129,6 +158,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
         })),
     refKey: refKey(deps.secret),
     publicURL: deps.publicURL,
+    trustProxy: deps.trustProxy,
     state,
     singleFlight: shared === undefined ? memorySingleFlight() : sharedSingleFlight(shared),
     subtitles: shared === undefined ? undefined : subtitleCache(shared),
@@ -159,7 +189,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   );
   app.get("/check", (context) => context.html(checkPage(deps.analytics)));
   app.get("/integrations", (context) =>
-    context.html(integrationsPage(baseURL(context, deps.publicURL), deps.analytics)),
+    context.html(
+      integrationsPage(baseURL(context, deps.publicURL, deps.trustProxy), deps.analytics),
+    ),
   );
   app.get("/jellyfin/manifest.json", jellyfinManifestRoute(jellyfinReleases));
   app.get("/timings", async (context) => {
@@ -276,7 +308,10 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   });
 
   app.get("/:config/manifest.json", (context) =>
-    context.json({ ...manifest, logo: `${baseURL(context, deps.publicURL)}/logo.png` }),
+    context.json({
+      ...manifest,
+      logo: `${baseURL(context, deps.publicURL, deps.trustProxy)}/logo.png`,
+    }),
   );
   app.get("/:config/subtitles/:type/:id", subtitlesRoute(routeDeps));
   app.get("/:config/subtitles/:type/:id/:extra", subtitlesRoute(routeDeps));

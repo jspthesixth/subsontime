@@ -6,7 +6,7 @@ import { formOf } from "../config/default-config.ts";
 import { invalidLinkMessage, seal, unseal } from "../config/seal.ts";
 import { sealedConfigPattern } from "../config/sealed-config.ts";
 
-type ConfigRouteDeps = { secret: string; publicURL?: string };
+type ConfigRouteDeps = { secret: string; publicURL?: string; trustProxy?: boolean };
 
 const invalidSettingsMessage = "These settings are not valid";
 const unbuildableMessage = "Could not build the install link";
@@ -59,7 +59,7 @@ const installIdOf = (body: unknown, secret: string) => {
 };
 
 export const createConfigRoute =
-  ({ secret, publicURL }: ConfigRouteDeps) =>
+  ({ secret, publicURL, trustProxy }: ConfigRouteDeps) =>
   async (context: Context) => {
     const body = await readJSON(context);
     const form = v.safeParse(formSchema, body, { message: invalidSettingsMessage });
@@ -79,7 +79,7 @@ export const createConfigRoute =
       return context.json({ error: invalidSettingsMessage }, 400);
     }
 
-    const installURL = `${baseURL(context, publicURL)}/${sealed}/manifest.json`;
+    const installURL = `${baseURL(context, publicURL, trustProxy)}/${sealed}/manifest.json`;
 
     if (!URL.canParse(installURL)) {
       return context.json({ error: unbuildableMessage }, 500);
