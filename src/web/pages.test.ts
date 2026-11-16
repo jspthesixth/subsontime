@@ -39,7 +39,7 @@ describe.each(["/", "/stremio", "/check", "/timings"])("GET %s", (path) => {
 
   it("loads Vercel Web Analytics and says so only on Vercel", async () => {
     const insights = '<script type="module" src="/client/insights.js"></script>';
-    const notice = "This website counts anonymous page visits with Vercel Web Analytics";
+    const notice = "Anonymous visit counts, no cookies.";
     const onVercel = createApp({
       secret: "a-test-secret-that-is-long-enough-1234",
       analytics: true,
@@ -52,7 +52,31 @@ describe.each(["/", "/stremio", "/check", "/timings"])("GET %s", (path) => {
     expect(page).not.toContain("/client/insights.js");
     expect(page).not.toContain(notice);
   });
+
+  it("splits the footer text into three short lines on Vercel and two elsewhere", async () => {
+    const onVercel = createApp({
+      secret: "a-test-secret-that-is-long-enough-1234",
+      analytics: true,
+    });
+
+    expect(footerLines(await (await onVercel.request(path)).text())).toEqual([
+      "Open source under GPL-3.0.",
+      "Subtitles only, never video. No accounts.",
+      "Anonymous visit counts, no cookies.",
+    ]);
+    expect(footerLines(await (await app.request(path)).text())).toEqual([
+      "Open source under GPL-3.0.",
+      "Subtitles only, never video. No accounts.",
+    ]);
+  });
 });
+
+const footerLines = (text: string) =>
+  [
+    ...(text.match(/<footer[\s\S]*<\/footer>/)?.[0] ?? "").matchAll(
+      /<p class="small">([^<]*)<\/p>/g,
+    ),
+  ].map((match) => match[1]);
 
 describe("GET /stremio", () => {
   it("has a Dialogue only switch, off", async () => {

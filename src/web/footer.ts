@@ -1,18 +1,16 @@
 import { html } from "hono/html";
 import { logo } from "./header.ts";
 
-const analyticsNotice =
-  "This website counts anonymous page visits with Vercel Web Analytics, without cookies.";
-
 export const footer = (analytics: boolean) =>
   html`<footer class="site-footer">
     <div class="wrap site-footer-in">
       <div class="stack gap-16" style="max-width: 360px;">
         ${logo}
-        <p class="small">
-          Open source under GPL-3.0. Subtitles only, never video. No accounts, and nothing that says
-          who you are. ${analytics ? analyticsNotice : ""}
-        </p>
+        <div class="stack gap-16">
+          <p class="small">Open source under GPL-3.0.</p>
+          <p class="small">Subtitles only, never video. No accounts.</p>
+          ${analytics ? html`<p class="small">Anonymous visit counts, no cookies.</p>` : ""}
+        </div>
       </div>
       <nav class="foot-links" aria-label="Footer">
         <a href="/stremio">Stremio</a>
