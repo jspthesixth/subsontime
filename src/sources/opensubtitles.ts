@@ -112,6 +112,7 @@ export const searchRESTEntries = async (
 
 export const restCandidate = (entry: RESTEntry): Candidate[] => {
   const { attributes } = entry;
+
   const file = attributes.files[0];
   const lang = toISO6392(attributes.language);
 

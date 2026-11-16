@@ -209,6 +209,7 @@ const runCheck = async (
   sharing: Promise<Shared | undefined>,
 ) => {
   const [found, shared] = await Promise.all([searchVideo(sources, query), sharing]);
+
   const searchedMs = Math.round(performance.now() - started);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs - searchedMs);
@@ -295,6 +296,7 @@ const hold = (state: SharedState, slot: Slot) => {
   }
 
   const { key, holder } = slot;
+
   const refresh = setInterval(
     () => void orMiss(() => state.expireIfEquals(key, holder, slotSeconds), false),
     slotRefreshMs,
@@ -326,6 +328,7 @@ export const checkRoute =
     }
 
     const { installURL, languages = ["eng"], type, id, ...file } = body.output;
+
     const install = installOf(installURL, languages, secret);
     const video = videoOf(type, id);
 
@@ -345,6 +348,7 @@ export const checkRoute =
 
     const release = hold(state, slot);
     const { config, sealed } = install;
+
     const tokens = tokenCacheFor(state, secret, installKeyOf(sealed));
     const fingerprint = videoKeyOf(file.videoHash, file.videoSize);
     const sharing =

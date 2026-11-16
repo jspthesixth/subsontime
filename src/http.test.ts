@@ -216,6 +216,7 @@ describe("fetchWithTimeout maxBytes", () => {
 
   it("returns a body within the limit unchanged", async () => {
     const { origin } = await listen((_, response) => response.end(body));
+
     const response = await fetchWithTimeout(`${origin}/`, { maxBytes: 3000 }, 1000, local);
 
     expect(response.status).toBe(200);

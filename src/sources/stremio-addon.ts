@@ -29,6 +29,7 @@ export const parseStremioId = (
   id: string,
 ): Pick<VideoQuery, "type" | "imdbId" | "season" | "episode"> => {
   const [imdbId = "", season, episode, ...rest] = id.split(":");
+
   const valid = /^tt\d+$/.test(imdbId);
 
   if (type === "movie" && valid && season === undefined) {

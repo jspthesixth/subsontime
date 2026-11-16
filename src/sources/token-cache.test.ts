@@ -58,6 +58,7 @@ describe("tokenCacheFor", () => {
 
   it("cannot decrypt a token stored for another install key", async () => {
     const { state, written } = recorded();
+
     const other = tokenCacheFor(state, secret, installB);
 
     await tokenCacheFor(state, secret, installA).set("alice", token, 60);
@@ -83,6 +84,7 @@ describe("tokenCacheFor", () => {
 
   it("treats a malformed stored value as a miss", async () => {
     const { state, written } = recorded();
+
     const cache = tokenCacheFor(state, secret, installA);
 
     await cache.set("alice", token, 60);

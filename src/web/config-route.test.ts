@@ -58,6 +58,7 @@ describe("toWebURL", () => {
 describe("POST /api/config", () => {
   it("returns an install link whose manifest answers", async () => {
     const { installURL, stremioURL, webURL } = await create(form);
+
     const manifest = await app.request(new URL(installURL).pathname);
 
     expect(installURL).toMatch(/^http:\/\/localhost\/[A-Za-z0-9_-]{40,}\/manifest\.json$/);
@@ -167,6 +168,7 @@ describe("POST /api/config", () => {
 
   it("keeps the install id of the install it edits", async () => {
     const { installURL } = await create(form);
+
     const edited = await create({ ...form, languages: ["hrv", "eng"], installURL });
 
     expect(unseal(sealedOf(edited.installURL), secret)).toMatchObject({
@@ -177,6 +179,7 @@ describe("POST /api/config", () => {
 
   it("keeps the new language order of the install it edits", async () => {
     const { installURL } = await create({ ...form, languages: ["hrv", "eng", "deu"] });
+
     const edited = await create({ ...form, languages: ["deu", "hrv", "eng"], installURL });
     const response = await post("/api/config/open", { installURL: edited.installURL });
 
@@ -185,6 +188,7 @@ describe("POST /api/config", () => {
 
   it("ignores an install id sent next to the install it edits", async () => {
     const { installURL } = await create(form);
+
     const edited = await create({ ...form, installURL, installId: "chosen" });
 
     expect(unseal(sealedOf(edited.installURL), secret).installId).toBe(
@@ -194,6 +198,7 @@ describe("POST /api/config", () => {
 
   it("gives a new install id when the edited install link is not valid", async () => {
     const { installURL } = await create(form);
+
     const forged = "https://subs.example.com/" + "A".repeat(60) + "/manifest.json";
     const edited = await create({ ...form, installURL: forged });
 
@@ -265,6 +270,7 @@ describe("POST /api/config", () => {
 describe("GET /:config/configure", () => {
   it("opens the setup page on the install's settings", async () => {
     const { installURL } = await create(form);
+
     const response = await app.request(`/${sealedOf(installURL)}/configure`);
 
     expect(response.status).toBe(302);
@@ -287,6 +293,7 @@ describe("POST /api/config/open", () => {
       sources: [...form.sources, { kind: "titlovi", username: "someone", password: "hunter2" }],
     };
     const { installURL } = await create(withAccount);
+
     const response = await post("/api/config/open", { installURL });
 
     expect(response.status).toBe(200);
@@ -303,6 +310,7 @@ describe("POST /api/config/open", () => {
 
   it("opens a stremio:// link too", async () => {
     const { stremioURL } = await create(form);
+
     const response = await post("/api/config/open", { installURL: stremioURL });
 
     expect(response.status).toBe(200);
@@ -322,6 +330,7 @@ describe("POST /api/config/open", () => {
     ["a link without a config", () => "https://subs.example.com/manifest.json"],
   ])("rejects %s", async (_, change) => {
     const { installURL } = await create(form);
+
     const response = await post("/api/config/open", { installURL: change(installURL) });
 
     expect(response.status).toBe(400);

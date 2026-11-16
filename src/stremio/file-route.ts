@@ -235,6 +235,7 @@ export const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
 
     if (result?.kind === "retimed") {
       const { cues, references, reference } = result;
+
       const byHash = references.every((used) => used.candidate.hashMatch);
 
       return [

@@ -19,6 +19,7 @@ export const addressKey = (address: string) => {
   }
 
   const [head = "", tail] = bare.split("::");
+
   const left = groupsOf(head);
   const right = tail === undefined ? [] : groupsOf(tail);
   const zeros = Array.from({ length: 8 - groupCount(left) - groupCount(right) }, () => "0");

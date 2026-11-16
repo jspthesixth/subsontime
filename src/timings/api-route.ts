@@ -82,6 +82,7 @@ export const cuesRoute =
         summaries,
         withCues: true,
       });
+
       const view = fixes.find((candidate) => candidate.id === context.req.param("id"));
 
       if (view === undefined) {

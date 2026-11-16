@@ -167,6 +167,7 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 
 const shortReason = (reason: string) => {
   const [first = reason] = reason.split(". ");
+
   const trimmed = first.replace(/\.$/, "");
 
   return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
@@ -474,6 +475,7 @@ const pickTimed = async (
     }
 
     const { candidate, track, result } = served;
+
     const timing = timingOf(result, track.cues, candidate.p);
 
     if (result?.kind === "shared-fix") {
@@ -595,6 +597,7 @@ const fixLanguage = async (
   steps: Steps,
 ): Promise<Language> => {
   const { paint } = context;
+
   const candidates = found.ranked(lang).slice(0, bestSlotSize).map(toCandidateRef);
   const header = (text: string) => `${paint.value(`  ${codeOf(lang)}`)}  ${text}`;
 
@@ -660,6 +663,7 @@ const answering = (sources: SourceSet, answered: Set<string>): SourceSet => {
 
 const titleText = (identified: Extract<Identified, { kind: "found" }>) => {
   const { title, name, year } = identified;
+
   const episode =
     title.season === undefined || title.episode === undefined
       ? undefined
@@ -670,6 +674,7 @@ const titleText = (identified: Extract<Identified, { kind: "found" }>) => {
 
 const searchFor = async (path: string, video: VideoKey, context: FixContext) => {
   const { paint, sources } = context;
+
   const [lang = ""] = context.languages;
 
   if (context.subtitle !== undefined) {
@@ -717,6 +722,7 @@ const searchFor = async (path: string, video: VideoKey, context: FixContext) => 
 
 export const fixVideo = async (path: string, context: FixContext) => {
   const { paint } = context;
+
   const video = await fileFingerprint(path);
   const head = [
     ...(context.named ? [basename(path)] : []),
@@ -732,6 +738,7 @@ export const fixVideo = async (path: string, context: FixContext) => {
   }
 
   const { sources, found, local, rows } = search;
+
   const steps: Steps = {
     download: downloader(sources),
     shared,

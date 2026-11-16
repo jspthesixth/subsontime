@@ -186,6 +186,7 @@ describe("subtitle list", () => {
     const app = appWith({ listed: [source], references: [] });
 
     const { response, body } = await list(app, sealed({ bestOnly: false }), "movie/tt0111161.json");
+
     const served = await Promise.all(body.subtitles.map((entry) => app.request(entry.url)));
 
     expect(response.headers.get("cache-control")).toBe("public, max-age=3600");
@@ -506,6 +507,7 @@ describe("subtitle file", () => {
     await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
 
     const { port } = listener.address() as AddressInfo;
+
     const forged: SubtitleRef = {
       v: 1,
       q: { t: "movie", i: "tt0111161" },
@@ -804,6 +806,7 @@ describe("release families", () => {
       token,
       `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
     );
+
     const served = parseSubtitle(await (await app.request(url)).text());
 
     expect(ref.c.map(({ r }) => r)).toEqual(["e24-dvd", "e24-hdtv"]);
@@ -821,6 +824,7 @@ describe("release families", () => {
       token,
       `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
     );
+
     const served = parseSubtitle(await (await app.request(url)).text());
     const close = disc
       .slice(0, -1)
@@ -893,6 +897,7 @@ describe("a file that looks like a disc or web rip", () => {
       token,
       `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
     );
+
     const served = parseSubtitle(await (await app.request(url)).text());
 
     expect(ref.c.map(({ r }) => r)).toEqual(["e24-dvd", "e24-hdtv"]);
@@ -908,6 +913,7 @@ describe("a file that looks like a disc or web rip", () => {
       token,
       `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
     );
+
     const served = parseSubtitle(await (await app.request(url)).text());
     const close = disc
       .slice(0, -1)
@@ -1015,6 +1021,7 @@ describe("refs", () => {
 
   it("rejects a reference whose payload changed", () => {
     const [payload = "", signature = ""] = encodeRef(ref, key).split(".");
+
     const flipped = Buffer.from(payload, "base64url")
       .toString("utf8")
       .replace("tt0903747", "tt0903748");
@@ -1158,6 +1165,7 @@ describe("sourcesFromConfig", () => {
       },
       { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
     );
+
     const query: VideoQuery = {
       type: "movie",
       imdbId: "tt0046183",
@@ -1198,6 +1206,7 @@ describe("sourcesFromConfig", () => {
       { ...defaultConfig(["eng"]), sources: [] },
       { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
     ).references;
+
     const candidates = await reference?.search(
       { type: "movie", imdbId: "tt0111161", languages: ["eng"] },
       AbortSignal.timeout(1000),

@@ -58,6 +58,7 @@ export const sourceCheckRoute =
     }
 
     const { name, secret } = labels[body.output.kind];
+
     const verdict = await runCheck(body.output).catch((): Verdict => "unreachable");
     const answers: Record<Verdict, { ok: boolean; error?: string }> = {
       accepted: { ok: true },

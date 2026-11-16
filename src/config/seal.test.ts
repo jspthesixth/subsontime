@@ -45,6 +45,7 @@ describe("seal", () => {
 
   it("opens a link sealed before the Open Timings switches with both on", () => {
     const { useShared, share, ...old } = defaultConfig(["eng"]);
+
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", createHash("sha256").update(secret).digest(), iv);
     const body = Buffer.concat([cipher.update(JSON.stringify(old), "utf8"), cipher.final()]);

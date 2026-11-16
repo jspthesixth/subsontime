@@ -150,6 +150,7 @@ const searchTitles = async () => {
   searchRequest = new AbortController();
 
   const { signal } = searchRequest;
+
   const response = await fetch(`/api/titles?q=${encodeURIComponent(query)}`, { signal }).catch(
     () => undefined,
   );

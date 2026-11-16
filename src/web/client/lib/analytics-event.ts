@@ -12,6 +12,7 @@ export const analyticsEvent = <Event extends { url: string; route?: string }>(
   event: Event,
 ): Event | null => {
   const { origin, pathname } = new URL(event.url);
+
   const path = redactedPath(pathname);
 
   if (!pagePaths.has(path)) {

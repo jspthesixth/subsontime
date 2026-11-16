@@ -10,7 +10,7 @@
     "eqeqeq": "error",
     "no-nested-ternary": "error",
     "typescript/no-explicit-any": "error",
-    "subsontime/blank-line-after-destructuring": "warn",
+    "subsontime/blank-line-after-destructuring": "error",
     "@stylistic/padding-line-between-statements": [
       "error",
       { "blankLine": "always", "prev": "*", "next": "return" },

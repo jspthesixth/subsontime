@@ -19,6 +19,7 @@ const SubtitlesResponse = v.object({
 
 export const hashFile = async (file: string) => {
   const { size } = await stat(file);
+
   const handle = await open(file, "r");
 
   try {
@@ -43,6 +44,7 @@ const main = async () => {
   }
 
   const { size, hash } = await hashFile(file);
+
   const name = basename(file);
   const url = `https://opensubtitles-v3.strem.io/subtitles/movie/${encodeURIComponent(imdb)}/videoHash=${hash}&videoSize=${size}&filename=${encodeURIComponent(name)}.json`;
   const response = await fetch(url);
@@ -52,6 +54,7 @@ const main = async () => {
   }
 
   const { subtitles } = v.parse(SubtitlesResponse, await response.json());
+
   const groups = Object.groupBy(subtitles, (subtitle) => subtitle.m);
   const counts = Object.fromEntries(Object.entries(groups).map(([m, list]) => [m, list?.length]));
   const hashed = subtitles.filter((subtitle) => subtitle.m !== "i").slice(0, shownEntries);

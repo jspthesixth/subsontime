@@ -520,6 +520,7 @@ describe("origins", () => {
     ];
     const texts = await Promise.all(responses.map((response) => response.text()));
     const [origin = ""] = (await store.fixesFor(video)).map((row) => row.origin ?? "");
+
     const calls = logged.flatMap((spy) => spy.mock.calls.flat().map(String));
 
     logged.forEach((spy) => spy.mockRestore());

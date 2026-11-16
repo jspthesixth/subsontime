@@ -355,6 +355,7 @@ describe("summarize confirmation", () => {
 
   it("leaves out a line that repeats in any agreeing fix", () => {
     const [first, second, ...others] = cues;
+
     const repeated = [
       ...(first === undefined ? [] : [first]),
       ...(second === undefined || first === undefined ? [] : [{ ...second, h: first.h }]),

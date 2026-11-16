@@ -176,6 +176,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
   }
 
   const [command, path, ...rest] = positionals;
+
   const languages = languagesOf(values.lang, deps.locales);
   const sharing = sharingOf(values);
 
@@ -222,6 +223,7 @@ const run = async (argv: string[], deps: CLIDeps) => {
   }
 
   const { videos, links } = await findVideos(path, values.recursive === true);
+
   const paint = deps.color ? ansiPaint : plainPaint;
   const context = {
     languages,

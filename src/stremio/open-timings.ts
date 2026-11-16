@@ -90,6 +90,7 @@ const storeHidden = async (
   viewer: string | undefined,
 ) => {
   const { hidden } = await lookUp(store, video, { groupingKey, viewer, summaries });
+
   const sketches = hidden.slice(0, maximumHidden).map((entry) => entry.subtitleSketch);
 
   if (sketches.length === 0) {

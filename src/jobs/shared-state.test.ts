@@ -46,6 +46,7 @@ const contract = (make: () => Subject) => {
 
   it("keeps every value as the exact string it was given", async () => {
     const { state } = make();
+
     const values = [
       "123",
       '{"a":1}',
@@ -115,6 +116,7 @@ const contract = (make: () => Subject) => {
 
   it("skips a value over 512 KB", async () => {
     const { state } = make();
+
     const largest = "x".repeat(512 * 1024);
     const tooLarge = `${largest}x`;
 
@@ -158,6 +160,7 @@ const contract = (make: () => Subject) => {
 
   it("increments once per call when calls race", async () => {
     const { state } = make();
+
     const counts = await Promise.all(
       Array.from({ length: 10 }, () => state.increment(key("race"), 60)),
     );

@@ -97,6 +97,7 @@ const main = async () => {
 
   const type = id.includes(":") ? "series" : "movie";
   const { imdbId, season, episode } = parseStremioId(type, id);
+
   const digits = imdbId.replace(/^tt0*/, "");
   const titleParams: Record<string, string> =
     type === "series"

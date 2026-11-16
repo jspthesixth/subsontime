@@ -350,6 +350,7 @@ describe("with the audio measured", () => {
   it("makes no contact with Open Timings with --private", async () => {
     const paths = await prepare();
     const { url, requests } = await startTimings();
+
     const fetched = noNetwork();
 
     vi.stubGlobal("fetch", fetched);
@@ -496,6 +497,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
       "hrv",
       "--private",
     ]);
+
     const starts = (await cuesIn(subtitle)).map((cue, index) =>
       Math.abs(cue.start - (spoken[index]?.start ?? 0)),
     );

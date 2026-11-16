@@ -159,6 +159,7 @@ describe("reading Open Timings", () => {
     await confirmFix(store, partlyChanged);
 
     const { text } = await play(appWith(retimedSources(), store), token);
+
     const cues = parseSubtitle(text);
 
     expect(vi.mocked(retime)).toHaveBeenCalledTimes(1);
@@ -168,6 +169,7 @@ describe("reading Open Timings", () => {
   it("skips a subtitle Open Timings hid and serves the next one in a best-only slot", async () => {
     const store = memoryStore();
     const { token } = installed();
+
     const sources = () => ({
       listed: [
         fakeSource("Fake", [
@@ -191,6 +193,7 @@ describe("reading Open Timings", () => {
   it("skips a hidden subtitle when the hash came from the other listing", async () => {
     const store = memoryStore();
     const { token } = installed();
+
     const app = appWith(
       {
         listed: [
@@ -305,6 +308,7 @@ describe("reading Open Timings", () => {
     const { token, submitter, config } = installed();
 
     const { response, text } = await play(appWith(retimedSources(), store, { defer }), token);
+
     const cues = parseSubtitle(text);
 
     await defer.mock.calls[0]?.[0];
@@ -351,6 +355,7 @@ describe("reading Open Timings", () => {
 
   it("serves the same subtitle when every store read hangs", async () => {
     const { token } = installed({ share: false });
+
     const served = async (store: TimingsStore) =>
       (await play(appWith(retimedSources(), store), token)).text;
 
@@ -381,6 +386,7 @@ describe("reading Open Timings", () => {
   it("keeps a ref with ten hidden subtitles under 8 KB", async () => {
     const store = memoryStore();
     const { token } = installed();
+
     const groups = Array.from({ length: 12 }, (_, index) =>
       syntheticTrack(10 + index, 300).map((cue) => ({
         ...cue,
@@ -417,7 +423,9 @@ describe("reading Open Timings", () => {
 describe("sharing to Open Timings", () => {
   it("shares one fix for a retimed subtitle after the response", async () => {
     const { store, writes, release } = deferredStore();
+
     const { token, submitter } = installed();
+
     const app = appWith(retimedSources(), store);
 
     const response = await app.request(await firstURL(app, token));
@@ -450,6 +458,7 @@ describe("sharing to Open Timings", () => {
     const releaseName = "Movie.2024.1080p.BluRay.x264-GROUP";
     const store = memoryStore();
     const { token } = installed();
+
     const app = appWith(
       {
         listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])],
@@ -468,6 +477,7 @@ describe("sharing to Open Timings", () => {
   it("hands every write to the host's defer", async () => {
     const store = memoryStore();
     const { token } = installed();
+
     const defer = vi.fn<(work: Promise<unknown>) => void>();
     const app = appWith(retimedSources(), store, { defer });
 
@@ -504,6 +514,7 @@ describe("sharing to Open Timings", () => {
   it("keys the fix on the reference that produced the result", async () => {
     const store = memoryStore();
     const { token } = installed();
+
     const app = appWith(
       {
         listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])],
@@ -529,6 +540,7 @@ describe("sharing to Open Timings", () => {
   it("shares a mismatch against a hash-matched reference", async () => {
     const store = memoryStore();
     const { token, submitter } = installed();
+
     const app = appWith(
       {
         listed: [
@@ -580,6 +592,7 @@ describe("sharing to Open Timings", () => {
   it("shares nothing without a video fingerprint", async () => {
     const defer = deferSpy();
     const { token } = installed();
+
     const app = appWith(retimedSources(), memoryStore(), { defer });
     const listing = await app.request(`/${token}/subtitles/movie/tt0111161.json`);
     const { subtitles } = (await listing.json()) as Listing;

@@ -39,6 +39,7 @@ export const ffprobeCommand = () => {
   }
 
   const { dir, ext } = parse(ffmpegCommand());
+
   const sibling = format({ dir, name: "ffprobe", ext });
 
   return dir !== "" && existsSync(sibling) ? sibling : "ffprobe";

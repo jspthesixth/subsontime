@@ -158,6 +158,7 @@ export const trimCutLine = async (path: string) => {
 
   try {
     const { size } = await handle.stat();
+
     let end = size;
 
     while (end > 0) {
@@ -168,6 +169,7 @@ export const trimCutLine = async (path: string) => {
         end - start,
         start,
       );
+
       const newline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
 
       if (newline >= 0) {

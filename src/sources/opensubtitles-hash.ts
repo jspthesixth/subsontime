@@ -103,6 +103,7 @@ export const withoutListed = (login: Source, appKey: string, listing: Listing): 
       searchRESTEntries(appKey, query, signal),
       listing(query, signal).catch((): AddonEntry[] => []),
     ]);
+
     const ids = addonIds(listed);
 
     return (entries ?? [])

@@ -21,6 +21,7 @@ const dialogueOnly = { ...defaultConfig(["eng"]).extras, dialogueOnly: true };
 const listedFor = async (sources: SourceSet, overrides: Partial<Config> = {}) => {
   const app = appWith(sources);
   const { token } = installed({ extras: dialogueOnly, ...overrides });
+
   const response = await app.request(`/${token}/subtitles/movie/tt0111161.json`);
   const { subtitles } = (await response.json()) as Listing;
 

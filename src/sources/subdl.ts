@@ -138,6 +138,7 @@ export const subdlSource = (apiKey: string): Source => ({
     }
 
     const [, path = "", tag] = match;
+
     const response = await fetchWithTimeout(
       `${downloadURL}${path}`,
       { signal, maxBytes: maximumDownloadBytes },

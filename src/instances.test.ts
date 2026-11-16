@@ -113,6 +113,7 @@ describe("two instances on one shared state", () => {
   it("download a subtitle once when asked at the same time", async () => {
     const state = memorySharedState();
     const { source, sources } = subtitleSources(50);
+
     const apps = [1, 2].map(() => instance(state, { sourcesFor: () => sources }));
     const responses = await Promise.all(apps.map((app) => app.request(subPath)));
 
@@ -224,6 +225,7 @@ describe("two instances on one shared state", () => {
     let now = Date.now();
     const state = memorySharedState(() => now);
     const { search, sources } = hangingFirst(2);
+
     const crashed = instance(state, { sourcesFor: () => sources });
     const other = instance(state, { sourcesFor: () => sources });
 
@@ -255,6 +257,7 @@ describe("two instances on one shared state", () => {
       vi.spyOn(state, "delete"),
     ];
     const { sources } = subtitleSources();
+
     const app = instance(state, { sourcesFor: () => sources, timings: memoryStore() });
     const asClient = { headers: { "x-test-client": address } };
 
@@ -280,6 +283,7 @@ describe("two instances on one shared state", () => {
     expect((await post(app, "/api/v1/fixes", fixBody(), "198.51.100.7")).status).toBe(202);
 
     const [fix] = await store.fixesFor(video);
+
     const limitKeys = increment.mock.calls
       .map(([key]) => key)
       .filter((key) => key.startsWith("rl:"));
@@ -308,6 +312,7 @@ describe("two instances on one shared state", () => {
     const state = memorySharedState();
     const store = memoryStore();
     const { source, sources } = subtitleSources();
+
     const app = instance(state, { sourcesFor: () => sources, timings: store });
     const set = vi.spyOn(state, "set");
 
@@ -421,6 +426,7 @@ describe("a shared state that fails on every call", () => {
   it("still answers every read and does the work itself", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const { source, sources } = subtitleSources();
+
     const app = instance(brokenState, { sourcesFor: () => sources, timings: memoryStore() });
     const listing = await app.request(`/${token}/subtitles/movie/tt0111161.json`);
     const files = [await app.request(subPath), await app.request(subPath)];

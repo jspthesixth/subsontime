@@ -181,6 +181,7 @@ const close = (a: FixCue, b: FixCue) =>
 const agree = (left: Timed, right: Timed) => {
   const [fewer, more] =
     left.once.size <= right.once.size ? [left.once, right.once] : [right.once, left.once];
+
   const allowedApart = fewer.size * (100 - agreeingPercent);
   let shared = 0;
   let apart = 0;
@@ -229,6 +230,7 @@ const strength = (component: Timed[]) => {
 const largest = (components: Timed[][]) =>
   components.reduce((best, component) => {
     const [origins, submitters] = strength(component);
+
     const [bestOrigins, bestSubmitters] = strength(best);
 
     return origins > bestOrigins || (origins === bestOrigins && submitters > bestSubmitters)
@@ -269,6 +271,7 @@ const confirmedView = (name: Name, component: Timed[]): Ranked => {
   const [mostCommon] = [...Map.groupBy(fixes, (fix) => fix.method)].reduce((best, entry) =>
     entry[1].length > best[1].length ? entry : best,
   );
+
   const cues = [...timings]
     .map(([h, copies]) => ({
       h,

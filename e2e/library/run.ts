@@ -144,6 +144,7 @@ const configureRadarr = async (key: string) => {
   }
 
   const [profile] = (await radarr("/qualityprofile")) as { id: number }[];
+
   const added = (await radarr("/movie")) as RadarrMovie[];
 
   for (const film of films.filter(
@@ -246,6 +247,7 @@ const waitForSearches = async (key: string) => {
 
   await waitFor("Bazarr finishing the searches", 1800, async () => {
     const { data } = (await call(`${bazarrURL}/system/jobs`, key)) as { data: BazarrJob[] };
+
     const searches = data.filter(({ job_name }) => job_name.includes("missing subtitles for"));
 
     return searches.length === films.length &&
@@ -285,6 +287,7 @@ const resultOf = async (key: string, movies: BazarrMovie[], film: Film, logLines
   const downloads = await downloadsOf(key, radarrId);
   const beside = await subtitlesOf(film);
   const { hash, size } = await fileFingerprint(videoOf(film));
+
   const methods = rowsIn(
     `select method from fixes where video_hash = '${hash}' and video_size = ${size}`,
   );

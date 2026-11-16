@@ -337,6 +337,7 @@ describe("identify", () => {
 describe("Open Timings", () => {
   it("shares a retimed fix and reuses one install id created with mode 0600", async () => {
     const { url, requests } = await startTimings();
+
     const video = await writeVideo(`${movieName}.mkv`);
     const args = ["fix", video, "--lang", "en", "--imdb", "tt0111161", "--api", url];
 
@@ -377,6 +378,7 @@ describe("Open Timings", () => {
 
   it("makes no contact with Open Timings with --private", async () => {
     const { url, requests } = await startTimings();
+
     const video = await writeVideo(`${movieName}.mkv`);
 
     const { code, output } = await run(
@@ -404,6 +406,7 @@ describe("Open Timings", () => {
 
   it("says when no folder can hold the install id", async () => {
     const { url, requests } = await startTimings();
+
     const video = await writeVideo(`${movieName}.mkv`);
     const home = join(work, "home");
 
@@ -427,6 +430,7 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     const store = memoryStore();
     const video = await copyBursts(`${movieName}.mkv`);
     const { url, requests } = await startTimings(store);
+
     const reference = fakeSource("Reference", [{ ref: "r", hashMatch: true, cues: spoken }]);
 
     await confirmFix(store, await videoKeyOf(video), spoken);
@@ -902,6 +906,7 @@ const boardSources = (): SourceSet => ({
 describe("summary", () => {
   it("follows the board: file, search, a block per language and one-line skips", async () => {
     const { url } = await startTimings();
+
     const video = await writeVideo(`${movieName}.mkv`);
     const { hash } = await videoKeyOf(video);
 

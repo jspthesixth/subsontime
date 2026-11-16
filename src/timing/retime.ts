@@ -122,6 +122,7 @@ const alignTo = async (subtitle: Track, reference: Track): Promise<Aligned> => {
   const { speedRatio, cues, score, offsetScore } = alignments.reduce((best, alignment) =>
     alignment.score > best.score ? alignment : best,
   );
+
   const { offsetMs, cuts } = shiftOf(subtitle.cues, cues, speedRatio);
 
   return { reference, cues, score, offsetScore, speedRatio, offsetMs, cuts };
