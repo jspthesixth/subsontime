@@ -98,17 +98,14 @@ export const subtitleCache = (state: SharedState): SubtitleCache => ({
   set: (id, srt) => orMiss(() => state.set(`srt:${id}`, srt, srtSeconds), undefined),
 });
 
-const encodeServed = ({ found, srt }: Served) =>
-  JSON.stringify({ found, srt: Buffer.from(srt).toString("base64") });
+const encodeServed = ({ found, srt }: Served) => JSON.stringify([found, srt]);
 
-const servedSchema = v.object({ found: v.boolean(), srt: v.string() });
+const servedSchema = v.tuple([v.boolean(), v.string()]);
 
 const decodeServed = (text: string): Served | undefined => {
   const parsed = v.safeParse(v.pipe(v.string(), v.parseJson(), servedSchema), text);
 
-  return parsed.success
-    ? { found: parsed.output.found, srt: Buffer.from(parsed.output.srt, "base64").toString("utf8") }
-    : undefined;
+  return parsed.success ? { found: parsed.output[0], srt: parsed.output[1] } : undefined;
 };
 
 const logWrite = (error: unknown) =>

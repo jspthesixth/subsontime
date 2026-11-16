@@ -125,6 +125,21 @@ describe("two instances on one shared state", () => {
     expect(source.download).toHaveBeenCalledTimes(1);
   });
 
+  it("download a large subtitle once when asked at the same time", async () => {
+    const state = memorySharedState();
+    const large = syntheticTrack(1, 450).map((cue) => ({ ...cue, text: "a".repeat(1000) }));
+    const source = fakeSource("Fake", [{ ref: "a", hashMatch: true, cues: large, delayMs: 50 }]);
+    const sources: SourceSet = { listed: [source], references: [] };
+
+    const apps = [1, 2].map(() => instance(state, { sourcesFor: () => sources }));
+    const responses = await Promise.all(apps.map((app) => app.request(subPath)));
+    const texts = await Promise.all(responses.map((response) => response.text()));
+
+    expect(Buffer.byteLength(texts[0] ?? "")).toBeGreaterThan(450_000);
+    expect(texts[1]).toBe(texts[0]);
+    expect(source.download).toHaveBeenCalledTimes(1);
+  });
+
   it("serve a cached subtitle without any source call", async () => {
     const state = memorySharedState();
     const first = subtitleSources();
