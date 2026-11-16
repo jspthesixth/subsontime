@@ -76,7 +76,7 @@ export type FixContext = {
 type AudioResult = AudioAlignment | { kind: "failed"; reason: string };
 type Line = { label: string; value?: string; tone?: "value" | "dim" };
 type Skip = { lang: string; candidate: CandidateRef; reason: string };
-type Found = { references: Candidate[]; ranked: (lang: string) => Candidate[] };
+type Found = Pick<Awaited<ReturnType<typeof searchVideo>>, "references" | "ranked" | "passing">;
 type Chosen = {
   candidate: CandidateRef;
   cues: Cue[];
@@ -413,7 +413,11 @@ const localFound = (path: string, lang: string) => {
 
   return {
     sources: { listed: [source], references: [] },
-    found: { references: [], ranked: () => [candidate] },
+    found: {
+      references: [],
+      ranked: () => [candidate],
+      passing: (candidates: Candidate[]) => candidates,
+    },
   };
 };
 
@@ -582,7 +586,7 @@ const fixLanguage = async (
 ): Promise<Language> => {
   const { paint } = context;
 
-  const candidates = found.ranked(lang).slice(0, bestSlotSize).map(toCandidateRef);
+  const candidates = found.passing(found.ranked(lang)).slice(0, bestSlotSize).map(toCandidateRef);
   const header = (text: string) => `${paint.value(`  ${codeOf(lang)}`)}  ${text}`;
 
   if (candidates.length === 0) {

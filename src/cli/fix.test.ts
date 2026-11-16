@@ -679,6 +679,28 @@ describe("writing", () => {
 });
 
 describe("exit codes", () => {
+  it("tries only the subtitles that clear the minimum score, as the addon serves", async () => {
+    const video = await writeVideo("Example.Show.S01E01.1080p.WEB-DL-GROUP.mkv");
+
+    const { code, output } = await run(
+      ["fix", video, "--lang", "en", "--imdb", "tt0903747", "--private"],
+      {
+        sources: {
+          listed: [
+            fakeSource("Fake", [
+              { ref: "a", cues: shifted, releaseName: "Example.Show.S02E02.1080p.WEB-DL-GROUP" },
+              { ref: "b", cues: shifted, releaseName: "Example.Show.S01E01.720p.HDTV-OTHER" },
+            ]),
+          ],
+          references: [fakeSource("Reference", [{ ref: "r", hashMatch: true, cues: track }])],
+        },
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(output).toContain("\n  en  Fake · Example.Show.S01E01.720p.HDTV-OTHER\n");
+  });
+
   it("is 1 when no subtitle was written", async () => {
     const video = await writeVideo(`${movieName}.mkv`);
 
