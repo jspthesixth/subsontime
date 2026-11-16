@@ -82,6 +82,11 @@ jobs:
         with:
           persist-credentials: false
       - run: |
+          if [[ ! "${GITHUB_REF_NAME#v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not vMAJOR.MINOR.PATCH, so it has no four-part Jellyfin version"
+            exit 1
+          fi
+
           version="${GITHUB_REF_NAME#v}.0"
           timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           changelog="https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
@@ -119,6 +124,9 @@ jobs:
   jellyfin-repository:
     needs: release
     runs-on: ubuntu-24.04
+    concurrency:
+      group: jellyfin-repository
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -129,6 +137,13 @@ jobs:
         with:
           name: subsontime-jellyfin
           path: release
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.14.0
+      - run: pnpm install --frozen-lockfile
       - run: |
           version="${GITHUB_REF_NAME#v}.0"
           zip="subsontime-jellyfin_$version.zip"
@@ -142,4 +157,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
           git commit --message "Release the Jellyfin plugin $version" plugins/jellyfin/releases.json
+          git pull --rebase
+          node --experimental-strip-types scripts/check-jellyfin-releases.ts
           git push

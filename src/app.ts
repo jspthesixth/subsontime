@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
 import { timing } from "hono/timing";
+import jellyfinReleases from "../plugins/jellyfin/releases.json" with { type: "json" };
 import { baseURL } from "./base-url.ts";
 import { ConfigError, type Config } from "./config/config.ts";
 import { invalidLinkMessage, unseal } from "./config/seal.ts";
@@ -32,7 +33,7 @@ import { checkReportRoute, checkRoute, episodesRoute, titlesRoute } from "./web/
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
 import { homePage } from "./web/home-page.ts";
 import { integrationsPage } from "./web/integrations-page.ts";
-import { jellyfinManifest } from "./web/jellyfin-manifest.ts";
+import { jellyfinManifestRoute } from "./web/jellyfin-manifest.ts";
 import { setupPage } from "./web/setup-page.ts";
 import { timingsPage } from "./web/timings-page.ts";
 import { limitKeyOf, rateLimit } from "./web/rate-limit.ts";
@@ -153,7 +154,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.get("/integrations", (context) =>
     context.html(integrationsPage(baseURL(context, deps.publicURL), deps.analytics)),
   );
-  app.get("/jellyfin/manifest.json", (context) => context.json(jellyfinManifest));
+  app.get("/jellyfin/manifest.json", jellyfinManifestRoute(jellyfinReleases));
   app.get("/timings", async (context) => {
     const stats =
       openTimings === undefined

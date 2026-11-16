@@ -1,8 +1,13 @@
 import { readFile } from "node:fs/promises";
 import * as v from "valibot";
-import { expect, test } from "vitest";
+import { Hono } from "hono";
+import { afterEach, expect, test, vi } from "vitest";
 import { createApp } from "../app.ts";
-import { jellyfinRepository, releasesSchema } from "./jellyfin-manifest.ts";
+import { jellyfinManifestRoute, jellyfinRepository, releasesSchema } from "./jellyfin-manifest.ts";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const plugin = {
   guid: "25644ac2-fc95-4f1f-9beb-21e679183dff",
@@ -66,6 +71,36 @@ test("the repository lists the newest version first with its checksum and downlo
   ]);
 });
 
+test("versions are ordered by their numbers, so a late patch of an older line stays below newer lines", () => {
+  const releases = [
+    release("0.1.0.0", "2026-11-20T10:00:00Z"),
+    release("0.2.0.0", "2026-12-01T09:30:00Z"),
+    release("0.10.0.0", "2026-12-10T08:00:00Z"),
+    release("0.1.1.0", "2026-12-15T12:00:00Z"),
+  ];
+  const [repository] = jellyfinRepository(releases);
+
+  expect(repository?.versions.map(({ version }) => version)).toEqual([
+    "0.10.0.0",
+    "0.2.0.0",
+    "0.1.1.0",
+    "0.1.0.0",
+  ]);
+});
+
+test("a malformed releases file fails only the repository route, with a plain message", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const app = new Hono().get(
+    "/jellyfin/manifest.json",
+    jellyfinManifestRoute([release("0.2.0-beta.1.0", "2026-12-01T09:30:00Z")]),
+  );
+  const response = await app.request("/jellyfin/manifest.json");
+
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({ error: "The Jellyfin plugin repository is unavailable" });
+  expect(log.mock.calls).toEqual([["Invalid Jellyfin releases"]]);
+});
+
 test("a release needs a four-part version, an MD5 checksum and a UTC timestamp", () => {
   const valid = release("0.1.0.0", "2026-11-20T10:00:00Z");
 
@@ -78,10 +113,19 @@ test("a release needs a four-part version, an MD5 checksum and a UTC timestamp",
   );
 });
 
-test("the plugin, its build.yaml and the repository share one guid", async () => {
+test("the plugin and its build.yaml describe the same plugin as the repository", async () => {
   const pluginSource = await readFile("plugins/jellyfin/Plugin.cs", "utf8");
   const buildYAML = await readFile("plugins/jellyfin/build.yaml", "utf8");
 
   expect(pluginSource).toContain('Guid.Parse("25644ac2-fc95-4f1f-9beb-21e679183dff")');
-  expect(buildYAML).toContain('guid: "25644ac2-fc95-4f1f-9beb-21e679183dff"');
+  expect(buildYAML.split("\n")).toEqual(
+    expect.arrayContaining([
+      'guid: "25644ac2-fc95-4f1f-9beb-21e679183dff"',
+      'name: "Subs On Time"',
+      'description: "Subtitles that fit the file you are playing."',
+      'overview: "Finds subtitles for the exact video file and retimes them to it."',
+      'owner: "subsontime"',
+      'category: "Subtitles"',
+    ]),
+  );
 });

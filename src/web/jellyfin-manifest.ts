@@ -1,5 +1,7 @@
+import type { Context } from "hono";
 import * as v from "valibot";
-import releasesJSON from "../../plugins/jellyfin/releases.json" with { type: "json" };
+
+const versionOrder = new Intl.Collator("en", { numeric: true });
 
 const fourPartVersion = v.pipe(v.string(), v.regex(/^\d+\.\d+\.\d+\.\d+$/));
 
@@ -22,8 +24,20 @@ export const jellyfinRepository = (releases: v.InferOutput<typeof releasesSchema
     overview: "Finds subtitles for the exact video file and retimes them to it.",
     owner: "subsontime",
     category: "Subtitles",
-    versions: releases.toSorted((a, b) => b.timestamp.localeCompare(a.timestamp)),
+    versions: releases.toSorted((a, b) => versionOrder.compare(b.version, a.version)),
   },
 ];
 
-export const jellyfinManifest = jellyfinRepository(v.parse(releasesSchema, releasesJSON));
+export const jellyfinManifestRoute = (releasesJSON: unknown) => {
+  const releases = v.safeParse(releasesSchema, releasesJSON);
+
+  return (context: Context) => {
+    if (!releases.success) {
+      console.error("Invalid Jellyfin releases");
+
+      return context.json({ error: "The Jellyfin plugin repository is unavailable" }, 500);
+    }
+
+    return context.json(jellyfinRepository(releases.output));
+  };
+};
