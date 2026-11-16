@@ -1,14 +1,22 @@
 import type { Cue } from "../subtitles/cue.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { rankingOf, releaseScoreOf, type ScoreContext } from "../subtitles/score.ts";
-import { rigidlyAligned, sameTiming, timingAnchorOf, type Counter } from "../timing/anchor.ts";
+import { anchorWithGuardsOf, firstAgreeing, rigidlyAligned, sameTiming } from "../timing/anchor.ts";
 import { retimedMinimumScore } from "../timing/retime.ts";
 import type { BenchFile, FileResult, Listed, Run } from "./stremio-bench.ts";
 import { truthOf, type Truth } from "./truth.ts";
 
 export type Member = Listed & { cues: Cue[] };
 
+export type Counter = { checks: number };
+
 type Video = ScoreContext["video"];
+
+const checked = <T>(work: T, counter: Counter) => {
+  counter.checks += 1;
+
+  return work;
+};
 
 export const clustersOf = async (members: Member[], counter: Counter) =>
   members.reduce<Promise<Member[][]>>(async (done, member) => {
@@ -16,7 +24,9 @@ export const clustersOf = async (members: Member[], counter: Counter) =>
     const home = await clusters.reduce<Promise<Member[] | undefined>>(
       async (found, cluster) =>
         (await found) ??
-        ((await sameTiming(cluster[0]?.cues ?? [], member.cues, counter)) ? cluster : undefined),
+        ((await checked(sameTiming(cluster[0]?.cues ?? [], member.cues), counter))
+          ? cluster
+          : undefined),
       Promise.resolve(undefined),
     );
 
@@ -63,7 +73,11 @@ const atLeastTwo = (cluster: Member[] | undefined) =>
 
 export type Strategy = {
   name: string;
-  anchor: (clusters: Member[][], video: Video, members: Member[]) => Member[] | undefined;
+  anchor: (
+    clusters: Member[][],
+    video: Video,
+    members: Member[],
+  ) => Member[] | undefined | Promise<Member[] | undefined>;
   sameLanguageMember?: boolean;
 };
 
@@ -92,19 +106,33 @@ export const strategies: Strategy[] = [
     sameLanguageMember: true,
   },
   {
-    name: "E hash or release candidate, no clustering",
-    anchor: (_clusters, video, members) => {
+    name: "E hash or release candidate with an agreeing guard, no clustering",
+    anchor: async (_clusters, video, members) => {
       const candidates = members.map(withRelease);
-      const anchor = timingAnchorOf(candidates.toSorted(rankingOf({ video })), { video });
-      const member = anchor === undefined ? undefined : members[candidates.indexOf(anchor)];
+      const [anchor, ...guards] = anchorWithGuardsOf(candidates.toSorted(rankingOf({ video })), {
+        video,
+      });
 
-      return member === undefined ? undefined : [member];
+      if (anchor === undefined) {
+        return undefined;
+      }
+
+      const { partner } = await firstAgreeing(
+        anchor.cues,
+        guards.map(({ cues }) => Promise.resolve(cues)),
+      );
+
+      const agreeing = partner === undefined ? undefined : guards[partner];
+
+      return agreeing === undefined
+        ? undefined
+        : [anchor, agreeing].flatMap((each) => members[candidates.indexOf(each)] ?? []);
     },
   },
 ];
 
 export const retimedTo = (anchor: Cue[], subtitle: Cue[], counter: Counter) => {
-  const aligned = rigidlyAligned(anchor, subtitle, counter);
+  const aligned = checked(rigidlyAligned(anchor, subtitle), counter);
 
   return aligned.score >= retimedMinimumScore ? aligned.cues : subtitle;
 };
@@ -118,7 +146,7 @@ export type Simulated = {
   outcome: Run["outcome"];
   anchored: boolean;
   anchorCorrect?: boolean;
-  alignments: number;
+  retimes: number;
 };
 
 export const simulateFile = async ({
@@ -146,7 +174,7 @@ export const simulateFile = async ({
   const byKey = new Map(members.map((member) => [keyOf(member), member]));
 
   const simulateRun = async (strategy: Strategy, run: Run): Promise<Simulated> => {
-    const anchor = strategy.anchor(
+    const anchor = await strategy.anchor(
       clusters,
       { type: file.kind === "film" ? "movie" : "series", filename: result.filename },
       members,
@@ -159,7 +187,7 @@ export const simulateFile = async ({
     const leader = anchor?.[0];
 
     if (anchor === undefined || leader === undefined || served === undefined) {
-      return { ...base, outcome: run.outcome, anchored: false, alignments: 0 };
+      return { ...base, outcome: run.outcome, anchored: false, retimes: 0 };
     }
 
     const anchorCorrect = candidateTruths.get(keyOf(leader))?.outcome === "correct";
@@ -169,7 +197,7 @@ export const simulateFile = async ({
           .map((each) => byKey.get(keyOf(each)))
           .find((each) => each !== undefined && inAnchor.has(keyOf(each)))
       : undefined;
-    const counter = { alignments: 0 };
+    const counter = { checks: 0 };
     const cues =
       sameLanguage?.cues ??
       (inAnchor.has(keyOf(served)) ? served.cues : retimedTo(leader.cues, served.cues, counter));
@@ -180,7 +208,7 @@ export const simulateFile = async ({
       outcome: truth.outcome,
       anchored: true,
       anchorCorrect,
-      alignments: counter.alignments,
+      retimes: counter.checks,
     };
   };
 
@@ -204,7 +232,7 @@ export const anchorTables = (
   perFile: {
     filename: string;
     simulated: Simulated[];
-    clusterAlignments: number;
+    clusterChecks: number;
     clusterCPUMs: number;
     members: number;
     clusters: number;
@@ -222,7 +250,7 @@ export const anchorTables = (
       "correct to wrong",
       "wrong to correct",
       "files with a wrong anchor",
-      "serving alignments",
+      "serving retimes",
     ]),
     row(Array.from({ length: outcomeNames.length + 5 }, () => "---")),
     row([
@@ -247,7 +275,7 @@ export const anchorTables = (
         runs.filter((each) => each.production === "correct" && each.outcome !== "correct").length,
         runs.filter((each) => each.production !== "correct" && each.outcome === "correct").length,
         wrongAnchors,
-        runs.reduce((sum, each) => sum + each.alignments, 0),
+        runs.reduce((sum, each) => sum + each.retimes, 0),
       ]);
     }),
   ];
@@ -256,18 +284,18 @@ export const anchorTables = (
       "file",
       "candidates",
       "clusters",
-      "clustering alignments",
+      "clustering checks",
       "clustering CPU",
       "production correct",
       ...names.map((name) => `${name.split(" ")[0]} correct`),
     ]),
     row(Array.from({ length: names.length + 6 }, () => "---")),
-    ...perFile.map(({ filename, simulated, clusterAlignments, clusterCPUMs, members, clusters }) =>
+    ...perFile.map(({ filename, simulated, clusterChecks, clusterCPUMs, members, clusters }) =>
       row([
         filename,
         members,
         clusters,
-        clusterAlignments,
+        clusterChecks,
         `${(clusterCPUMs / 1000).toFixed(1)} s`,
         simulated.filter((each) => each.strategy === names[0] && each.production === "correct")
           .length,

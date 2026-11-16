@@ -18,7 +18,7 @@ import {
   type ReleaseFamily,
 } from "../subtitles/release.ts";
 import { minimumScoreOf, rankingOf, scoreOf } from "../subtitles/score.ts";
-import { anchorWithGuardsOf } from "../timing/anchor.ts";
+import { anchorWithGuardsOf, asGoodAsAnchor } from "../timing/anchor.ts";
 import { freeFirst, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
@@ -80,12 +80,17 @@ export const searchVideo = async (
   const scoreContext = { video: query, fileRelease, family, ripGuess };
   const ranking = rankingOf(scoreContext);
 
+  const anchors = anchorWithGuardsOf(
+    everything.filter(({ metered }) => metered !== true).toSorted(ranking),
+    scoreContext,
+  );
+  const [anchor] = anchors;
+
   return {
     references,
-    anchors: anchorWithGuardsOf(
-      everything.filter(({ metered }) => metered !== true).toSorted(ranking),
-      scoreContext,
-    ),
+    anchors,
+    asGoodAsAnchor: (candidate: Candidate) =>
+      anchor !== undefined && asGoodAsAnchor(candidate, anchor, scoreContext),
     referencesFor: (candidates: Candidate[]) => {
       const first = candidates[0];
       const allInFamily = candidates.every(
@@ -185,7 +190,7 @@ export const subtitlesRoute =
     const unflagged = (ref: CandidateRef) =>
       recalled === undefined ? ref : { ...ref, h: undefined };
     const references = found.references.map(toCandidateRef);
-    const anchors = found.anchors.map(toCandidateRef).map(unflagged);
+    const anchors = found.anchors.map(toCandidateRef);
 
     const recording = [
       ...(listed === undefined || fileKey === undefined
@@ -224,7 +229,10 @@ export const subtitlesRoute =
         {
           v: 1,
           q,
-          c: candidates.map(toCandidateRef).map(unflagged),
+          c: candidates.map((candidate) => ({
+            ...unflagged(toCandidateRef(candidate)),
+            e: found.asGoodAsAnchor(candidate) ? (1 as const) : undefined,
+          })),
           x: found.referencesFor(candidates).map(toCandidateRef).map(unflagged),
           a: anchors.length === 0 ? undefined : anchors,
           w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },

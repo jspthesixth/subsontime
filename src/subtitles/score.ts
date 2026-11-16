@@ -156,5 +156,7 @@ export const releaseScoreOf = ({ release }: Candidate, context: ScoreContext) =>
   );
 };
 
+export const minimumReleaseScoreOf = (type: Video["type"]) => scoresOf(type).source;
+
 export const minimumScoreOf = (type: Video["type"]) =>
   Math.trunc((scoresOf(type).hash * (type === "series" ? 90 : 70)) / 100);

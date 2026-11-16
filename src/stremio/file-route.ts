@@ -15,7 +15,7 @@ import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { retimeToAnchor } from "../timing/anchor.ts";
-import { retime, type RetimeResult } from "../timing/retime.ts";
+import { retime, type RetimeResult, type Track } from "../timing/retime.ts";
 import { submitFix, submitMismatch } from "../timings/api.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { toFixCues } from "../timings/fingerprint.ts";
@@ -34,7 +34,6 @@ import { anchorFor, type Anchor } from "./anchors.ts";
 import { recalledFileHash, withFileHash } from "./file-hashes.ts";
 import { candidateKey, decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
-export type Track = { candidate: Candidate; cues: Cue[] };
 export type Attempt = {
   candidate: CandidateRef;
   track?: Track;
@@ -88,14 +87,18 @@ const settledTracks = async (tracks: Promise<Track>[]) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
 
-type References = { tracks: Track[]; anchor?: Anchor };
+type Timing = {
+  references: () => Promise<Track[]>;
+  anchor: () => Promise<Anchor | undefined>;
+};
 
 const timeTrack = async (
   track: Track,
-  references: () => Promise<References>,
+  { references, anchor: anchorOf }: Timing,
   config: Config,
   signal: AbortSignal | undefined,
   shared: Shared | undefined,
+  anchorable: boolean,
 ): Promise<RetimeResult> => {
   if (track.candidate.hashMatch) {
     return { kind: "made-for-file", cues: track.cues };
@@ -111,17 +114,33 @@ const timeTrack = async (
     return fixed;
   }
 
-  const { tracks, anchor } = await references();
+  const anchor = anchorable ? await anchorOf() : undefined;
+
+  if (anchor?.sharing.has(candidateKey(track.candidate.sourceName, track.candidate.ref))) {
+    return { kind: "not-retimed", cues: track.cues };
+  }
+
+  const anchored = anchor === undefined ? undefined : retimeToAnchor(track, anchor.track);
+
+  if (anchored !== undefined) {
+    return anchored;
+  }
+
+  const ready = await references();
 
   signal?.throwIfAborted();
 
-  if (anchor === undefined) {
-    return retime(track, tracks);
+  return retime(track, ready);
+};
+
+const preparedAnchor = (shared: Shared | undefined) => async (track: Track) => {
+  if (hiddenMatch(track.cues, shared) !== undefined) {
+    return undefined;
   }
 
-  return anchor.sharing.has(candidateKey(track.candidate.sourceName, track.candidate.ref))
-    ? { kind: "not-retimed", cues: track.cues }
-    : retimeToAnchor(track, anchor.track);
+  const fixed = await sharedFix(track.cues, shared);
+
+  return fixed?.kind === "shared-fix" ? { ...track, cues: fixed.cues } : track;
 };
 
 export const downloader = (sources: SourceSet, signal?: AbortSignal): Download => {
@@ -163,24 +182,25 @@ export async function* resolveAttempts(
     anchorOf,
   }: { lazyReferences?: boolean; anchorOf?: () => Promise<Anchor | undefined> } = {},
 ): AsyncGenerator<Attempt> {
-  let downloaded: Promise<References> | undefined;
+  let downloaded: Promise<Track[]> | undefined;
+  let anchoring: Promise<Anchor | undefined> | undefined;
 
-  const anchoredOrListed = async (): Promise<References> => {
-    const anchor = await anchorOf?.();
+  const timing: Timing = {
+    references: () => {
+      downloaded ??=
+        config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
 
-    return anchor === undefined
-      ? { tracks: await settledTracks(ref.x.map(download)) }
-      : { tracks: [], anchor };
-  };
+      return downloaded;
+    },
+    anchor: () => {
+      anchoring ??= anchorOf?.() ?? Promise.resolve(undefined);
 
-  const references = () => {
-    downloaded ??= config.timing === "off" ? Promise.resolve({ tracks: [] }) : anchoredOrListed();
-
-    return downloaded;
+      return anchoring;
+    },
   };
 
   if (!lazyReferences && ref.c[0]?.h !== 1) {
-    references();
+    timing.references();
   }
 
   for (const candidate of ref.c) {
@@ -192,7 +212,7 @@ export async function* resolveAttempts(
           ? {
               candidate,
               track,
-              result: await timeTrack(track, references, config, signal, shared),
+              result: await timeTrack(track, timing, config, signal, shared, candidate.e !== 1),
             }
           : { candidate, track, hidden, result: { kind: "mismatch" } };
       })
@@ -375,7 +395,16 @@ export const fileRoute =
       const download = downloader(sourcesFor(config, context.get("tokens")));
       const attempts = await recordAttempts(
         resolveAttempts(ref, config, download, undefined, shared, {
-          anchorOf: () => anchorFor(state, ref, download),
+          anchorOf: () =>
+            anchorFor(
+              {
+                state,
+                singleFlight,
+                prepared: preparedAnchor(shared),
+              },
+              ref,
+              download,
+            ),
         }),
       );
       const fresh = servedOf(attempts, config, ref.t === "dialogue");

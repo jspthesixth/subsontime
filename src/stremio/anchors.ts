@@ -1,50 +1,50 @@
 import { createHash } from "node:crypto";
-import { setImmediate } from "node:timers/promises";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
-import { sameTiming } from "../timing/anchor.ts";
-import type { Download, Track } from "./file-route.ts";
+import type { SingleFlight } from "../jobs/single-flight.ts";
+import { firstAgreeing } from "../timing/anchor.ts";
+import type { Track } from "../timing/retime.ts";
+import type { Download } from "./file-route.ts";
 import { candidateKey, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 const decisionSeconds = 30 * 24 * 60 * 60;
+const retrySeconds = 10 * 60;
+const guardBudgetMs = 5000;
 const untrusted = -1;
 
 export type Anchor = { track: Track; sharing: Set<string> };
 
+export type AnchorDeps = {
+  state: SharedState;
+  singleFlight: SingleFlight;
+  prepared: (track: Track) => Promise<Track | undefined>;
+};
+
 const keyOf = ({ n, r }: CandidateRef) => candidateKey(n, r);
 
-type Search = { partner?: number; complete: boolean };
-
-const partnerOf = (anchor: Track, guards: CandidateRef[], download: Download) =>
-  guards.reduce<Promise<Search>>(
-    async (previous, guard, index) => {
-      const search = await previous;
-
-      if (search.partner !== undefined) {
-        return search;
-      }
-
-      const track = await download(guard).catch(() => undefined);
-
-      await setImmediate();
-
-      if (track === undefined) {
-        return { complete: false };
-      }
-
-      return (await sameTiming(anchor.cues, track.cues))
-        ? { partner: index, complete: true }
-        : search;
-    },
-    Promise.resolve({ complete: true }),
+const decide = async (
+  state: SharedState,
+  key: string,
+  anchor: Track,
+  guards: CandidateRef[],
+  download: Download,
+) => {
+  const { partner, failed, cut } = await firstAgreeing(
+    anchor.cues,
+    guards.map((guard) =>
+      download(guard).then(
+        ({ cues }) => cues,
+        () => undefined,
+      ),
+    ),
+    performance.now() + guardBudgetMs,
   );
-
-const decide = async (state: SharedState, key: string, search: Promise<Search>) => {
-  const { partner, complete } = await search;
 
   const decision = partner ?? untrusted;
 
-  if (partner !== undefined || complete) {
-    await orMiss(() => state.set(key, String(decision), decisionSeconds), undefined);
+  if (!cut) {
+    const seconds = partner === undefined && failed ? retrySeconds : decisionSeconds;
+
+    await orMiss(() => state.set(key, String(decision), seconds), undefined);
   }
 
   return decision;
@@ -62,13 +62,13 @@ const decisionOf = (cached: string | undefined, guards: number) => {
 };
 
 export const anchorFor = async (
-  state: SharedState,
-  { q, a = [] }: Pick<SubtitleRef, "q" | "a">,
+  { state, singleFlight, prepared }: AnchorDeps,
+  { q, a = [], x }: Pick<SubtitleRef, "q" | "a" | "x">,
   download: Download,
 ): Promise<Anchor | undefined> => {
   const [first, ...guards] = a;
 
-  if (first === undefined) {
+  if (first === undefined || (first.h !== 1 && x.some(({ h }) => h === 1))) {
     return undefined;
   }
 
@@ -81,13 +81,20 @@ export const anchorFor = async (
     return undefined;
   }
 
-  const track = await download(first).catch(() => undefined);
+  const downloaded = await download(first).catch(() => undefined);
+  const track = downloaded === undefined ? undefined : await prepared(downloaded);
 
   if (track === undefined) {
     return undefined;
   }
 
-  const partner = decided ?? (await decide(state, key, partnerOf(track, guards, download)));
+  const partner =
+    decided ??
+    Number(
+      await singleFlight(`${key}:decision`, async () =>
+        String(await decide(state, key, track, guards, download)),
+      ),
+    );
   const agreeing = guards[partner];
 
   return agreeing === undefined

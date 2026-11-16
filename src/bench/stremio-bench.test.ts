@@ -221,14 +221,14 @@ const member = (ref: string, lang: string, cues: typeof track) => ({
 
 describe("anchor", () => {
   it("clusters equal timings across languages and retimes to the anchor", async () => {
-    const counter = { alignments: 0 };
+    const counter = { checks: 0 };
     const clusters = await clustersOf(
       [member("a", "eng", track), member("b", "fre", french), member("c", "eng", shifted)],
       counter,
     );
 
     expect(clusters.map((cluster) => cluster.map(({ ref }) => ref))).toEqual([["a", "b"], ["c"]]);
-    expect(counter.alignments).toBe(17);
+    expect(counter.checks).toBe(2);
     expect(retimedTo(track, shifted, counter)[0]?.start).toBe(track[0]?.start);
   });
 });

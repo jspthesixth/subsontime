@@ -130,6 +130,49 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("a timing anchor next to Open Timings", () => {
+  const anchorCues = track.map((cue, index) => ({ ...cue, text: other[index]?.text ?? cue.text }));
+  const anchoredSources = () =>
+    fakeSource("Fake", [
+      { ref: "a", cues: shifted },
+      { ref: "fre-hash", lang: "fre", hashMatch: true, cues: anchorCues },
+      {
+        ref: "fre-again",
+        lang: "fre",
+        cues: anchorCues.map((cue) => ({ ...cue, start: cue.start + 40, end: cue.end + 40 })),
+      },
+    ]);
+
+  it("checks no guard when a confirmed fix decides the timing", async () => {
+    const store = memoryStore();
+    const source = anchoredSources();
+    const { token } = installed();
+
+    await confirmFix(store, track);
+
+    const { text } = await play(appWith({ listed: [source], references: [] }, store), token);
+
+    expect(text).toBe(writeSRT(track));
+    expect(source.download.mock.calls.map(([ref]) => ref)).not.toContain("fre-again");
+  });
+
+  it("uses no anchor that Open Timings hides for this file", async () => {
+    const store = memoryStore();
+    const { token } = installed();
+
+    await hideByMismatch(store, anchorCues);
+
+    const { text } = await play(
+      appWith({ listed: [anchoredSources()], references: [] }, store),
+      token,
+    );
+
+    expect(parseSubtitle(text).map(({ start }) => start)).toEqual(
+      shifted.map(({ start }) => start),
+    );
+  });
+});
+
 describe("reading Open Timings", () => {
   it("serves a confirmed shared fix without retiming", async () => {
     const store = memoryStore();

@@ -1150,6 +1150,165 @@ describe("timing anchor", () => {
     expect(source.download.mock.calls.filter(([ref]) => ref === "eng-again")).toHaveLength(1);
   });
 
+  it("decides the anchor once for concurrent requests of the file", async () => {
+    const source = hashAnchored();
+    const app = appWith({ listed: [source], references: [] });
+
+    const { body } = await list(app, sealed({ languages: ["hrv", "fre"] }), anchored(fileName));
+
+    await Promise.all(body.subtitles.map(({ url }) => servedAt(app, url)));
+
+    expect(source.download.mock.calls.filter(([ref]) => ref === "eng-again")).toHaveLength(1);
+  });
+
+  it("hides a candidate that mismatches the file's hash reference under a trusted anchor", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-wrong", lang: "hrv", cues: unrelated },
+      { ref: "hrv-right", lang: "hrv", cues: shifted },
+      { ref: "eng-hash", lang: "eng", hashMatch: true, cues: track },
+      { ref: "eng-again", lang: "eng", cues: transform(track, (time) => time + 40) },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv", "eng"] }),
+      anchored(fileName),
+    );
+
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(track));
+  });
+
+  it("keeps a hash reference over a release-name anchor", async () => {
+    const later = transform(track, (time) => time + 1000);
+    const listed = fakeSource("OpenSubtitles", [
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      {
+        ref: "eng-release",
+        lang: "eng",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: later,
+      },
+      {
+        ref: "eng-again",
+        lang: "eng",
+        releaseName: "Movie.2024.720p.WEB-DL-ANY",
+        cues: transform(later, (time) => time + 40),
+      },
+    ]);
+    const references = fakeSource("OpenSubtitles API", [
+      { ref: "hrv-hash", lang: "hrv", hashMatch: true, metered: true, cues: track },
+    ]);
+    const app = appWith({ listed: [listed], references: [references] });
+
+    const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    expect(ref.a?.[0]?.r).toBe("eng-release");
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(track));
+  });
+
+  it("keeps the hash flag of an anchor the other listing matched", async () => {
+    const app = appWith(hashAware());
+    const token = sealed();
+    const name = encodeURIComponent("Modern Family S01E23 Hawaii  (1080p x265 10bit Joy).mkv");
+
+    await list(
+      app,
+      token,
+      `series/tt1442437:1:23/filename=${name}&videoSize=227584187&videoHash=3e0c5471cdc9cb0e.json`,
+    );
+
+    const { ref } = await firstRefAt(app, token, `series/tt1442437:1:23/filename=${name}.json`);
+
+    expect(ref.a?.[0]).toEqual({ n: "Fake", r: "disc", l: "eng", h: 1 });
+  });
+
+  it("keeps an untrusted decision for ten minutes when a guard cannot be downloaded", async () => {
+    const state = memorySharedState();
+    const set = vi.spyOn(state, "set");
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      { ref: "fre-shifted", lang: "fre", cues: shifted },
+      { ref: "eng-hash", lang: "eng", hashMatch: true, cues: track },
+      { ref: "eng-broken", lang: "eng" },
+    ]);
+    const app = appWith({ listed: [source], references: [] }, { state });
+
+    const { body } = await list(app, sealed({ languages: ["hrv", "fre"] }), anchored(fileName));
+
+    await servedAt(app, body.subtitles[0]?.url ?? "");
+    await servedAt(app, body.subtitles[1]?.url ?? "");
+
+    expect(source.download.mock.calls.filter(([ref]) => ref === "eng-broken")).toHaveLength(1);
+    expect(
+      set.mock.calls
+        .filter(([key]) => key.startsWith("anchor:"))
+        .map(([, value, seconds]) => [value, seconds]),
+    ).toEqual([["-1", 600]]);
+  });
+
+  it("serves without an anchor when a guard outlasts the deadline, and decides again later", async () => {
+    const state = memorySharedState();
+    const set = vi.spyOn(state, "set");
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      { ref: "eng-hash", lang: "eng", hashMatch: true, cues: track },
+      { ref: "eng-hanging", lang: "eng", hang: true },
+      { ref: "eng-again", lang: "eng", cues: transform(track, (time) => time + 40) },
+    ]);
+    const app = appWith({ listed: [source], references: [] }, { state });
+
+    const { url } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(shifted));
+    expect(set.mock.calls.filter(([key]) => key.startsWith("anchor:"))).toEqual([]);
+  }, 20_000);
+
+  it("takes no anchor from a matching resolution alone", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      { ref: "eng", lang: "eng", releaseName: "Movie.2024.1080p.HDTV.x264-OTHER", cues: track },
+    ]);
+
+    const { ref } = await firstRefAt(
+      appWith({ listed: [source], references: [] }),
+      sealed({ languages: ["hrv"] }),
+      anchored("Movie.2024.1080p.mkv"),
+    );
+
+    expect(ref.a).toBeUndefined();
+  });
+
+  it("serves a candidate with as good a release name as the anchor without retiming it", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "eng-release",
+        lang: "eng",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: track,
+      },
+      {
+        ref: "hrv-release",
+        lang: "hrv",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: shifted,
+      },
+      {
+        ref: "eng-again",
+        lang: "eng",
+        releaseName: "Movie.2024.720p.WEB-DL-ANY",
+        cues: transform(track, (time) => time + 40),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    expect(ref.a?.[0]?.r).toBe("eng-release");
+    expect(ref.c[0]?.e).toBe(1);
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(shifted));
+  });
+
   it("serves Gilmore Girls S05E17 in Croatian retimed to its DVD timing", async () => {
     const hrvBroadcast = gilmoreSpans("hrvBroadcast");
     const source = fakeSource("OpenSubtitles", [

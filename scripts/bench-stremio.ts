@@ -154,23 +154,23 @@ const anchors = async () => {
       const path = join(
         clusterCache,
         `${createHash("sha256")
-          .update(["1", file.sha256, ...keys].join("\n"))
+          .update(["2", file.sha256, ...keys].join("\n"))
           .digest("hex")}.json`,
       );
       const stored = await readFile(path, "utf8").then(
-        (text) => JSON.parse(text) as { clusters: number[][]; alignments: number; cpuMs: number },
+        (text) => JSON.parse(text) as { clusters: number[][]; checks: number; cpuMs: number },
         () => undefined,
       );
       const computed =
         stored ??
         (await (async () => {
-          const counter = { alignments: 0 };
+          const counter = { checks: 0 };
           const cpu = process.cpuUsage();
           const clustered = await clustersOf(members, counter);
           const cpuMs = process.cpuUsage(cpu).user / 1000;
           const record = {
             clusters: clustered.map((cluster) => cluster.map((member) => members.indexOf(member))),
-            alignments: counter.alignments,
+            checks: counter.checks,
             cpuMs,
           };
 
@@ -190,7 +190,7 @@ const anchors = async () => {
       const simulated = await simulateFile({ result, file, members, clusters, candidateTruths });
 
       console.log(
-        `${result.filename}: ${members.length} candidates, ${clusters.length} clusters (largest ${Math.max(...clusters.map((cluster) => cluster.length))}), ${computed.alignments} alignments, ${Math.round(computed.cpuMs / 1000)} s`,
+        `${result.filename}: ${members.length} candidates, ${clusters.length} clusters (largest ${Math.max(...clusters.map((cluster) => cluster.length))}), ${computed.checks} timing checks, ${Math.round(computed.cpuMs / 1000)} s`,
       );
 
       return [
@@ -198,7 +198,7 @@ const anchors = async () => {
         {
           filename: result.filename,
           simulated,
-          clusterAlignments: computed.alignments,
+          clusterChecks: computed.checks,
           clusterCPUMs: computed.cpuMs,
           members: members.length,
           clusters: clusters.length,

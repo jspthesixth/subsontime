@@ -1,6 +1,7 @@
+import { setImmediate, setTimeout } from "node:timers/promises";
 import type { Candidate } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
-import { releaseScoreOf, type ScoreContext } from "../subtitles/score.ts";
+import { minimumReleaseScoreOf, releaseScoreOf, type ScoreContext } from "../subtitles/score.ts";
 import { alignCues, alignOffset, bestSpeedRatio, speedRatios } from "./alass.ts";
 import {
   agreementMs,
@@ -14,33 +15,18 @@ import {
 export const agreementShare = 0.9;
 export const guardChecks = 8;
 
-export type Counter = { alignments: number };
-
-export const sameTiming = async (
-  reference: Cue[],
-  subtitle: Cue[],
-  counter: Counter = { alignments: 0 },
-) => {
-  const speedRatio = bestSpeedRatio(reference, subtitle, speedRatios);
-
-  counter.alignments += speedRatios.length;
-
-  if (speedRatio !== 1) {
+export const sameTiming = async (reference: Cue[], subtitle: Cue[]) => {
+  if (bestSpeedRatio(reference, subtitle, speedRatios) !== 1) {
     return false;
   }
 
   const rigid = alignOffset(reference, subtitle);
-
-  counter.alignments += 1;
 
   if (rigid.score < retimedMinimumScore || Math.abs(rigid.offsetMs) > agreementMs) {
     return false;
   }
 
   const split = await alignCues(reference, subtitle);
-
-  counter.alignments += 1;
-
   const deltas = deltasOf(subtitle, split.cues, 1);
   const shift = median(deltas);
   const within = deltas.filter((delta) => Math.abs(delta - shift) <= agreementMs).length;
@@ -48,19 +34,55 @@ export const sameTiming = async (
   return Math.abs(shift) <= agreementMs && within / Math.max(deltas.length, 1) >= agreementShare;
 };
 
-export const rigidlyAligned = (
-  anchor: Cue[],
-  subtitle: Cue[],
-  counter: Counter = { alignments: 0 },
-) => {
-  const speedRatio = bestSpeedRatio(anchor, subtitle, speedRatios);
+export type Guarded = { partner?: number; failed: boolean; cut: boolean };
 
-  counter.alignments += speedRatios.length + 1;
+const cutOff = Symbol("cut off");
+
+const beforeDeadline = <T>(work: Promise<T>, deadline: number) => {
+  const left = deadline - performance.now();
+
+  return left <= 0
+    ? Promise.resolve(cutOff)
+    : Promise.race([work, setTimeout(left, cutOff, { ref: false })]);
+};
+
+export const firstAgreeing = (
+  anchor: Cue[],
+  guards: Promise<Cue[] | undefined>[],
+  deadline = Number.POSITIVE_INFINITY,
+) =>
+  guards.reduce<Promise<Guarded>>(
+    async (previous, guard, index) => {
+      const search = await previous;
+
+      if (search.partner !== undefined || search.cut) {
+        return search;
+      }
+
+      const cues = await beforeDeadline(guard, deadline);
+
+      await setImmediate();
+
+      if (cues === cutOff) {
+        return { ...search, cut: true };
+      }
+
+      if (cues === undefined) {
+        return { ...search, failed: true };
+      }
+
+      return (await sameTiming(anchor, cues)) ? { ...search, partner: index } : search;
+    },
+    Promise.resolve({ failed: false, cut: false }),
+  );
+
+export const rigidlyAligned = (anchor: Cue[], subtitle: Cue[]) => {
+  const speedRatio = bestSpeedRatio(anchor, subtitle, speedRatios);
 
   return { ...alignOffset(anchor, subtitle, { speedRatio }), speedRatio };
 };
 
-export const retimeToAnchor = (subtitle: Track, anchor: Track): RetimeResult => {
+export const retimeToAnchor = (subtitle: Track, anchor: Track): RetimeResult | undefined => {
   const { cues, score, offsetMs, speedRatio } = rigidlyAligned(anchor.cues, subtitle.cues);
 
   return score >= retimedMinimumScore
@@ -75,7 +97,7 @@ export const retimeToAnchor = (subtitle: Track, anchor: Track): RetimeResult => 
         reference: anchor,
         references: [anchor],
       }
-    : { kind: "not-retimed", cues: subtitle.cues };
+    : undefined;
 };
 
 export const timingAnchorOf = <T extends Candidate>(ranked: T[], context: ScoreContext) => {
@@ -84,14 +106,17 @@ export const timingAnchorOf = <T extends Candidate>(ranked: T[], context: ScoreC
 
   return (
     ranked.find(({ hashMatch }) => hashMatch) ??
-    (best > 0 ? ranked[scores.indexOf(best)] : undefined)
+    (best >= minimumReleaseScoreOf(context.video.type) ? ranked[scores.indexOf(best)] : undefined)
   );
 };
 
-export const anchorWithGuardsOf = (ranked: Candidate[], context: ScoreContext) => {
+export const anchorWithGuardsOf = <T extends Candidate>(ranked: T[], context: ScoreContext) => {
   const anchor = timingAnchorOf(ranked, context);
 
   return anchor === undefined
     ? []
     : [anchor, ...ranked.filter((candidate) => candidate !== anchor).slice(0, guardChecks)];
 };
+
+export const asGoodAsAnchor = (candidate: Candidate, anchor: Candidate, context: ScoreContext) =>
+  !anchor.hashMatch && releaseScoreOf(candidate, context) >= releaseScoreOf(anchor, context);
