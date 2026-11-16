@@ -14,7 +14,7 @@ import {
 } from "./source.ts";
 import { pickSubtitleEntry } from "./zip.ts";
 
-const sourceName = "SubSource";
+export const sourceName = "SubSource";
 const baseURL = "https://api.subsource.net/api/v1";
 const searchTimeoutMs = 4000;
 const downloadTimeoutMs = 8000;

@@ -11,6 +11,7 @@ import {
   type VideoTimings,
 } from "./confirm.ts";
 import type { StoreStats, TimingsStore, VideoKey } from "./db.ts";
+import { reportReasons } from "./timings-schema.ts";
 
 export class TimingsInputError extends Error {
   override name = "TimingsInputError";
@@ -23,8 +24,9 @@ export type Summaries = {
 
 export type WriteContext = { submitter: string; origin: string; summaries?: Summaries };
 
+export const videoMessage = "Send video as a 16-character hex hash and a size in bytes";
+
 const bodyMessage = "Send a JSON object";
-const videoMessage = "Send video as a 16-character hex hash and a size in bytes";
 const messages: Record<string, string> = {
   video: videoMessage,
   subtitle:
@@ -62,13 +64,6 @@ const fixSchema = v.object({
 });
 const mismatchSchema = v.object({ video: videoSchema, subtitleHashes: hashListSchema });
 
-export const reportReasons = [
-  "machine-translated",
-  "wrong-language",
-  "lines-missing",
-  "timing-off",
-  "broken-characters",
-] as const;
 const reportSchema = v.object({ ...mismatchSchema.entries, reason: v.picklist(reportReasons) });
 
 const parse = <Schema extends v.GenericSchema>(

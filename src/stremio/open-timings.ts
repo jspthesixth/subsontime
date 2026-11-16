@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import * as v from "valibot";
 import type { Config } from "../config/config.ts";
+import { errorName } from "../error-name.ts";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import type { RetimeResult } from "../timing/retime.ts";
@@ -30,8 +31,6 @@ const maximumHidden = 10;
 const hiddenSeconds = 3700;
 const videoHashPattern = /^[0-9a-f]{16}$/;
 const sketchesSchema = v.array(v.array(v.string()));
-
-export const errorName = (error: unknown) => (error instanceof Error ? error.name : "unknown");
 
 export const withinBudget = async <T>(work: Promise<T>): Promise<T | undefined> => {
   const timer = new AbortController();

@@ -11,10 +11,10 @@ import type { Cue } from "../subtitles/cue.ts";
 import { mergeDual } from "../subtitles/dual.ts";
 import { stripHearingImpaired } from "../subtitles/hearing-impaired.ts";
 import { writeSRT } from "../subtitles/write.ts";
+import { errorName } from "../error-name.ts";
 import type { Track } from "../timing/retime.ts";
 import { submitFix, submitMismatch } from "../timings/api.ts";
 import {
-  errorName,
   fileShared,
   hiddenMatch,
   sharedFix,

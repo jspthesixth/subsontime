@@ -1,5 +1,5 @@
 import { html } from "hono/html";
-import type { reportReasons } from "../timings/api.ts";
+import type { reportReasons } from "../timings/timings-schema.ts";
 import { layout } from "./layout.ts";
 
 const reasonLabels: Record<(typeof reportReasons)[number], string> = {

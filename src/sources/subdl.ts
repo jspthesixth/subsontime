@@ -15,7 +15,7 @@ import {
 } from "./source.ts";
 import { pickSubtitleEntry } from "./zip.ts";
 
-const sourceName = "SubDL";
+export const sourceName = "SubDL";
 const searchURL = "https://api.subdl.com/api/v1/subtitles";
 const downloadURL = "https://dl.subdl.com";
 const searchTimeoutMs = 4000;

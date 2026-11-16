@@ -7,7 +7,6 @@ import { uniqueLines } from "../subtitles/lines.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { alignOffset, bestScoredRatio, offsetCues, scoreOf, speedRatios } from "../timing/alass.ts";
 import {
-  shifted,
   speechShareOf,
   windowFitsOf,
   windowOf,
@@ -388,7 +387,7 @@ export const featuresFor = async (job: Job, load: Loader): Promise<Computed[]> =
       const compute: { [P in Primitive]: () => Promise<Values[P]> | Values[P] } = {
         rigid: () => rigid,
         shifts: () => ({
-          scores: shiftGridMs.map((shift) => scoreOf(heard.spans, shifted(rigidCues, shift))),
+          scores: shiftGridMs.map((shift) => scoreOf(heard.spans, offsetCues(rigidCues, 1, shift))),
         }),
         windows: () => windowFitsOf(heard.spans, cues, speedRatio, offsetMs),
         mislisting: async () => ({

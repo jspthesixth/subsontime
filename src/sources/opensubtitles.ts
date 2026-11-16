@@ -14,7 +14,7 @@ import {
 } from "./source.ts";
 import type { TokenCache } from "./token-cache.ts";
 
-const sourceName = "OpenSubtitles";
+export const sourceName = "OpenSubtitles";
 const defaultBaseURL = "https://api.opensubtitles.com/api/v1";
 const searchTimeoutMs = 4000;
 const requestTimeoutMs = 8000;

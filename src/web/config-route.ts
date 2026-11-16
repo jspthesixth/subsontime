@@ -22,7 +22,8 @@ export const toStremioURL = (installURL: string) => {
 export const toWebURL = (installURL: string) =>
   `https://web.stremio.com/#/addons?addon=${encodeURIComponent(installURL)}`;
 
-const readJSON = (context: Context): Promise<unknown> => context.req.json().catch(() => undefined);
+export const readJSON = (context: Context): Promise<unknown> =>
+  context.req.json().catch(() => undefined);
 
 export const sealedConfigOf = (installURL: string) => {
   const link = installURL.trim();

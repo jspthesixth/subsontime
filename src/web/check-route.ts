@@ -31,11 +31,12 @@ import {
 import { decodeRef, encodeRef } from "../stremio/refs.ts";
 import { bestGroupsOf, bestSlotSize, searchVideo, toCandidateRef } from "../stremio/search.ts";
 import type { RetimeResult } from "../timing/retime.ts";
-import { reportReasons, submitReport, TimingsInputError } from "../timings/api.ts";
+import { submitReport, TimingsInputError } from "../timings/api.ts";
+import { reportReasons } from "../timings/timings-schema.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { submitterOf } from "../timings/submitter.ts";
 import { catalogTypes, unsupportedVideoMessage, type LimitDeps } from "./catalog.ts";
-import { sealedConfigOf, unsealSafely } from "./config-route.ts";
+import { readJSON, sealedConfigOf, unsealSafely } from "./config-route.ts";
 import { languageOptions } from "./language-options.ts";
 import { tooManyMessage } from "./source-check-route.ts";
 
@@ -301,7 +302,7 @@ export const checkRoute =
       return context.json({ error: tooManyMessage }, 429);
     }
 
-    const body = v.safeParse(checkSchema, await context.req.json().catch(() => undefined), {
+    const body = v.safeParse(checkSchema, await readJSON(context), {
       message: invalidCheckMessage,
     });
 
@@ -376,7 +377,7 @@ export const checkReportRoute =
       return context.json({ error: tooManyReportsMessage }, 429);
     }
 
-    const body = v.safeParse(reportBodySchema, await context.req.json().catch(() => undefined), {
+    const body = v.safeParse(reportBodySchema, await readJSON(context), {
       message: invalidReportMessage,
     });
 

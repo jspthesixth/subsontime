@@ -45,9 +45,6 @@ const windowMarginMs = 15_000;
 
 export const withinSpeech = { withinReference: true };
 
-export const shifted = (cues: Cue[], ms: number) =>
-  cues.map((cue) => ({ ...cue, start: cue.start + ms, end: cue.end + ms }));
-
 export const windowOf = (cues: Cue[]) => ({
   start: Math.min(...cues.map((cue) => cue.start)),
   end: Math.max(...cues.map((cue) => cue.end)),
@@ -72,7 +69,7 @@ export const contrastFrom = (score: number, shifts: number[], scoreAt: (shift: n
 
 export const contrastOf = (spans: Cue[], cues: Cue[], score: number) =>
   contrastFrom(score, usableShifts(windowOf(cues), windowOf(spans)), (shift) =>
-    scoreOf(spans, shifted(cues, shift)),
+    scoreOf(spans, offsetCues(cues, 1, shift)),
   );
 
 export type WindowFits = { cues: number; windowOffsetsMs: (number | null)[] };

@@ -1,6 +1,14 @@
 import * as v from "valibot";
 import type { VideoTimings } from "./confirm.ts";
 
+export const reportReasons = [
+  "machine-translated",
+  "wrong-language",
+  "lines-missing",
+  "timing-off",
+  "broken-characters",
+] as const;
+
 export const timingsSchema = v.object({
   fixes: v.array(
     v.object({
@@ -16,14 +24,7 @@ export const timingsSchema = v.object({
   hidden: v.array(
     v.object({
       subtitleSketch: v.array(v.string()),
-      reason: v.picklist([
-        "mismatch",
-        "machine-translated",
-        "wrong-language",
-        "lines-missing",
-        "timing-off",
-        "broken-characters",
-      ]),
+      reason: v.picklist(["mismatch", ...reportReasons]),
       count: v.number(),
     }),
   ),

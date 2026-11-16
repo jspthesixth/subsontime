@@ -1,5 +1,6 @@
 import { Redis } from "@upstash/redis";
 import type { Environment } from "../config/env.ts";
+import { errorName } from "../error-name.ts";
 
 export interface SharedState {
   get(key: string): Promise<string | undefined>;
@@ -45,7 +46,7 @@ export const orMiss = async <T>(work: () => Promise<T>, miss: T): Promise<T> => 
     return await work();
   } catch (error) {
     if (!(error instanceof SharedStatePaused)) {
-      console.error(`Shared state failed: ${error instanceof Error ? error.name : "unknown"}`);
+      console.error(`Shared state failed: ${errorName(error)}`);
     }
 
     return miss;

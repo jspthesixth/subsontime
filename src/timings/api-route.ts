@@ -6,10 +6,12 @@ import {
   TimingsInputError,
   cachedStats,
   lookUp,
+  videoMessage,
   type Summaries,
   type WriteContext,
 } from "./api.ts";
 import type { TimingsStore } from "./db.ts";
+import { readJSON } from "../web/config-route.ts";
 import { submitterOf } from "./submitter.ts";
 
 type WriteHandler = (store: TimingsStore, input: unknown, context: WriteContext) => Promise<void>;
@@ -23,7 +25,6 @@ type WriteDeps = {
   summaries?: Summaries;
 };
 
-const videoParamMessage = "Send video as a 16-character hex hash and a size in bytes";
 const tooManyWritesMessage = "Too many submissions. Try again in an hour.";
 const tooManyReadsMessage = "Too many requests. Try again in a minute.";
 const goneMessage = "This fix is no longer listed";
@@ -53,7 +54,7 @@ export const lookUpRoute =
     const video = videoOf(context.req.query("video"));
 
     if (video === undefined) {
-      return context.json({ error: videoParamMessage }, 400);
+      return context.json({ error: videoMessage }, 400);
     }
 
     try {
@@ -73,7 +74,7 @@ export const cuesRoute =
     const video = videoOf(context.req.param("video"));
 
     if (video === undefined) {
-      return context.json({ error: videoParamMessage }, 400);
+      return context.json({ error: videoMessage }, 400);
     }
 
     try {
@@ -114,7 +115,7 @@ export const writeRoute =
       return context.json({ error: tooManyWritesMessage }, 429);
     }
 
-    const body: unknown = await context.req.json().catch(() => undefined);
+    const body: unknown = await readJSON(context);
     const origin = await orMiss(() => originOf(client), undefined);
 
     if (origin === undefined) {

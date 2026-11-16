@@ -4,6 +4,7 @@ import { createGzip } from "node:zlib";
 import { del, get, put } from "@vercel/blob";
 import type { Context } from "hono";
 import * as v from "valibot";
+import { errorName } from "../error-name.ts";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import { lookUp, type Summaries } from "./api.ts";
 import type { TimingsStore, VideoKey } from "./db.ts";
@@ -111,7 +112,7 @@ export const writeDump = async (
 
   if (previous !== undefined && previous.url !== pointer.url) {
     await del(previous.url, { token: blobToken }).catch((error: unknown) =>
-      console.error(`Old dump delete failed: ${error instanceof Error ? error.name : "unknown"}`),
+      console.error(`Old dump delete failed: ${errorName(error)}`),
     );
   }
 

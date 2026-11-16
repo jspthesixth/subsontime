@@ -6,6 +6,7 @@ import { timing } from "hono/timing";
 import { bearerAuth } from "hono/bearer-auth";
 import jellyfinReleases from "../plugins/jellyfin/releases.json" with { type: "json" };
 import { baseURL } from "./base-url.ts";
+import { errorName } from "./error-name.ts";
 import { ConfigError, type Config } from "./config/config.ts";
 import type { Environment } from "./config/env.ts";
 import { invalidLinkMessage, newerLinkMessage, unseal } from "./config/seal.ts";
@@ -90,9 +91,7 @@ const writesPerHour = 60;
 const hourMs = 3_600_000;
 
 export const detached = (work: Promise<unknown>) => {
-  work.catch((error: unknown) =>
-    console.error(`Background work failed: ${error instanceof Error ? error.name : "unknown"}`),
-  );
+  work.catch((error: unknown) => console.error(`Background work failed: ${errorName(error)}`));
 };
 
 const tooLarge = (context: Context) => context.json({ error: tooLargeMessage }, 413);

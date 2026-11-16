@@ -15,7 +15,7 @@ import {
 import type { TokenCache } from "./token-cache.ts";
 import { pickSubtitleEntry } from "./zip.ts";
 
-const sourceName = "Titlovi.com";
+export const sourceName = "Titlovi.com";
 const baseURL = "https://kodi.titlovi.com/api/subtitles";
 const downloadURL = "https://titlovi.com/download/";
 const searchTimeoutMs = 4000;
