@@ -87,7 +87,7 @@ describe("benchFile", () => {
       lang: "eng",
       outcome: "correct",
       tier: "hash",
-      downloads: 4,
+      downloads: 2,
       truth: { method: "text", medianMs: 0 },
     });
   });

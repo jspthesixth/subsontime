@@ -173,6 +173,9 @@ const runCheck = async (
   const timer = setTimeout(() => controller.abort(), budgetMs - searchedMs);
   const download = downloader(sources, controller.signal);
   const references = found.references.map(toCandidateRef);
+  const anchors = found.anchors.map(toCandidateRef);
+  const comparedWith =
+    anchors.length === 0 ? { g: found.pool.map(toCandidateRef) } : { a: anchors };
   const bestOf = new Map(
     config.languages.map((lang) => [lang, bestGroupsOf(found, lang)[0] ?? []] as const),
   );
@@ -189,7 +192,7 @@ const runCheck = async (
   const runs = entries.map(({ candidate, attempts }) =>
     recordAttempts(
       resolveAttempts(
-        { c: [toCandidateRef(candidate)], x: references },
+        { c: [toCandidateRef(candidate)], x: references, ...comparedWith },
         config,
         download,
         controller.signal,

@@ -1329,6 +1329,63 @@ describe("timing anchor", () => {
     expect(startsOf(await servedAt(app, url))).toEqual(startsOf(santaSpans("hrvDisc")));
   }, 60_000);
 
+  it("keeps a subtitle that is right when only the untrusted anchor tips the vote to its speed", async () => {
+    const pal = santaSpans("palAnchor");
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "hrv-dvd",
+        lang: "hrv",
+        releaseName: "Santa.Clause.2.2002.FS.DVDRip.XviD.iNT-420RipZ.HR",
+        cues: santaSpans("hrvDisc"),
+      },
+      {
+        ref: "ara-pal",
+        lang: "ara",
+        releaseName: "The.Santa.Clause.2.2002.1080p.bluray.mora.25r",
+        fps: 25,
+        cues: pal,
+      },
+      {
+        ref: "eng-bluray",
+        lang: "eng",
+        releaseName: "The Santa Clause 2 (2002) 720p BluRay.en",
+        fps: 23.976,
+        cues: santaSpans("engBluRay"),
+      },
+      {
+        ref: "eng-dvd",
+        lang: "eng",
+        releaseName: "Santa.Clause.2.2002.FS.DVDRip.XviD.iNT-420RipZ.EN",
+        fps: 23.976,
+        cues: santaSpans("engDvd"),
+      },
+      {
+        ref: "tur-pal",
+        lang: "tur",
+        releaseName: "Santa.Clause.2.2002.PAL.DVDRip",
+        fps: 25,
+        cues: transform(pal, (time) => time + 400),
+      },
+      {
+        ref: "pol-pal",
+        lang: "pol",
+        releaseName: "Santa.Clause.2.2002.PAL.DVDRip",
+        fps: 25,
+        cues: transform(pal, (time) => Math.max(time - 600, 0)),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"] }),
+      anchored("The.Santa.Clause.2.2002.1080p.BluRay.x264-nikt0.mkv"),
+    );
+
+    expect(ref.a?.[0]?.r).toBe("ara-pal");
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(santaSpans("hrvDisc")));
+  }, 60_000);
+
   it("speeds up a subtitle made for 25 fps when the untrusted anchor and most others run at 23.976", async () => {
     const source = fakeSource("OpenSubtitles", [
       {
@@ -1571,6 +1628,7 @@ describe("timing anchor", () => {
     await servedAt(app, body.subtitles[0]?.url ?? "");
     await servedAt(app, body.subtitles[1]?.url ?? "");
 
+    expect(source.download.mock.calls.filter(([ref]) => ref === "eng-broken")).toHaveLength(1);
     expect(
       set.mock.calls
         .filter(([key]) => key.startsWith("anchor:"))
@@ -1628,7 +1686,163 @@ describe("timing anchor", () => {
 
     expect(ref.a).toBeUndefined();
     expect(ref.c.map(({ r }) => r)).toEqual(["hrv-commentary", "hrv-shifted"]);
+    expect(ref.g?.map(({ r }) => r)).toEqual([
+      "hrv-commentary",
+      "hrv-shifted",
+      "eng",
+      "fre",
+      "deu",
+    ]);
     expect(startsOf(await servedAt(app, url))).toEqual(startsOf(shifted));
+  });
+
+  it("compares with three others first and downloads no more once two agree", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      ...["eng", "fre", "deu", "ita", "spa", "por"].map((lang) => ({
+        ref: lang,
+        lang,
+        cues: track,
+      })),
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"] }),
+      anchored("Movie.2024.1080p.mkv"),
+    );
+
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(shifted));
+    expect(source.download.mock.calls.map(([ref]) => ref)).toEqual([
+      "hrv-shifted",
+      "eng",
+      "fre",
+      "deu",
+    ]);
+  });
+
+  it("serves a subtitle compared with fewer than three others", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-commentary", lang: "hrv", cues: unrelated },
+      { ref: "eng", lang: "eng", cues: track },
+      { ref: "fre", lang: "fre", cues: track },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"] }),
+      anchored("Movie.2024.1080p.mkv"),
+    );
+
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(unrelated));
+  });
+
+  it("serves a subtitle when more comparisons fail than download, as when strem.io answers 429", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-commentary", lang: "hrv", cues: unrelated },
+      { ref: "eng", lang: "eng", cues: track },
+      { ref: "fre", lang: "fre", cues: track },
+      { ref: "deu", lang: "deu", cues: track },
+      ...["ita", "spa", "por", "pol"].map((lang) => ({ ref: lang, lang })),
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"] }),
+      anchored("Movie.2024.1080p.mkv"),
+    );
+
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(unrelated));
+  });
+
+  it("stops comparing after five seconds and aborts the downloads still running", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+
+    try {
+      const source = fakeSource("OpenSubtitles", [
+        { ref: "hrv-commentary", lang: "hrv", cues: unrelated },
+        ...["eng", "fre", "deu"].map((lang) => ({ ref: lang, lang, hang: true })),
+      ]);
+      const app = appWith({ listed: [source], references: [] });
+
+      const { url } = await firstRefAt(
+        app,
+        sealed({ languages: ["hrv"] }),
+        anchored("Movie.2024.1080p.mkv"),
+      );
+
+      const served = servedAt(app, url);
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(startsOf(await served)).toEqual(startsOf(unrelated));
+      expect(
+        source.download.mock.calls
+          .filter(([ref]) => ref !== "hrv-commentary")
+          .map(([, signal]) => signal.aborted),
+      ).toEqual([true, true, true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers a retried subtitle that fits nothing without timing it again", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-commentary", lang: "hrv", cues: unrelated },
+      ...["eng", "fre", "deu"].map((lang) => ({ ref: lang, lang, cues: track })),
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"] }),
+      anchored("Movie.2024.1080p.mkv"),
+    );
+
+    const first = await app.request(url);
+    const timings = vi.mocked(retime).mock.calls.length;
+    const again = await app.request(url);
+
+    expect([first.status, again.status]).toEqual([404, 404]);
+    expect(vi.mocked(retime).mock.calls.length).toBe(timings);
+  });
+
+  it("never speeds up a subtitle with as good a release name as the anchor", async () => {
+    const pal = transform(track, (time) => Math.round((time * 23.976) / 25));
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "eng-release",
+        lang: "eng",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: transform(track, (time) => time + 300),
+      },
+      {
+        ref: "hrv-release",
+        lang: "hrv",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: pal,
+      },
+      ...[
+        ["fre", -300],
+        ["deu", 900],
+        ["ita", 1500],
+      ].map(([lang, shift]) => ({
+        ref: String(lang),
+        lang: String(lang),
+        releaseName: "Movie.2024.720p.WEB-DL-ANY",
+        cues: transform(track, (time) => time + Number(shift)),
+      })),
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    expect(ref.a?.[0]?.r).toBe("eng-release");
+    expect(ref.c[0]?.e).toBe(1);
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(pal));
   });
 
   it("serves a candidate with as good a release name as the anchor without retiming it", async () => {
@@ -1745,6 +1959,10 @@ describe("refs", () => {
 
   it("round-trips a reference", () => {
     expect(decodeRef(encodeRef(ref, key), key)).toEqual(ref);
+  });
+
+  it("decodes a reference made before the comparison pool", () => {
+    expect(decodeRef(encodeRef(ref, key), key).g).toBeUndefined();
   });
 
   it("rejects a reference signed with another secret", () => {

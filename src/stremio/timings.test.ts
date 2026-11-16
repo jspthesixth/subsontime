@@ -13,6 +13,8 @@ import { memoryStore, type NewFix, type TimingsStore } from "../timings/db.ts";
 import { cueHashes, toFixCues } from "../timings/fingerprint.ts";
 import { groupingKeyOf } from "../timings/submitter.ts";
 import { decodeRef, refKey } from "./refs.ts";
+import { aloneReason, reasonOf, sharesOf } from "./attempts.ts";
+import { subtitleOf } from "../timing/test-candidates.ts";
 import {
   appWith,
   firstURL,
@@ -644,6 +646,44 @@ describe("sharing to Open Timings", () => {
 
     expect(response.status).toBe(200);
     expect(defer).toHaveBeenCalledTimes(deferredAtListing);
+  });
+
+  it("shares no fix for a subtitle sped up to the untrusted anchor", () => {
+    const subtitle = subtitleOf(shifted);
+
+    expect(
+      sharesOf(
+        [
+          {
+            candidate: { n: "test", r: "subtitle", l: "eng" },
+            track: subtitle,
+            result: {
+              kind: "retimed",
+              cues: track,
+              offsetMs: -2000,
+              speedRatio: 23.976 / 25,
+              cuts: 0,
+              byReleaseName: true,
+              score: 0.9,
+              reference: subtitle,
+              references: [subtitle],
+              unconfirmed: true,
+            },
+          },
+        ],
+        video,
+      ),
+    ).toEqual([]);
+  });
+
+  it("gives the reason for a subtitle that agrees with no other subtitle of the video", () => {
+    expect(
+      reasonOf({
+        candidate: { n: "test", r: "subtitle", l: "eng" },
+        result: { kind: "mismatch", alone: true },
+      }),
+    ).toBe(aloneReason);
+    expect(aloneReason).toBe("Its timing agrees with no other subtitle of this video.");
   });
 
   it("shares no mismatch for a subtitle that agrees with no other subtitle of the video", async () => {

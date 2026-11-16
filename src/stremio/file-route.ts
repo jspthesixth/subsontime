@@ -48,6 +48,7 @@ type Served = { found: boolean; srt: string };
 const submitters = { fix: submitFix, mismatch: submitMismatch };
 const srtType = "application/x-subrip; charset=utf-8";
 const srtSeconds = 24 * 60 * 60;
+const unservedSeconds = 10 * 60;
 
 const preparedAnchor = (shared: Shared | undefined) => async (track: Track) => {
   if (hiddenMatch(track.cues, shared) !== undefined) {
@@ -278,7 +279,7 @@ export const fileRoute =
       const shared = await timed("shared", () =>
         sharedFor({ state, singleFlight, openTimings }, config, ref),
       );
-      const download = downloader(sourcesFor(config, context.get("tokens")));
+      const download = downloader(sourcesFor(config, context.get("tokens")), undefined, state);
       let anchoring: Promise<Anchor | undefined> | undefined;
       const anchorOf = () => {
         anchoring ??= timed("anchor", () =>
@@ -294,6 +295,7 @@ export const fileRoute =
             resolveAttempts({ ...ref, c }, config, download, undefined, shared, {
               anchorOf,
               cuesOf,
+              state,
             }),
           ),
         ),
@@ -308,16 +310,28 @@ export const fileRoute =
         shares.push(...sharesOf(attempts.flat(), video));
       }
 
-      if (fresh.srt !== "") {
+      if (fresh.srt === "") {
+        await orMiss(
+          () => state.set(`unserved:${id}`, encodeServed(fresh), unservedSeconds),
+          undefined,
+        );
+      } else {
         await subtitles?.set(id, fresh.srt);
       }
 
       return fresh;
     };
-    const flown = await timed("flight", () =>
-      singleFlight(id, async () => encodeServed(await timed("produce", produce))),
+    const unserved = decodeServed(
+      (await orMiss(() => state.get(`unserved:${id}`), undefined)) ?? "",
     );
-    const served = decodeServed(flown) ?? (await produce());
+    const served =
+      unserved ??
+      decodeServed(
+        await timed("flight", () =>
+          singleFlight(id, async () => encodeServed(await timed("produce", produce))),
+        ),
+      ) ??
+      (await produce());
 
     if (openTimings !== undefined && viewer !== undefined && shares.length > 0) {
       try {

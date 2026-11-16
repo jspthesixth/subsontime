@@ -9,8 +9,7 @@ import {
   median,
   mismatchMaximumScore,
   retimedMinimumScore,
-  sameSpeed,
-  type RetimeResult,
+  type Retimed,
   type Track,
 } from "./retime.ts";
 
@@ -33,21 +32,7 @@ const nearestShift = (starts: number[], time: number) =>
 
 const otherSpeedRatios = speedRatios.filter((speedRatio) => speedRatio !== 1);
 
-export const sameTiming = async (reference: Cue[], subtitle: Cue[]) => {
-  const rigid = alignOffset(reference, subtitle);
-
-  if (rigid.score < retimedMinimumScore || Math.abs(rigid.offsetMs) > agreementMs) {
-    return false;
-  }
-
-  if (
-    otherSpeedRatios.some(
-      (speedRatio) => alignOffset(reference, subtitle, { speedRatio }).score > rigid.score,
-    )
-  ) {
-    return false;
-  }
-
+const sameStarts = async (reference: Cue[], subtitle: Cue[]) => {
   const starts = reference.map(({ start }) => start);
 
   if (agrees(subtitle.map(({ start }) => nearestShift(starts, start)))) {
@@ -58,6 +43,29 @@ export const sameTiming = async (reference: Cue[], subtitle: Cue[]) => {
 
   return agrees(deltasOf(subtitle, split.cues, 1));
 };
+
+const rigidlyClose = (reference: Cue[], subtitle: Cue[]) => {
+  const rigid = alignOffset(reference, subtitle);
+
+  return rigid.score >= retimedMinimumScore && Math.abs(rigid.offsetMs) <= agreementMs
+    ? rigid
+    : undefined;
+};
+
+export const sameTiming = async (reference: Cue[], subtitle: Cue[]) => {
+  const rigid = rigidlyClose(reference, subtitle);
+
+  return (
+    rigid !== undefined &&
+    !otherSpeedRatios.some(
+      (speedRatio) => alignOffset(reference, subtitle, { speedRatio }).score > rigid.score,
+    ) &&
+    sameStarts(reference, subtitle)
+  );
+};
+
+const sameTimingAtOneSpeed = async (reference: Cue[], subtitle: Cue[]) =>
+  rigidlyClose(reference, subtitle) !== undefined && sameStarts(reference, subtitle);
 
 export type Guarded = { partner?: number; failed: boolean; cut: boolean };
 
@@ -107,7 +115,7 @@ export const rigidlyAligned = (anchor: Cue[], subtitle: Cue[]) => {
   return { ...alignOffset(anchor, subtitle, { speedRatio }), speedRatio };
 };
 
-export const retimeToAnchor = (subtitle: Track, anchor: Track): RetimeResult | undefined => {
+export const retimeToAnchor = (subtitle: Track, anchor: Track): Retimed | undefined => {
   const { cues, score, offsetMs, speedRatio } = rigidlyAligned(anchor.cues, subtitle.cues);
 
   return score >= retimedMinimumScore
@@ -148,42 +156,52 @@ export const asGoodAsAnchor = (candidate: Candidate, anchor: Candidate, context:
 
 export const sameVideoMinimumScore = 0.3;
 
-export const agreeingWith = (subtitle: Cue[], others: Track[]) =>
-  others.filter(({ cues }) => rigidlyAligned(cues, subtitle).score >= sameVideoMinimumScore).length;
+export type AlignedAt = (other: Track, speedRatio: number) => ReturnType<typeof alignOffset>;
 
-const sharedTimingOf = (tracks: Track[]) =>
-  tracks.reduce<Promise<Track | undefined>>(
-    async (found, track) =>
-      (await found) ??
-      ((
-        await firstAgreeing(
-          track.cues,
-          tracks.filter((other) => other !== track).map(({ cues }) => Promise.resolve(cues)),
-        )
-      ).partner === undefined
-        ? undefined
-        : track),
-    Promise.resolve(undefined),
-  );
+export const sameVideo = (other: Track, alignedAt: AlignedAt) =>
+  speedRatios.some((speedRatio) => alignedAt(other, speedRatio).score >= sameVideoMinimumScore);
+
+const sharesTiming = async (track: Track, tracks: Track[]) => {
+  for (const other of tracks) {
+    if (other !== track && (await sameTimingAtOneSpeed(track.cues, other.cues))) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const sharedTimingOf = async (tracks: Track[]) => {
+  for (const track of tracks) {
+    if (await sharesTiming(track, tracks)) {
+      return track;
+    }
+  }
+
+  return undefined;
+};
 
 export const atSpeedOfMost = async (
   subtitle: Track,
-  anchored: Extract<RetimeResult, { kind: "retimed" }>,
-  others: Track[],
+  anchored: Retimed,
+  anchor: Track,
+  voters: Track[],
+  alignedAt: AlignedAt,
 ) => {
-  const fitting = others
-    .map((track) => ({ track, aligned: rigidlyAligned(track.cues, subtitle.cues) }))
-    .filter(({ aligned }) => aligned.score >= mismatchMaximumScore);
-  const atSpeed = fitting
-    .filter(({ aligned }) => sameSpeed(aligned.speedRatio, anchored.speedRatio))
-    .map(({ track }) => track);
-  const atOwn = fitting.filter(({ aligned }) => sameSpeed(aligned.speedRatio, 1)).length;
+  const votes = voters
+    .map((track) => ({
+      track,
+      own: alignedAt(track, 1).score,
+      sped: alignedAt(track, anchored.speedRatio).score,
+    }))
+    .filter(({ own, sped }) => Math.max(own, sped) >= mismatchMaximumScore);
+  const atSpeed = votes.filter(({ own, sped }) => sped > own).map(({ track }) => track);
 
-  if (atSpeed.length <= atOwn) {
+  if (atSpeed.length <= votes.length - atSpeed.length) {
     return undefined;
   }
 
-  const shared = await sharedTimingOf(atSpeed);
+  const shared = await sharedTimingOf([anchor, ...atSpeed]);
 
   return (shared === undefined ? undefined : retimeToAnchor(subtitle, shared)) ?? anchored;
 };

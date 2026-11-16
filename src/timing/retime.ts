@@ -26,10 +26,13 @@ export type RetimeResult =
       score: number;
       reference: Track;
       references: Track[];
+      unconfirmed?: true;
     }
   | { kind: "shared-fix"; cues: Cue[]; agreeing: number; fromAudio: boolean }
   | { kind: "not-retimed"; cues: Cue[]; noFit?: true }
   | { kind: "mismatch"; alone?: true };
+
+export type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
 
 export const retimedMinimumScore = 0.6;
 export const mismatchMaximumScore = 0.2;

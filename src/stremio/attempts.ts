@@ -1,12 +1,14 @@
-import { setTimeout } from "node:timers/promises";
+import { createHash } from "node:crypto";
 import type { Config } from "../config/config.ts";
+import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import { agreeingWith, atSpeedOfMost, retimeToAnchor } from "../timing/anchor.ts";
+import { alignOffset } from "../timing/alass.ts";
+import { atSpeedOfMost, retimeToAnchor, sameVideo, type AlignedAt } from "../timing/anchor.ts";
 import { retime, sameSpeed, type RetimeResult, type Track } from "../timing/retime.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { toFixCues } from "../timings/fingerprint.ts";
@@ -20,14 +22,23 @@ export type Attempt = {
   result?: RetimeResult;
   hidden?: Hidden;
 };
-export type Download = (candidate: CandidateRef, served?: boolean) => Promise<Track>;
+export type Download = (
+  candidate: CandidateRef,
+  served?: boolean,
+  signal?: AbortSignal,
+) => Promise<Track>;
 export type Share = { kind: "fix" | "mismatch"; input: object };
 
 export const mismatchReason =
   "Made for another video. Its dialogue does not line up with this file anywhere.";
+export const aloneReason = "Its timing agrees with no other subtitle of this video.";
 
 const downloadTimeoutMs = 8000;
 const othersBudgetMs = 5000;
+const fileSeconds = 24 * 60 * 60;
+const failedSeconds = 10 * 60;
+const verdictSeconds = 24 * 60 * 60;
+const failedMark = "-";
 const unreadableReason = "Could not be read.";
 
 const toCandidate = (ref: CandidateRef): Candidate => ({
@@ -39,11 +50,70 @@ const toCandidate = (ref: CandidateRef): Candidate => ({
   fps: ref.p,
 });
 
+const hashed = (prefix: string, value: unknown) =>
+  `${prefix}:${createHash("sha256").update(JSON.stringify(value)).digest("base64url")}`;
+
+const trackOf = (ref: CandidateRef, bytes: Uint8Array): Track => ({
+  candidate: toCandidate(ref),
+  cues: parseSubtitle(decodeSubtitle(bytes, ref.l)),
+});
+
+const storedTrackOf = (ref: CandidateRef, stored: string) => {
+  try {
+    return trackOf(ref, new Uint8Array(Buffer.from(stored, "base64")));
+  } catch {
+    return undefined;
+  }
+};
+
+const cachedTrack = async (
+  state: SharedState | undefined,
+  ref: CandidateRef,
+  signal: AbortSignal | undefined,
+  fresh: () => Promise<Uint8Array>,
+) => {
+  if (state === undefined || ref.m === 1) {
+    return trackOf(ref, await fresh());
+  }
+
+  const key = hashed("sub:file", [ref.n, ref.r]);
+  const stored = await orMiss(() => state.get(key), undefined);
+
+  if (stored === failedMark) {
+    throw new Error("Download failed recently");
+  }
+
+  const known = stored === undefined ? undefined : storedTrackOf(ref, stored);
+
+  if (known !== undefined) {
+    return known;
+  }
+
+  try {
+    const bytes = await fresh();
+    const track = trackOf(ref, bytes);
+
+    await orMiss(
+      () => state.set(key, Buffer.from(bytes).toString("base64"), fileSeconds),
+      undefined,
+    );
+
+    return track;
+  } catch (error) {
+    if (signal?.aborted !== true) {
+      await orMiss(() => state.set(key, failedMark, failedSeconds), undefined);
+    }
+
+    throw error;
+  }
+};
+
 const fetchTrack = async (
   sources: Map<string, Source>,
   ref: CandidateRef,
   signal: AbortSignal | undefined,
   served: boolean,
+  state: SharedState | undefined,
 ): Promise<Track> => {
   const source = sources.get(ref.n);
 
@@ -51,13 +121,13 @@ const fetchTrack = async (
     throw new Error("Unknown source");
   }
 
-  const bytes = await source.download(
-    ref.r,
-    AbortSignal.any([AbortSignal.timeout(downloadTimeoutMs), ...(signal ? [signal] : [])]),
-    served,
+  return cachedTrack(state, ref, signal, () =>
+    source.download(
+      ref.r,
+      AbortSignal.any([AbortSignal.timeout(downloadTimeoutMs), ...(signal ? [signal] : [])]),
+      served,
+    ),
   );
-
-  return { candidate: toCandidate(ref), cues: parseSubtitle(decodeSubtitle(bytes, ref.l)) };
 };
 
 export const settledTracks = async (tracks: Promise<Track>[]) =>
@@ -65,45 +135,60 @@ export const settledTracks = async (tracks: Promise<Track>[]) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
 
-const inTime = (track: Promise<Track>) =>
-  Promise.race([
-    track,
-    setTimeout(othersBudgetMs, undefined, { ref: false }).then(() =>
-      Promise.reject(new Error("Too slow to compare")),
-    ),
-  ]);
+type Others = { tracks: Track[]; failed: number };
 
 type Timing = {
   references: () => Promise<Track[]>;
   anchor: () => Promise<Anchor | undefined>;
-  othersThan: (track: Track, start: number, end?: number) => Promise<Track[]>;
+  othersThan: (track: Track, start: number, end?: number) => Promise<Others>;
   releaseAnchor: () => Promise<Track | undefined>;
+  alignedAt: (track: Track) => AlignedAt;
+  verdict: (
+    track: Track,
+    decide: () => Promise<boolean | undefined>,
+  ) => Promise<boolean | undefined>;
 };
 
-const atReleaseAnchorSpeed = async (track: Track, { releaseAnchor, othersThan }: Timing) => {
+const trackKeyOf = ({ candidate }: Track) => candidateKey(candidate.sourceName, candidate.ref);
+
+const atReleaseAnchorSpeed = async (
+  track: Track,
+  { releaseAnchor, othersThan, alignedAt }: Timing,
+) => {
   const anchor = await releaseAnchor();
   const anchored = anchor === undefined ? undefined : retimeToAnchor(track, anchor);
 
-  return anchored?.kind !== "retimed" || sameSpeed(anchored.speedRatio, 1)
-    ? undefined
-    : atSpeedOfMost(track, anchored, await othersThan(track, 0));
+  if (anchor === undefined || anchored === undefined || sameSpeed(anchored.speedRatio, 1)) {
+    return undefined;
+  }
+
+  const { tracks } = await othersThan(track, 0);
+
+  const voters = tracks.filter((other) => trackKeyOf(other) !== trackKeyOf(anchor));
+  const sped = await atSpeedOfMost(track, anchored, anchor, voters, alignedAt(track));
+
+  return sped === undefined ? undefined : { ...sped, unconfirmed: true as const };
 };
 
 const agreeingFirst = 3;
 
-const agreesWithFew = async (track: Track, othersThan: Timing["othersThan"]) => {
+const aloneAmong = async (track: Track, { othersThan, alignedAt }: Timing) => {
+  const agrees = (other: Track) => sameVideo(other, alignedAt(track));
   const first = await othersThan(track, 0, agreeingFirst);
-  const agreeing = agreeingWith(track.cues, first);
+  const agreeing = first.tracks.filter(agrees).length;
 
   if (agreeing >= 2) {
     return false;
   }
 
   const rest = await othersThan(track, agreeingFirst);
+  const downloaded = first.tracks.length + rest.tracks.length;
 
-  return (
-    first.length + rest.length >= agreeingFirst && agreeing + agreeingWith(track.cues, rest) < 2
-  );
+  if (agreeing + rest.tracks.filter(agrees).length >= 2) {
+    return false;
+  }
+
+  return downloaded >= agreeingFirst && first.failed + rest.failed <= downloaded ? true : undefined;
 };
 
 const timeTrack = async (
@@ -150,30 +235,46 @@ const timeTrack = async (
     return retimed;
   }
 
-  const sped = await atReleaseAnchorSpeed(track, timing);
+  const sped = anchorable ? await atReleaseAnchorSpeed(track, timing) : undefined;
 
   if (sped !== undefined) {
     return sped;
   }
 
-  return (await agreesWithFew(track, timing.othersThan))
+  return (await timing.verdict(track, () => aloneAmong(track, timing))) === true
     ? { kind: "mismatch", alone: true }
     : retimed;
 };
 
 export type Downloader = Download & { has: (candidate: CandidateRef) => boolean };
 
-export const downloader = (sources: SourceSet, signal?: AbortSignal): Downloader => {
+export const downloader = (
+  sources: SourceSet,
+  signal?: AbortSignal,
+  state?: SharedState,
+): Downloader => {
   const byName = new Map(
     [...sources.listed, ...sources.references].map((source) => [source.name, source]),
   );
   const downloads = new Map<string, Promise<Track>>();
 
-  const download = (candidate: CandidateRef, served = false) => {
+  const download = (candidate: CandidateRef, served = false, callSignal?: AbortSignal) => {
     const key = candidateKey(candidate.n, candidate.r);
-    const track = downloads.get(key) ?? fetchTrack(byName, candidate, signal, served);
+    const known = downloads.get(key);
+
+    if (known !== undefined) {
+      return known;
+    }
+
+    const signals = [signal, callSignal].filter((each) => each !== undefined);
+    const track = fetchTrack(byName, candidate, AbortSignal.any(signals), served, state);
 
     downloads.set(key, track);
+    track.catch(() => {
+      if (callSignal?.aborted === true) {
+        downloads.delete(key);
+      }
+    });
 
     return track;
   };
@@ -222,8 +323,25 @@ export const timedCues = (attempt: Attempt, config: Config): Cue[] | undefined =
   return result?.kind === "mismatch" || unfit ? undefined : servedCues(attempt, config);
 };
 
+const budgetSignal = () => {
+  const controller = new AbortController();
+
+  setTimeout(() => controller.abort(new Error("Too slow to compare")), othersBudgetMs).unref();
+
+  return controller.signal;
+};
+
+const abortOf = (signal: AbortSignal) =>
+  new Promise<never>((_, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+    }
+
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+
 export async function* resolveAttempts(
-  ref: Pick<SubtitleRef, "c" | "x" | "a" | "g">,
+  ref: Pick<SubtitleRef, "c" | "x" | "a" | "g"> & Partial<Pick<SubtitleRef, "q">>,
   config: Config,
   download: Download,
   signal?: AbortSignal,
@@ -233,15 +351,21 @@ export async function* resolveAttempts(
     anchorOf,
     cuesOf = servedCues,
     served = true,
+    state,
   }: {
     lazyReferences?: boolean;
     served?: boolean;
     anchorOf?: () => Promise<Anchor | undefined>;
     cuesOf?: typeof servedCues;
+    state?: SharedState;
   } = {},
 ): AsyncGenerator<Attempt> {
   let downloaded: Promise<Track[]> | undefined;
   let anchoring: Promise<Anchor | undefined> | undefined;
+  let comparing: AbortSignal | undefined;
+
+  const pool = ref.a ?? ref.g ?? [];
+  const alignments = new Map<string, ReturnType<typeof alignOffset>>();
 
   const timing: Timing = {
     references: () => {
@@ -257,17 +381,54 @@ export async function* resolveAttempts(
 
       return anchoring;
     },
-    othersThan: ({ candidate: { sourceName, ref: own } }, start, end) =>
-      settledTracks(
-        (ref.a ?? ref.g ?? [])
-          .filter(({ n, r }) => candidateKey(n, r) !== candidateKey(sourceName, own))
+    othersThan: async (track, start, end) => {
+      comparing ??= AbortSignal.any([budgetSignal(), ...(signal === undefined ? [] : [signal])]);
+
+      const budget = comparing;
+      const settled = await Promise.allSettled(
+        pool
+          .filter(({ n, r }) => candidateKey(n, r) !== trackKeyOf(track))
           .slice(start, end)
-          .map((candidate) => inTime(download(candidate))),
-      ),
+          .map((candidate) => Promise.race([download(candidate, false, budget), abortOf(budget)])),
+      );
+
+      return {
+        tracks: settled.flatMap((each) => (each.status === "fulfilled" ? [each.value] : [])),
+        failed: settled.filter(({ status }) => status === "rejected").length,
+      };
+    },
     releaseAnchor: async () => {
       const [first] = ref.a ?? [];
 
       return first === undefined ? undefined : download(first).catch(() => undefined);
+    },
+    alignedAt: (track) => (other, speedRatio) => {
+      const key = JSON.stringify([trackKeyOf(other), trackKeyOf(track), speedRatio]);
+      const known = alignments.get(key) ?? alignOffset(other.cues, track.cues, { speedRatio });
+
+      alignments.set(key, known);
+
+      return known;
+    },
+    verdict: async (track, decide) => {
+      if (state === undefined) {
+        return decide();
+      }
+
+      const key = hashed("alone", [ref.q, trackKeyOf(track), pool.map(({ n, r }) => [n, r])]);
+      const stored = await orMiss(() => state.get(key), undefined);
+
+      if (stored === "1" || stored === "0") {
+        return stored === "1";
+      }
+
+      const decided = await decide();
+
+      if (decided !== undefined) {
+        await orMiss(() => state.set(key, decided ? "1" : "0", verdictSeconds), undefined);
+      }
+
+      return decided;
     },
   };
 
@@ -331,6 +492,10 @@ export const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
       return [];
     }
 
+    if (result?.kind === "retimed" && result.unconfirmed === true) {
+      return [];
+    }
+
     if (result?.kind === "retimed") {
       const { cues, references, reference } = result;
 
@@ -364,5 +529,9 @@ export const reasonOf = ({ result, hidden }: Attempt) => {
     return hiddenReason(hidden);
   }
 
-  return result?.kind === "mismatch" ? mismatchReason : unreadableReason;
+  if (result?.kind !== "mismatch") {
+    return unreadableReason;
+  }
+
+  return result.alone === true ? aloneReason : mismatchReason;
 };

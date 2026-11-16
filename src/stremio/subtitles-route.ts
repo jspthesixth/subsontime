@@ -152,7 +152,7 @@ export const subtitlesRoute =
               { state, singleFlight, openTimings },
               config,
               { q, a: anchors, x: references, w: { h: listed.hash, z: listed.size }, d: hiddenKey },
-              downloader(sources),
+              downloader(sources, undefined, state),
             ).catch((error: unknown) =>
               console.error(`Anchor warm-up failed: ${errorName(error)}`),
             ),
