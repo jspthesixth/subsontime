@@ -137,8 +137,3 @@ export const stremioAddonSource = (manifestURL: string, name: string): Source =>
     return new Uint8Array(await response.arrayBuffer());
   },
 });
-
-export const openSubtitlesV3 = stremioAddonSource(
-  "https://opensubtitles-v3.strem.io/manifest.json",
-  "OpenSubtitles",
-);

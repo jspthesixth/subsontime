@@ -19,7 +19,7 @@ import { freeOnly, pickReferences } from "../timing/references.ts";
 import type { CandidateRef } from "./refs.ts";
 
 export const bestSlotSize = 4;
-const displayNames = new Map([["OpenSubtitles API", "OpenSubtitles"]]);
+const displayNames = new Map([[openSubtitlesAPIName, "OpenSubtitles"]]);
 
 const displayNameOf = ({ sourceName }: Candidate) => displayNames.get(sourceName) ?? sourceName;
 

@@ -1,4 +1,5 @@
 import type { Config, SourceSettings } from "../config/config.ts";
+import { openSubtitlesAddonURL } from "../config/default-config.ts";
 import { defaultDailyDownloads } from "../config/env.ts";
 import type { SharedState } from "../jobs/shared-state.ts";
 import { openSubtitlesSource } from "./opensubtitles.ts";
@@ -19,8 +20,6 @@ type SourceDeps = {
   openSubtitlesDailyDownloads?: number;
 };
 
-const openSubtitlesV3URL = "https://opensubtitles-v3.strem.io/manifest.json";
-
 export const openSubtitlesV3Name = "OpenSubtitles";
 export const openSubtitlesAPIName = "OpenSubtitles API";
 
@@ -34,7 +33,7 @@ const renamed = (source: Source, name: string): Source => ({
 type OpenSubtitles = { listed: Source; reference: Source };
 
 const isV3 = (settings: SourceSettings) =>
-  settings.kind === "stremio-addon" && settings.url === openSubtitlesV3URL;
+  settings.kind === "stremio-addon" && settings.url === openSubtitlesAddonURL;
 
 const isLogin = (settings: SourceSettings) => settings.kind === "opensubtitles";
 
@@ -51,7 +50,7 @@ const openSubtitlesFor = (appKey: string, config: Config, deps: SourceDeps): Ope
   );
 
   const listed = openSubtitlesListing({
-    manifestURL: openSubtitlesV3URL,
+    manifestURL: openSubtitlesAddonURL,
     name: openSubtitlesV3Name,
     appKey,
     state: deps.state,
@@ -72,8 +71,8 @@ const toSources = (
   switch (settings.kind) {
     case "stremio-addon":
       return [
-        settings.url === openSubtitlesV3URL
-          ? (openSubtitles ?? stremioAddonSource(openSubtitlesV3URL, openSubtitlesV3Name))
+        settings.url === openSubtitlesAddonURL
+          ? (openSubtitles ?? stremioAddonSource(openSubtitlesAddonURL, openSubtitlesV3Name))
           : stremioAddonSource(settings.url, new URL(settings.url).host),
       ];
     case "opensubtitles":

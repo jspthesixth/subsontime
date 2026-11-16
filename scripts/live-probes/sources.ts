@@ -5,7 +5,9 @@ import { memorySharedState } from "../../src/jobs/shared-state.ts";
 import { openSubtitlesSource } from "../../src/sources/opensubtitles.ts";
 import { downloadBudget, openSubtitlesListing } from "../../src/sources/opensubtitles-hash.ts";
 import type { Source, VideoQuery } from "../../src/sources/source.ts";
-import { openSubtitlesV3 } from "../../src/sources/stremio-addon.ts";
+import { openSubtitlesAddonURL } from "../../src/config/default-config.ts";
+import { openSubtitlesV3Name } from "../../src/sources/from-config.ts";
+import { stremioAddonSource } from "../../src/sources/stremio-addon.ts";
 import { titloviSource } from "../../src/sources/titlovi.ts";
 import { installKeyOf, tokenCacheFor } from "../../src/sources/token-cache.ts";
 
@@ -33,6 +35,7 @@ const peterPanFile: VideoQuery = {
   languages: ["eng", "hrv"],
 };
 
+const openSubtitlesV3 = stremioAddonSource(openSubtitlesAddonURL, openSubtitlesV3Name);
 const realFetch = globalThis.fetch;
 const signal = () => AbortSignal.timeout(15000);
 let step = "";

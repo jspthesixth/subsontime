@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../test/fixtures/sources/opensubtitles-v3-movie.json" with { type: "json" };
 import { parseRelease } from "../subtitles/release.ts";
 import type { VideoQuery } from "./source.ts";
-import { openSubtitlesV3, parseStremioId, stremioAddonSource } from "./stremio-addon.ts";
+import { openSubtitlesAddonURL } from "../config/default-config.ts";
+import { parseStremioId, stremioAddonSource } from "./stremio-addon.ts";
 
 const movie: VideoQuery = { type: "movie", imdbId: "tt0111161", languages: ["eng", "pob"] };
+const openSubtitlesV3 = stremioAddonSource(openSubtitlesAddonURL, "OpenSubtitles");
 
 const stubFetch = (body: BodyInit, init?: ResponseInit) => {
   const fetchMock = vi.fn<typeof fetch>(async () => new Response(body, init));
