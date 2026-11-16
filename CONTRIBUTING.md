@@ -73,6 +73,10 @@ python -m unittest discover -s tests
 - adds the plugin version to `plugins/jellyfin/releases.json` on the default branch, which `/jellyfin/manifest.json` serves,
 - pushes the Docker image `ghcr.io/jspthesixth/subsontime` for `linux/amd64` and `linux/arm64`, tagged `<version>` and `latest`.
 
+## Dependencies
+
+Renovate (`renovate.json`) opens pull requests every Monday: minor and patch updates grouped per ecosystem, each major on its own, with Node and `@types/node` moving together. Like pnpm (`minimumReleaseAge` in `pnpm-workspace.yaml`), it waits until a version is a day old. `Jellyfin.Controller` stays on the Jellyfin server version the plugin targets.
+
 ## Security issues
 
 Do not open a public issue. [SECURITY.md](SECURITY.md) explains how to report one.

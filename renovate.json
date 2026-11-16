@@ -1,0 +1,57 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "docker:pinDigests", "helpers:pinGitHubActionDigests"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "Europe/Zagreb",
+  "minimumReleaseAge": "1 day",
+  "internalChecksFilter": "strict",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.yml$/",
+        "/^CONTRIBUTING\\.md$/",
+        "/^e2e/library/README\\.md$/"
+      ],
+      "matchStrings": [
+        "(?<depName>node|mikefarah/yq|mcr\\.microsoft\\.com/dotnet/sdk):(?<currentValue>[0-9][\\w.-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["Jellyfin.Controller", "Microsoft.Extensions.Http"],
+      "enabled": false
+    },
+    {
+      "matchCategories": ["js"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "npm minor and patch"
+    },
+    {
+      "matchCategories": ["ci"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "GitHub Actions minor and patch"
+    },
+    {
+      "matchCategories": ["docker"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "Docker minor and patch"
+    },
+    {
+      "matchCategories": ["dotnet"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "NuGet minor and patch"
+    },
+    {
+      "matchCategories": ["rust"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "Cargo minor and patch"
+    },
+    {
+      "matchPackageNames": ["node", "@types/node"],
+      "groupName": "Node"
+    }
+  ]
+}
