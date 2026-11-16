@@ -73,6 +73,7 @@ const rowSchema = v.object({
   releaseInfo: v.nullish(v.array(v.string())),
   commentary: v.nullish(v.string()),
   framerate: v.nullish(v.union([v.number(), v.string()])),
+  foreignParts: v.optional(v.unknown()),
 });
 
 type Row = v.InferOutput<typeof rowSchema>;
@@ -110,6 +111,7 @@ const toCandidate = (row: Row, lang: string, query: VideoQuery): Candidate => {
     releaseName,
     hashMatch: false,
     fps: toFPS(row.framerate),
+    foreignPartsOnly: row.foreignParts === true || undefined,
   };
 };
 

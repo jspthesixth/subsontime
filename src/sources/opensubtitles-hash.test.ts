@@ -165,6 +165,91 @@ describe("openSubtitlesHashSource search", () => {
     ]);
   });
 
+  it("marks the v3 entries that REST flags as foreign parts only", async () => {
+    const flagged = new Set([4770753, 4749227]);
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      urlOf(input).startsWith(v3ListingURL)
+        ? new Response(JSON.stringify(v3Fixture))
+        : new Response(
+            JSON.stringify({
+              ...restFixture,
+              data: restFixture.data.map((entry) => ({
+                ...entry,
+                attributes: {
+                  ...entry.attributes,
+                  foreign_parts_only: flagged.has(entry.attributes.legacy_subtitle_id),
+                },
+              })),
+            }),
+          ),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const source = sourceWith();
+
+    for (const candidates of [
+      await source.search(peterPan, signal()),
+      await source.search(peterPan, signal()),
+    ]) {
+      expect(
+        candidates.map(({ ref, hashMatch, foreignPartsOnly }) => [
+          ref,
+          hashMatch,
+          foreignPartsOnly,
+        ]),
+      ).toEqual([
+        [
+          "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1953294863",
+          false,
+          true,
+        ],
+        [matchedV3URL, true, true],
+        [
+          "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1952547961?senc=cp1250",
+          false,
+          undefined,
+        ],
+        ["735363", true, undefined],
+      ]);
+    }
+  });
+
+  it("adds a REST hash match for a language whose only listed hash match is foreign parts only", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      urlOf(input).startsWith(v3ListingURL)
+        ? new Response(JSON.stringify(v3Fixture))
+        : new Response(
+            JSON.stringify({
+              ...restFixture,
+              data: restFixture.data.map((entry) => ({
+                ...entry,
+                attributes: {
+                  ...entry.attributes,
+                  moviehash_match:
+                    entry.attributes.moviehash_match ||
+                    entry.attributes.legacy_subtitle_id === 13605764,
+                  foreign_parts_only: entry.attributes.legacy_subtitle_id === 4770753,
+                },
+              })),
+            }),
+          ),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const candidates = await sourceWith().search(peterPan, signal());
+
+    expect(
+      candidates
+        .filter(({ hashMatch, foreignPartsOnly }) => hashMatch && foreignPartsOnly !== true)
+        .map(({ ref, lang }) => [ref, lang]),
+    ).toEqual([
+      ["735363", "hrv"],
+      ["12038440", "eng"],
+    ]);
+  });
+
   it("asks the REST search for the hash, the title and the languages", async () => {
     const { restSearches } = stubAPIs();
 

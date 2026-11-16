@@ -90,6 +90,17 @@ describe("GET /stremio", () => {
     );
   });
 
+  it("has a Foreign parts only switch, off", async () => {
+    const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
+
+    expect(page).toContain(
+      '<span class="h4" id="x-forced">Foreign parts only</span><span class="small">For films in your language: a subtitle that shows only the lines spoken in another language, when a source has one.</span>',
+    );
+    expect(page).toMatch(
+      /<button[^>]*role="switch"[^>]*id="foreign-parts"[^>]*aria-checked="false"[^>]*aria-labelledby="x-forced"/,
+    );
+  });
+
   it("has an Open Timings section with both switches on", async () => {
     const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
 

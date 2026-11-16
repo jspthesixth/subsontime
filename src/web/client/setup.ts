@@ -23,6 +23,7 @@ const bestOnlyInput = find<HTMLInputElement>(document, "#best-only");
 const timingInputs = [...document.querySelectorAll<HTMLInputElement>("input[name=timing]")];
 const hideMismatchesSwitch = find(document, "#hide-mismatches");
 const dialogueOnlySwitch = find(document, "#dialogue-only");
+const foreignPartsSwitch = find(document, "#foreign-parts");
 const useSharedSwitch = find(document, "#use-shared");
 const shareSwitch = find(document, "#share");
 const sourceList = find(document, "#source-list");
@@ -180,6 +181,7 @@ const render = () => {
   });
   hideMismatchesSwitch.setAttribute("aria-checked", String(state.extras.hideMismatches));
   dialogueOnlySwitch.setAttribute("aria-checked", String(state.extras.dialogueOnly));
+  foreignPartsSwitch.setAttribute("aria-checked", String(state.extras.foreignParts));
   useSharedSwitch.setAttribute("aria-checked", String(state.useShared));
   shareSwitch.setAttribute("aria-checked", String(state.share));
   accountRows.forEach(renderAccountRow);
@@ -262,6 +264,10 @@ hideMismatchesSwitch.addEventListener("click", () =>
 
 dialogueOnlySwitch.addEventListener("click", () =>
   update({ extras: { ...state.extras, dialogueOnly: !state.extras.dialogueOnly } }),
+);
+
+foreignPartsSwitch.addEventListener("click", () =>
+  update({ extras: { ...state.extras, foreignParts: !state.extras.foreignParts } }),
 );
 
 useSharedSwitch.addEventListener("click", () => update({ useShared: !state.useShared }));

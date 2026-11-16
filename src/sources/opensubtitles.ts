@@ -25,6 +25,7 @@ export const restEntrySchema = v.object({
     release: v.optional(v.string()),
     fps: v.optional(v.unknown()),
     moviehash_match: v.optional(v.unknown()),
+    foreign_parts_only: v.optional(v.unknown()),
     legacy_subtitle_id: v.nullish(v.union([v.number(), v.pipe(v.string(), v.digits())])),
     files: v.array(v.object({ file_id: v.number() })),
   }),
@@ -132,6 +133,7 @@ export const restCandidate = (entry: RESTEntry): Candidate[] => {
       releaseName,
       hashMatch: attributes.moviehash_match === true,
       fps,
+      foreignPartsOnly: attributes.foreign_parts_only === true || undefined,
     },
   ];
 };

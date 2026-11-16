@@ -11,6 +11,7 @@ export type Entry = {
   lang?: string;
   hashMatch?: boolean;
   metered?: boolean;
+  foreignPartsOnly?: boolean;
   releaseName?: string;
   fps?: number;
   cues?: Cue[];
@@ -28,6 +29,7 @@ export const fakeSource = (name: string, entries: Entry[]) => {
     hashMatch: entry.hashMatch ?? false,
     fps: entry.fps,
     metered: entry.metered,
+    foreignPartsOnly: entry.foreignPartsOnly,
   }));
   const search = vi.fn<Source["search"]>(async () => candidates);
   const download = vi.fn<Source["download"]>(async (ref) => {

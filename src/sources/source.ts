@@ -20,6 +20,7 @@ export type Candidate = {
   hashMatch: boolean;
   fps?: number;
   metered?: boolean;
+  foreignPartsOnly?: boolean;
 };
 
 export interface Source {

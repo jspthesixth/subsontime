@@ -235,6 +235,13 @@ const extraSwitches: Switch[] = [
     body: "Also offer a copy without hearing-impaired tags like [music], (door slams) and speaker names.",
     checked: false,
   },
+  {
+    id: "foreign-parts",
+    labelId: "x-forced",
+    title: "Foreign parts only",
+    body: "For films in your language: a subtitle that shows only the lines spoken in another language, when a source has one.",
+    checked: false,
+  },
 ];
 
 const extrasBlock = html`<section class="setup-block" aria-labelledby="s4">

@@ -34,13 +34,13 @@ export const bestSlotSize = 4;
 const perLanguageLimit = 10;
 const displayNames = new Map([["OpenSubtitles API", "OpenSubtitles"]]);
 
-export const labelOf = (candidates: Candidate[], dialogueOnly = false) => {
+export const labelOf = (candidates: Candidate[], note?: string) => {
   const sources = new Set(
     candidates.map(({ sourceName }) => displayNames.get(sourceName) ?? sourceName),
   );
   const notes = [
     candidates.every(({ hashMatch }) => hashMatch) ? ["made for this file"] : [],
-    dialogueOnly ? ["dialogue only"] : [],
+    note === undefined ? [] : [note],
   ].flat();
   const name = [...sources].join(", ");
 
@@ -57,19 +57,25 @@ export const toCandidateRef = (candidate: Candidate): CandidateRef => ({
 
 const familySources = new Set([openSubtitlesV3Name, openSubtitlesAPIName]);
 
+const isForeignPartsOnly = ({ foreignPartsOnly }: Candidate) => foreignPartsOnly === true;
+
 export const searchVideo = async (
   sources: SourceSet,
   query: VideoQuery,
   learnedFamily: Promise<ReleaseFamily | undefined> = Promise.resolve(undefined),
 ) => {
-  const [listed, referenceOnly, family] = await Promise.all([
+  const [found, referenceOnly, family] = await Promise.all([
     searchAll(sources.listed, query),
     searchAll(sources.references, query),
     learnedFamily,
   ]);
 
+  const listed = found.filter((candidate) => !isForeignPartsOnly(candidate));
   const fileRelease = parseRelease(query.filename ?? "");
-  const everything = [...listed, ...referenceOnly];
+  const everything = [
+    ...listed,
+    ...referenceOnly.filter((candidate) => !isForeignPartsOnly(candidate)),
+  ];
   const all = everything.filter(({ lang }) => query.languages.includes(lang));
   const inFamily = ({ release }: Candidate) =>
     family !== undefined && inReleaseFamily(release, family);
@@ -110,6 +116,10 @@ export const searchVideo = async (
       .find((observed) => observed !== undefined),
     ranked: (lang: string) =>
       listed.filter((candidate) => candidate.lang === lang).toSorted(ranking),
+    foreignPartsOnly: (lang: string) =>
+      found
+        .filter((candidate) => isForeignPartsOnly(candidate) && candidate.lang === lang)
+        .toSorted(ranking),
     passing: (candidates: Candidate[]) => {
       const minimum = minimumScoreOf(query.type);
       const kept = candidates.filter((candidate) => scoreOf(candidate, scoreContext) >= minimum);
@@ -261,7 +271,7 @@ export const subtitlesRoute =
 
       return `${baseURL(context, publicURL)}/${context.req.param("config")}/sub/${ref}.srt`;
     };
-    const subtitles = config.languages.flatMap((lang) => {
+    const entriesOf = (lang: string) => {
       const candidates = found.ranked(lang);
 
       if (candidates.length === 0) {
@@ -282,11 +292,30 @@ export const subtitlesRoute =
         ? entries.toSpliced(1, 0, {
             id: `${lang}-dialogue`,
             lang,
-            label: labelOf(best, true),
+            label: labelOf(best, "dialogue only"),
             url: subURL(best, "dialogue"),
           })
         : entries;
-    });
+    };
+    const foreignPartsEntriesOf = (lang: string) => {
+      const flagged = config.extras.foreignParts ? found.foreignPartsOnly(lang) : [];
+      const best = found.passing(flagged).slice(0, bestSlotSize);
+
+      return best.length === 0
+        ? []
+        : [
+            {
+              id: `${lang}-forced`,
+              lang,
+              label: labelOf(best, "foreign parts only"),
+              url: subURL(best),
+            },
+          ];
+    };
+    const subtitles = config.languages.flatMap((lang) => [
+      ...entriesOf(lang),
+      ...foreignPartsEntriesOf(lang),
+    ]);
 
     return context.json({ subtitles }, 200, { "cache-control": "public, max-age=3600" });
   };

@@ -62,6 +62,28 @@ describe("subSourceSource search", () => {
     );
   });
 
+  it("marks the subtitles flagged as foreign parts", async () => {
+    stubFetch(
+      json(titleFixture),
+      rows([
+        { subtitleId: 7, releaseInfo: ["Movie.1080p.BluRay-GRP"], foreignParts: true },
+        { subtitleId: 8, releaseInfo: ["Movie.1080p.BluRay-GRP"], foreignParts: false },
+        { subtitleId: 9, releaseInfo: ["Movie.1080p.BluRay-GRP"], foreignParts: "true" },
+      ]),
+    );
+
+    const candidates = await subSourceSource(apiKey).search(
+      { ...movie, languages: ["eng"] },
+      signal(),
+    );
+
+    expect(candidates.map(({ ref, foreignPartsOnly }) => [ref, foreignPartsOnly])).toEqual([
+      ["7", true],
+      ["8", undefined],
+      ["9", undefined],
+    ]);
+  });
+
   it("sends the key only in the X-API-Key header", async () => {
     const fetchMock = stubFetch(json(titleFixture), rows([]), rows([]));
 

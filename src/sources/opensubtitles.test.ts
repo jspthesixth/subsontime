@@ -42,6 +42,15 @@ const stubFetch = (...responses: Response[]) => {
   return fetchMock;
 };
 
+const flaggedEntry = (fileId: number, foreignPartsOnly: unknown) => ({
+  attributes: {
+    language: "en",
+    release: "Inglourious.Basterds.2009.1080p.BluRay.x265-RARBG",
+    foreign_parts_only: foreignPartsOnly,
+    files: [{ file_id: fileId }],
+  },
+});
+
 const headersOf = (fetchMock: ReturnType<typeof stubFetch>, call: number) =>
   new Headers(fetchMock.mock.calls[call]?.[1]?.headers);
 
@@ -78,6 +87,23 @@ describe("openSubtitlesSource search", () => {
         hashMatch: false,
         fps: undefined,
       },
+    ]);
+  });
+
+  it("marks the subtitles flagged as foreign parts only", async () => {
+    stubFetch(
+      json({ data: [flaggedEntry(601, true), flaggedEntry(602, false), flaggedEntry(603, 1)] }),
+    );
+
+    const candidates = await openSubtitlesSource(undefined, appKey, memoryTokenCache()).search(
+      movie,
+      signal(),
+    );
+
+    expect(candidates.map(({ ref, foreignPartsOnly }) => [ref, foreignPartsOnly])).toEqual([
+      ["601", true],
+      ["602", undefined],
+      ["603", undefined],
     ]);
   });
 

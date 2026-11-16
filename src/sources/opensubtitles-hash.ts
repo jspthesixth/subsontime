@@ -72,6 +72,9 @@ const firstPerLanguage = (candidates: Candidate[]) =>
     (candidate, index) => candidates.findIndex(({ lang }) => lang === candidate.lang) === index,
   );
 
+const isTrustedMatch = ({ hashMatch, foreignPartsOnly }: Candidate) =>
+  hashMatch && foreignPartsOnly !== true;
+
 const legacyIdOf = (entry: RESTEntry) => {
   const id = entry.attributes.legacy_subtitle_id ?? undefined;
 
@@ -155,7 +158,10 @@ export const openSubtitlesHashSource = ({
       return [];
     }
 
-    const matches = entries.filter((entry) => entry.attributes.moviehash_match === true);
+    const matches = entries.filter(
+      ({ attributes }) =>
+        attributes.moviehash_match === true || attributes.foreign_parts_only === true,
+    );
 
     await orMiss(() => state.set(key, JSON.stringify(matches), cacheSeconds), undefined);
 
@@ -181,17 +187,30 @@ export const openSubtitlesHashSource = ({
       ]);
 
       const listedIds = addonIds(entries);
-      const matchedIds = new Set(matches.flatMap((entry) => legacyIdOf(entry) ?? []));
+      const idsWhere = (flag: "moviehash_match" | "foreign_parts_only") =>
+        new Set(
+          matches.flatMap((entry) =>
+            entry.attributes[flag] === true ? (legacyIdOf(entry) ?? []) : [],
+          ),
+        );
+      const matchedIds = idsWhere("moviehash_match");
+      const flaggedIds = idsWhere("foreign_parts_only");
       const listed = entries.map(({ id, candidate }) => ({
         ...candidate,
         hashMatch: candidate.hashMatch || (id !== undefined && matchedIds.has(String(id))),
+        foreignPartsOnly: (id !== undefined && flaggedIds.has(String(id))) || undefined,
       }));
-      const covered = new Set(listed.filter(({ hashMatch }) => hashMatch).map(({ lang }) => lang));
+      const covered = new Set(listed.filter(isTrustedMatch).map(({ lang }) => lang));
       const missing = firstPerLanguage(
         matches
           .filter((entry) => !listedIds.has(legacyIdOf(entry) ?? ""))
           .flatMap(restCandidate)
-          .filter(({ lang }) => query.languages.includes(lang) && !covered.has(lang))
+          .filter(
+            (candidate) =>
+              isTrustedMatch(candidate) &&
+              query.languages.includes(candidate.lang) &&
+              !covered.has(candidate.lang),
+          )
           .map((candidate) => ({ ...candidate, sourceName: name, metered: true })),
       );
 

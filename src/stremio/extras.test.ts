@@ -11,6 +11,7 @@ import {
   installed,
   retimedSources,
   secret,
+  shifted,
   track,
   type App,
   type Listing,
@@ -45,6 +46,8 @@ const fetched = async (app: App, url: string) => {
 
   return { status: response.status, text: await response.text() };
 };
+
+const sparse = (cues: typeof track) => cues.filter((_, index) => index % 10 === 0);
 
 const madeForFile = (text: string[]) => ({
   listed: [
@@ -159,6 +162,115 @@ describe("dialogue only", () => {
     expect(await fetched(app, urlOf(subtitles, "eng-dialogue"))).toEqual({
       status: 404,
       text: "No subtitle fits this file",
+    });
+  });
+});
+
+describe("foreign parts only", () => {
+  const foreignParts = { ...defaultConfig(["eng"]).extras, foreignParts: true };
+
+  it("lists the flagged subtitles after the language's entries and leaves them out of the others", async () => {
+    const source = fakeSource("Fake", [
+      { ref: "f", foreignPartsOnly: true },
+      { ref: "a" },
+      { ref: "g", foreignPartsOnly: true },
+      { ref: "h", lang: "hrv" },
+    ]);
+
+    const { subtitles } = await listedFor(
+      { listed: [source], references: [] },
+      { languages: ["eng", "hrv"], extras: foreignParts },
+    );
+
+    expect(subtitles.map((entry) => [entry.id, entry.lang, entry.label])).toEqual([
+      ["eng-best", "eng", "Fake"],
+      ["eng-forced", "eng", "Fake (foreign parts only)"],
+      ["hrv-best", "hrv", "Fake"],
+    ]);
+    expect(refOf(urlOf(subtitles, "eng-best")).c).toEqual([{ n: "Fake", r: "a", l: "eng" }]);
+    expect(refOf(urlOf(subtitles, "eng-forced")).c).toEqual([
+      { n: "Fake", r: "f", l: "eng" },
+      { n: "Fake", r: "g", l: "eng" },
+    ]);
+  });
+
+  it("lists the foreign-parts entry of a language that has only flagged subtitles", async () => {
+    const source = fakeSource("Fake", [{ ref: "f", foreignPartsOnly: true }]);
+
+    const { subtitles } = await listedFor(
+      { listed: [source], references: [] },
+      { bestOnly: false, extras: { ...foreignParts, dialogueOnly: true } },
+    );
+
+    expect(subtitles.map((entry) => entry.id)).toEqual(["eng-forced"]);
+  });
+
+  it("leaves the flagged subtitles out and lists no foreign-parts entry when it is off", async () => {
+    const source = fakeSource("Fake", [{ ref: "f", foreignPartsOnly: true }, { ref: "a" }]);
+
+    const { subtitles } = await listedFor(
+      { listed: [source], references: [] },
+      { extras: defaultConfig(["eng"]).extras },
+    );
+
+    expect(subtitles.map((entry) => entry.id)).toEqual(["eng-best"]);
+    expect(refOf(urlOf(subtitles, "eng-best")).c).toEqual([{ n: "Fake", r: "a", l: "eng" }]);
+  });
+
+  it("lists no foreign-parts entry when no source flags one", async () => {
+    const source = fakeSource("Fake", [{ ref: "a" }, { ref: "b" }]);
+
+    const { subtitles } = await listedFor(
+      { listed: [source], references: [] },
+      { extras: foreignParts },
+    );
+
+    expect(subtitles.map((entry) => entry.id)).toEqual(["eng-best"]);
+  });
+
+  it("never times by a flagged subtitle", async () => {
+    const { subtitles } = await listedFor(
+      {
+        listed: [
+          fakeSource("Fake", [{ ref: "a" }, { ref: "f", hashMatch: true, foreignPartsOnly: true }]),
+        ],
+        references: [
+          fakeSource("Reference", [
+            { ref: "rf", hashMatch: true, foreignPartsOnly: true },
+            { ref: "r", hashMatch: true },
+          ]),
+        ],
+      },
+      { extras: foreignParts },
+    );
+
+    const ref = refOf(urlOf(subtitles, "eng-forced"));
+
+    expect(ref.x.map(({ n, r }) => [n, r])).toEqual([["Reference", "r"]]);
+    expect(ref.a?.map(({ n, r }) => [n, r])).toEqual([
+      ["Reference", "r"],
+      ["Fake", "a"],
+    ]);
+    expect(refOf(urlOf(subtitles, "eng-best")).a).toEqual(ref.a);
+  });
+
+  it("retimes the foreign-parts entry like any other entry", async () => {
+    const { listed, references } = retimedSources();
+
+    const { app, subtitles } = await listedFor(
+      {
+        listed: [
+          ...listed,
+          fakeSource("Forced", [{ ref: "f", foreignPartsOnly: true, cues: sparse(shifted) }]),
+        ],
+        references,
+      },
+      { extras: foreignParts },
+    );
+
+    expect(await fetched(app, urlOf(subtitles, "eng-forced"))).toEqual({
+      status: 200,
+      text: writeSRT(sparse(track)),
     });
   });
 });
