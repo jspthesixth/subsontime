@@ -1,4 +1,5 @@
 import { basename, extname } from "node:path";
+import { filenameParse } from "@ctrl/video-filename-parser";
 import type { VideoQuery } from "../sources/source.ts";
 import { searchCatalog } from "../web/catalog.ts";
 
@@ -9,9 +10,6 @@ export type Identified =
   | { kind: "skipped"; reason: string };
 
 const episodePattern = /\bs(\d{1,2})e(\d{1,3})\b/i;
-const yearPattern = /\b(?:19|20)\d{2}\b/g;
-const releasePattern =
-  /\b(?:2160p|1080p|720p|576p|480p|4k|uhd|blu-?ray|bdrip|brrip|bdremux|remux|web-?dl|webrip|web|hdtv|dvdrip|x264|x265|h264|h265|hevc|proper|repack)\b/i;
 
 const folded = (text: string) =>
   text
@@ -22,21 +20,13 @@ const folded = (text: string) =>
     .trim();
 
 export const cleanName = (fileName: string) => {
-  const words = basename(fileName, extname(fileName)).replace(/[._]+/g, " ");
-  const episode = episodePattern.exec(words);
-  const cut = Math.min(
-    ...[episode, releasePattern.exec(words)].map((match) => match?.index ?? words.length),
-  );
-  const year = [...words.matchAll(yearPattern)]
-    .filter((match) => match.index > 0 && match.index < cut)
-    .at(-1);
+  const name = basename(fileName, extname(fileName));
+  const episode = episodePattern.exec(name.replace(/[._]+/g, " "));
+  const { title, year } = filenameParse(name, episode !== null);
 
   return {
-    title: words
-      .slice(0, year?.index ?? cut)
-      .replace(/[\s([-]+$/, "")
-      .trim(),
-    year: year?.[0],
+    title,
+    year: year ?? undefined,
     season: episode === null ? undefined : Number(episode[1]),
     episode: episode === null ? undefined : Number(episode[2]),
   };
