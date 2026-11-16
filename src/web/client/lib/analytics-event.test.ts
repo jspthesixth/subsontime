@@ -16,12 +16,15 @@ describe("redactedPath", () => {
 });
 
 describe("analyticsEvent", () => {
-  it.each(["/", "/stremio", "/check", "/timings"])("sends a visit to %s", (path) => {
-    expect(analyticsEvent({ type: "pageview", url: `https://subsontime.com${path}` })).toEqual({
-      type: "pageview",
-      url: `https://subsontime.com${path}`,
-    });
-  });
+  it.each(["/", "/stremio", "/check", "/timings", "/integrations"])(
+    "sends a visit to %s",
+    (path) => {
+      expect(analyticsEvent({ type: "pageview", url: `https://subsontime.com${path}` })).toEqual({
+        type: "pageview",
+        url: `https://subsontime.com${path}`,
+      });
+    },
+  );
 
   it("drops the query string and the fragment", () => {
     expect(

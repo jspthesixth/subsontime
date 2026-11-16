@@ -1,6 +1,6 @@
 import { sealedConfigPattern } from "../../../config/sealed-config.ts";
 
-const pagePaths = new Set(["/", "/stremio", "/check", "/timings"]);
+const pagePaths = new Set(["/", "/stremio", "/check", "/timings", "/integrations"]);
 
 export const redactedPath = (pathname: string) =>
   pathname
