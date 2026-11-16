@@ -1,3 +1,4 @@
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 import familyFixture from "../../test/fixtures/subtitles/act-breaks-s01e24.json" with { type: "json" };
 import { timingFamiliesOf } from "./timing-families.ts";
@@ -106,4 +107,24 @@ describe("timingFamiliesOf", () => {
 
     expect(families).toBeUndefined();
   });
+});
+
+describe("timingFamiliesOf and the event loop", () => {
+  it("keeps the event loop free while it aligns long subtitles", async () => {
+    const long = syntheticTrack(11, 1500);
+    const tracks = [0, 1, 2, 3].map((index) => ({
+      item: `copy ${index}`,
+      cues: transform(long, (time) => time + index * 40),
+    }));
+    const lag = monitorEventLoopDelay({ resolution: 10 });
+
+    lag.enable();
+
+    const families = await timingFamiliesOf(tracks);
+
+    lag.disable();
+
+    expect(families).toEqual([["copy 0", "copy 1", "copy 2", "copy 3"]]);
+    expect(lag.max / 1e6).toBeLessThan(60);
+  }, 60_000);
 });
