@@ -23,7 +23,7 @@ const tokenTtlSeconds = 12 * 60 * 60;
 export const restEntrySchema = v.object({
   attributes: v.object({
     language: v.string(),
-    release: v.optional(v.string()),
+    release: v.nullish(v.string()),
     fps: v.optional(v.unknown()),
     moviehash_match: v.optional(v.unknown()),
     foreign_parts_only: v.optional(v.unknown()),
@@ -131,7 +131,7 @@ export const restCandidate = (entry: RESTEntry): Candidate[] => {
     return [];
   }
 
-  const releaseName = attributes.release;
+  const releaseName = attributes.release ?? undefined;
   const fps = typeof attributes.fps === "number" && attributes.fps > 0 ? attributes.fps : undefined;
 
   return [

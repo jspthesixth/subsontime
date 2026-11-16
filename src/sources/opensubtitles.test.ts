@@ -128,6 +128,23 @@ describe("openSubtitlesSource search", () => {
     expect(candidates.map(({ ref, lang }) => [ref, lang])).toEqual([["502", "pob"]]);
   });
 
+  it("keeps a subtitle whose release is null", async () => {
+    stubFetch(
+      json({
+        data: [{ attributes: { language: "en", release: null, files: [{ file_id: 505 }] } }],
+      }),
+    );
+
+    const candidates = await openSubtitlesSource(undefined, appKey, memoryTokenCache()).search(
+      movie,
+      signal(),
+    );
+
+    expect(candidates.map(({ ref, releaseName }) => [ref, releaseName])).toEqual([
+      ["505", undefined],
+    ]);
+  });
+
   it("marks the subtitles flagged as foreign parts only", async () => {
     stubFetch(
       json({ data: [flaggedEntry(601, true), flaggedEntry(602, false), flaggedEntry(603, 1)] }),
