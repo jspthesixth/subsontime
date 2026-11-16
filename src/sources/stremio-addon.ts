@@ -13,7 +13,7 @@ import {
 const searchTimeoutMs = 4000;
 const downloadTimeoutMs = 8000;
 
-const entrySchema = v.object({
+export const addonEntrySchema = v.object({
   id: v.optional(v.union([v.string(), v.number()])),
   url: v.string(),
   lang: v.string(),
@@ -74,7 +74,9 @@ const requestURL = (manifestURL: string, query: VideoQuery) => {
   return `${manifestURL.replace(/\/manifest\.json$/, "")}/subtitles/${query.type}/${id}${suffix}.json`;
 };
 
-const toCandidate = (name: string, entry: v.InferOutput<typeof entrySchema>): Candidate => {
+export type AddonEntryData = v.InferOutput<typeof addonEntrySchema>;
+
+export const addonCandidate = (name: string, entry: AddonEntryData): Candidate => {
   const releaseName = entry.subtitleFileName ?? entry.movieReleaseName;
   const fps =
     typeof entry.fpsMilli === "number" && entry.fpsMilli > 0 ? entry.fpsMilli / 1000 : undefined;
@@ -90,14 +92,11 @@ const toCandidate = (name: string, entry: v.InferOutput<typeof entrySchema>): Ca
   };
 };
 
-export type AddonEntry = { id?: string | number; candidate: Candidate };
-
-export const addonEntries = async (
+export const fetchAddonEntries = async (
   manifestURL: string,
-  name: string,
   query: VideoQuery,
   signal: AbortSignal,
-): Promise<AddonEntry[]> => {
+): Promise<AddonEntryData[] | undefined> => {
   const response = await fetchWithTimeout(
     requestURL(manifestURL, query),
     { signal, maxBytes: maximumSearchBytes },
@@ -107,20 +106,22 @@ export const addonEntries = async (
   const parsed = v.safeParse(responseSchema, body);
 
   if (!response.ok || !parsed.success) {
-    return [];
+    return undefined;
   }
 
-  return parsed.output.subtitles
-    .map((entry) => v.safeParse(entrySchema, entry))
-    .flatMap((entry) =>
-      entry.success ? [{ id: entry.output.id, candidate: toCandidate(name, entry.output) }] : [],
-    );
+  return parsed.output.subtitles.flatMap((entry) => {
+    const result = v.safeParse(addonEntrySchema, entry);
+
+    return result.success ? [result.output] : [];
+  });
 };
 
 export const stremioAddonSource = (manifestURL: string, name: string): Source => ({
   name,
   async search(query, signal) {
-    return (await addonEntries(manifestURL, name, query, signal)).map(({ candidate }) => candidate);
+    return ((await fetchAddonEntries(manifestURL, query, signal)) ?? []).map((entry) =>
+      addonCandidate(name, entry),
+    );
   },
   async download(ref, signal) {
     const response = await fetchWithTimeout(

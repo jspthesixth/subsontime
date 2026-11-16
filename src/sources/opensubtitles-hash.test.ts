@@ -6,13 +6,11 @@ import { memorySharedState, type SharedState } from "../jobs/shared-state.ts";
 import {
   budgetedDownloads,
   downloadBudget,
-  openSubtitlesHashSource,
-  sharedListing,
+  openSubtitlesListing,
   type DownloadBudget,
 } from "./opensubtitles-hash.ts";
 import { openSubtitlesSource } from "./opensubtitles.ts";
 import type { Candidate, VideoQuery } from "./source.ts";
-import { stremioAddonSource } from "./stremio-addon.ts";
 import { memoryTokenCache } from "./test-sources.ts";
 
 const manifestURL = "https://opensubtitles-v3.strem.io/manifest.json";
@@ -33,7 +31,32 @@ const peterPan: VideoQuery = {
 const urlOf = (input: Parameters<typeof fetch>[0]) =>
   input instanceof Request ? input.url : String(input);
 
-const stubAPIs = ({ restStatus = 200 }: { restStatus?: number } = {}) => {
+const listingFixture = {
+  ...restFixture,
+  data: restFixture.data.map((entry) => ({
+    ...entry,
+    attributes: { ...entry.attributes, moviehash_match: false },
+  })),
+};
+
+const withStringIds = (fixture: typeof restFixture) => ({
+  ...fixture,
+  data: fixture.data.map((entry) => ({
+    ...entry,
+    attributes: {
+      ...entry.attributes,
+      legacy_subtitle_id: String(entry.attributes.legacy_subtitle_id),
+    },
+  })),
+});
+
+type Stub = { restStatus?: number; listing?: unknown; matches?: unknown };
+
+const stubAPIs = ({
+  restStatus = 200,
+  listing = listingFixture,
+  matches = restFixture,
+}: Stub = {}) => {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = urlOf(input);
 
@@ -42,7 +65,9 @@ const stubAPIs = ({ restStatus = 200 }: { restStatus?: number } = {}) => {
     }
 
     if (url.startsWith(restSearchURL)) {
-      return new Response(JSON.stringify(restFixture), { status: restStatus });
+      return new Response(JSON.stringify(url.includes("order_by=") ? listing : matches), {
+        status: restStatus,
+      });
     }
 
     if (url.endsWith("/download")) {
@@ -55,6 +80,7 @@ const stubAPIs = ({ restStatus = 200 }: { restStatus?: number } = {}) => {
   vi.stubGlobal("fetch", fetchMock);
 
   return {
+    calls: () => fetchMock.mock.calls.map(([url]) => urlOf(url)),
     restSearches: () =>
       fetchMock.mock.calls.filter(([url]) => urlOf(url).startsWith(restSearchURL)),
     restDownloads: () => fetchMock.mock.calls.filter(([url]) => urlOf(url).endsWith("/download")),
@@ -66,23 +92,19 @@ const openBudget = (left = true): DownloadBudget => ({
   spend: async () => left,
 });
 
-const sourceWith = (state: SharedState = memorySharedState(), budget = openBudget()) => {
-  const rest = budgetedDownloads(
-    openSubtitlesSource(undefined, "app-key", memoryTokenCache()),
-    budget,
-    state,
-  );
-
-  return openSubtitlesHashSource({
+const sourceWith = (state: SharedState = memorySharedState(), budget = openBudget()) =>
+  openSubtitlesListing({
     manifestURL,
     name: "OpenSubtitles",
     appKey: "app-key",
     state,
     budget,
-    rest,
-    listing: sharedListing(manifestURL, "OpenSubtitles"),
+    rest: budgetedDownloads(
+      openSubtitlesSource(undefined, "app-key", memoryTokenCache()),
+      budget,
+      state,
+    ),
   });
-};
 
 const fail = async () => {
   throw new Error("down");
@@ -103,34 +125,99 @@ const signal = () => AbortSignal.timeout(1000);
 const summary = (candidates: Candidate[]) =>
   candidates.map(({ ref, lang, hashMatch, metered }) => [ref, lang, hashMatch, metered === true]);
 
+const amiableV3URL =
+  "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1953294863";
+const croatianV3URL =
+  "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1952547961?senc=cp1250";
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
-describe("openSubtitlesHashSource search", () => {
-  it("marks the v3 entry whose id is a REST hash match and adds the match v3 does not list", async () => {
+describe("openSubtitlesListing search", () => {
+  it("lists the REST rows, through v3 where v3 has them, then the rows only v3 lists", async () => {
     stubAPIs();
 
     const candidates = await sourceWith().search(peterPan, signal());
 
     expect(summary(candidates)).toEqual([
-      [
-        "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1953294863",
-        "eng",
-        false,
-        false,
-      ],
-      [matchedV3URL, "eng", true, false],
-      [
-        "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1952547961?senc=cp1250",
-        "hrv",
-        false,
-        false,
-      ],
       ["735363", "hrv", true, true],
+      [matchedV3URL, "eng", true, false],
+      ["12038440", "eng", false, true],
+      [amiableV3URL, "eng", false, false],
+      [croatianV3URL, "hrv", false, false],
     ]);
     expect(candidates.every(({ sourceName }) => sourceName === "OpenSubtitles")).toBe(true);
+  });
+
+  it("keeps the v3 release name of a row v3 has", async () => {
+    stubAPIs();
+
+    const candidates = await sourceWith().search(peterPan, signal());
+
+    expect(candidates.map(({ releaseName, fps }) => [releaseName, fps]).slice(0, 4)).toEqual([
+      ["Peter.Pan.1953.1080p.BluRay.x264.YIFY-srp", 25],
+      ["Peter.Pan.1953.720p.BluRay.x264.YIFY.srt", 47.952],
+      ["Peter.Pan.1953.1080p.BluRay.x265-RARBG.en", undefined],
+      ["Peter.Pan.1953.1080p.BluRay.X264-AMIABLE.srt", 23.976],
+    ]);
+  });
+
+  it("asks REST for page 1 by downloads, the hash on its own, and v3 without the file", async () => {
+    const { calls } = stubAPIs();
+
+    await sourceWith().search(peterPan, signal());
+
+    expect(calls().toSorted()).toEqual([
+      `${restSearchURL}?imdb_id=46183&languages=en,hr&moviehash=466d8f728dbe2142`,
+      `${restSearchURL}?imdb_id=46183&languages=en,hr&order_by=download_count&order_direction=desc`,
+      "https://opensubtitles-v3.strem.io/subtitles/movie/tt0046183.json",
+    ]);
+  });
+
+  it("lists without a hash search when the request has no hash", async () => {
+    const { calls } = stubAPIs();
+
+    const candidates = await sourceWith().search(
+      { ...peterPan, videoHash: undefined, videoSize: undefined },
+      signal(),
+    );
+
+    expect(summary(candidates)).toEqual([
+      ["735363", "hrv", false, true],
+      [matchedV3URL, "eng", false, false],
+      ["12038440", "eng", false, true],
+      [amiableV3URL, "eng", false, false],
+      [croatianV3URL, "hrv", false, false],
+    ]);
+    expect(calls().filter((url) => url.includes("moviehash"))).toEqual([]);
+  });
+
+  it("carries the REST foreign parts flag onto the v3 rows", async () => {
+    const flagged = new Set([4770753, 4749227]);
+    const withFlags = <T extends typeof listingFixture>(fixture: T) => ({
+      ...fixture,
+      data: fixture.data.map((entry) => ({
+        ...entry,
+        attributes: {
+          ...entry.attributes,
+          foreign_parts_only: flagged.has(entry.attributes.legacy_subtitle_id),
+        },
+      })),
+    });
+
+    stubAPIs({ listing: withFlags(listingFixture), matches: withFlags(restFixture) });
+
+    const candidates = await sourceWith().search(peterPan, signal());
+
+    expect(candidates.map(({ ref, foreignPartsOnly }) => [ref, foreignPartsOnly])).toEqual([
+      ["735363", undefined],
+      [matchedV3URL, true],
+      [amiableV3URL, true],
+      ["12038440", undefined],
+      [croatianV3URL, undefined],
+    ]);
   });
 
   it("joins a numeric v3 id to a legacy id sent as a string", async () => {
@@ -141,126 +228,21 @@ describe("openSubtitlesHashSource search", () => {
               subtitles: v3Fixture.subtitles.map((entry) => ({ ...entry, id: Number(entry.id) })),
             }),
           )
-        : new Response(
-            JSON.stringify({
-              ...restFixture,
-              data: restFixture.data.map((entry) => ({
-                ...entry,
-                attributes: {
-                  ...entry.attributes,
-                  legacy_subtitle_id: String(entry.attributes.legacy_subtitle_id),
-                },
-              })),
-            }),
-          ),
+        : new Response(JSON.stringify(withStringIds(restFixture))),
     );
 
     vi.stubGlobal("fetch", fetchMock);
 
     const candidates = await sourceWith().search(peterPan, signal());
 
-    expect(candidates.filter(({ hashMatch }) => hashMatch).map(({ ref }) => ref)).toEqual([
+    expect(candidates.filter(({ metered }) => metered !== true).map(({ ref }) => ref)).toEqual([
       matchedV3URL,
-      "735363",
+      amiableV3URL,
+      croatianV3URL,
     ]);
   });
 
-  it("marks the v3 entries that REST flags as foreign parts only", async () => {
-    const flagged = new Set([4770753, 4749227]);
-    const fetchMock = vi.fn<typeof fetch>(async (input) =>
-      urlOf(input).startsWith(v3ListingURL)
-        ? new Response(JSON.stringify(v3Fixture))
-        : new Response(
-            JSON.stringify({
-              ...restFixture,
-              data: restFixture.data.map((entry) => ({
-                ...entry,
-                attributes: {
-                  ...entry.attributes,
-                  foreign_parts_only: flagged.has(entry.attributes.legacy_subtitle_id),
-                },
-              })),
-            }),
-          ),
-    );
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    const source = sourceWith();
-
-    for (const candidates of [
-      await source.search(peterPan, signal()),
-      await source.search(peterPan, signal()),
-    ]) {
-      expect(
-        candidates.map(({ ref, hashMatch, foreignPartsOnly }) => [
-          ref,
-          hashMatch,
-          foreignPartsOnly,
-        ]),
-      ).toEqual([
-        [
-          "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1953294863",
-          false,
-          true,
-        ],
-        [matchedV3URL, true, true],
-        [
-          "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1952547961?senc=cp1250",
-          false,
-          undefined,
-        ],
-        ["735363", true, undefined],
-      ]);
-    }
-  });
-
-  it("adds a REST hash match for a language whose only listed hash match is foreign parts only", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async (input) =>
-      urlOf(input).startsWith(v3ListingURL)
-        ? new Response(JSON.stringify(v3Fixture))
-        : new Response(
-            JSON.stringify({
-              ...restFixture,
-              data: restFixture.data.map((entry) => ({
-                ...entry,
-                attributes: {
-                  ...entry.attributes,
-                  moviehash_match:
-                    entry.attributes.moviehash_match ||
-                    entry.attributes.legacy_subtitle_id === 13605764,
-                  foreign_parts_only: entry.attributes.legacy_subtitle_id === 4770753,
-                },
-              })),
-            }),
-          ),
-    );
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    const candidates = await sourceWith().search(peterPan, signal());
-
-    expect(
-      candidates
-        .filter(({ hashMatch, foreignPartsOnly }) => hashMatch && foreignPartsOnly !== true)
-        .map(({ ref, lang }) => [ref, lang]),
-    ).toEqual([
-      ["735363", "hrv"],
-      ["12038440", "eng"],
-    ]);
-  });
-
-  it("asks the REST search for the hash, the title and the languages", async () => {
-    const { restSearches } = stubAPIs();
-
-    await sourceWith().search(peterPan, signal());
-
-    expect(restSearches().map(([url]) => urlOf(url))).toEqual([
-      `${restSearchURL}?imdb_id=46183&languages=en,hr&moviehash=466d8f728dbe2142`,
-    ]);
-  });
-
-  it("leaves out the REST-only match once the download budget is spent", async () => {
+  it("leaves out the REST-only rows once the download budget is spent", async () => {
     stubAPIs();
 
     const candidates = await sourceWith(memorySharedState(), openBudget(false)).search(
@@ -268,23 +250,14 @@ describe("openSubtitlesHashSource search", () => {
       signal(),
     );
 
-    expect(candidates.map(({ ref }) => ref)).not.toContain("735363");
-    expect(candidates.find(({ ref }) => ref === matchedV3URL)?.hashMatch).toBe(true);
+    expect(summary(candidates)).toEqual([
+      [matchedV3URL, "eng", true, false],
+      [amiableV3URL, "eng", false, false],
+      [croatianV3URL, "hrv", false, false],
+    ]);
   });
 
-  it("searches REST once per title and file while the result is cached", async () => {
-    const { restSearches } = stubAPIs();
-
-    const source = sourceWith();
-
-    await source.search(peterPan, signal());
-    const second = await source.search(peterPan, signal());
-
-    expect(restSearches()).toHaveLength(1);
-    expect(second.find(({ ref }) => ref === matchedV3URL)?.hashMatch).toBe(true);
-  });
-
-  it("serves the v3 listing and retries later when the REST search fails", async () => {
+  it("serves the v3 listing alone and retries REST later when REST fails", async () => {
     const { restSearches } = stubAPIs({ restStatus: 429 });
 
     const source = sourceWith();
@@ -293,43 +266,52 @@ describe("openSubtitlesHashSource search", () => {
 
     await source.search(peterPan, signal());
 
-    expect(candidates.some(({ hashMatch }) => hashMatch)).toBe(false);
-    expect(candidates).toHaveLength(3);
-    expect(restSearches()).toHaveLength(2);
+    expect(summary(candidates)).toEqual([
+      [amiableV3URL, "eng", false, false],
+      [matchedV3URL, "eng", false, false],
+      [croatianV3URL, "hrv", false, false],
+    ]);
+    expect(restSearches()).toHaveLength(4);
   });
 
-  it("stops searching REST past five searches in one second", async () => {
+  it("shares the REST and v3 listings between installs for a day", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-11-16T12:00:00Z"));
+
+    const { calls } = stubAPIs();
+
+    const state = memorySharedState();
+
+    await sourceWith(state).search(peterPan, signal());
+
+    const second = await sourceWith(state).search(peterPan, signal());
+
+    vi.setSystemTime(Date.parse("2026-11-17T12:00:01Z"));
+    await sourceWith(state).search(peterPan, signal());
+
+    expect(calls()).toHaveLength(6);
+    expect(summary(second)[1]).toEqual([matchedV3URL, "eng", true, false]);
+  });
+
+  it("stops searching REST past five searches in one second across installs", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.parse("2026-11-15T12:00:00.100Z"));
 
     const { restSearches } = stubAPIs();
 
-    const source = sourceWith();
+    const state = memorySharedState();
     const files = Array.from({ length: 6 }, (_, index) => ({
       ...peterPan,
       videoHash: `466d8f728dbe214${index}`,
     }));
 
-    await Promise.all(files.map((file) => source.search(file, signal())));
+    await Promise.all(files.map((file) => sourceWith(state).search(file, signal())));
 
     expect(restSearches()).toHaveLength(5);
   });
-
-  it("lists exactly what the v3 addon lists without a hash", async () => {
-    const { restSearches } = stubAPIs();
-
-    const query = { ...peterPan, videoHash: undefined, videoSize: undefined };
-
-    const candidates = await sourceWith().search(query, signal());
-
-    expect(candidates).toEqual(
-      await stremioAddonSource(manifestURL, "OpenSubtitles").search(query, signal()),
-    );
-    expect(restSearches()).toHaveLength(0);
-  });
 });
 
-describe("openSubtitlesHashSource download", () => {
+describe("openSubtitlesListing download", () => {
   it("downloads a joined match through its v3 URL without a REST download", async () => {
     const { restDownloads } = stubAPIs();
 

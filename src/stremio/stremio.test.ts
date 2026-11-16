@@ -1638,20 +1638,55 @@ describe("sourcesFromConfig", () => {
     expect(names(sources.references)).toEqual(["OpenSubtitles API"]);
   });
 
-  it("lists an OpenSubtitles login under its own name next to the v3 addon", () => {
+  it("lists OpenSubtitles once next to a login", () => {
     const sources = sourcesFromConfig(
       {
         ...config,
         sources: [
           { kind: "stremio-addon", url: "https://opensubtitles-v3.strem.io/manifest.json" },
+          { kind: "subdl", apiKey: "key" },
           { kind: "opensubtitles", username: "user", password: "pass" },
         ],
       },
       { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
     );
 
-    expect(names(sources.listed)).toEqual(["OpenSubtitles", "OpenSubtitles API"]);
+    expect(names(sources.listed)).toEqual(["OpenSubtitles", "SubDL"]);
     expect(sources.references).toEqual([]);
+  });
+
+  it("lists OpenSubtitles for a login alone", () => {
+    const sources = sourcesFromConfig(
+      { ...config, sources: [{ kind: "opensubtitles", username: "user", password: "pass" }] },
+      { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
+    );
+
+    expect(names(sources.listed)).toEqual(["OpenSubtitles"]);
+    expect(sources.references).toEqual([]);
+  });
+
+  it("lists an install link sealed before the API through the API", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      String(input).startsWith("https://api.opensubtitles.com")
+        ? new Response(JSON.stringify(restHashFixture))
+        : new Response(JSON.stringify(v3HashFixture)),
+    );
+    const token =
+      "AQrayQZPwhMYhSSTE58xMGB5hEuVQGaI4Hp1uTmhVH2LKFWGrItvNzps_aM5E2DrS52IGLaGSVaGZl6KUieNrhcrdfgr7vqkj0_v52VFmgEh0gdhs7q-EaTTAwxr1z9NE05n0HoO97SsGVVfm_lrl0xu0wyiG2uWLhefwDpiYrxg2rP01k5eDGLaqGWeKIA-3slv771UxxbW9EqsAOMbDLG-ur8EJs3goz0fbWkU31HXW0SItY29wRw5OtyRAmqDpDBVjaB5JT9WlOV6j3nXD2fHk0NcOIXPkxneqp48KgKsEMUugGM2Ppp3cD12n1fI9FVHVkyIGTF6eY92W0pYJOUH4v9BkNPQsZa45OaAlnetejwkfvghDGixyQ";
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const app = createApp({ secret: "a".repeat(32), openSubtitlesAppKey: "app-key" });
+    const { body } = await list(app, token, "movie/tt0046183.json");
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).toSorted()).toEqual([
+      "https://api.opensubtitles.com/api/v1/subtitles?imdb_id=46183&languages=en,hr&order_by=download_count&order_direction=desc",
+      "https://opensubtitles-v3.strem.io/subtitles/movie/tt0046183.json",
+    ]);
+    expect(body.subtitles.map(({ id, label }) => [id, label])).toEqual([
+      ["eng-best", "OpenSubtitles"],
+      ["hrv-best", "OpenSubtitles"],
+    ]);
   });
 
   it("skips the OpenSubtitles API without an app key", () => {
@@ -1685,7 +1720,7 @@ describe("sourcesFromConfig", () => {
     ]);
   });
 
-  it("lists each OpenSubtitles match once next to a login, through v3 where it can", async () => {
+  it("lists each OpenSubtitles row once next to a login, through v3 where it can", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input) =>
       String(input).startsWith("https://api.opensubtitles.com")
         ? new Response(JSON.stringify(restHashFixture))
@@ -1716,13 +1751,20 @@ describe("sourcesFromConfig", () => {
     );
 
     expect(
-      found.flat().map(({ sourceName, ref, hashMatch }) => [sourceName, ref.slice(-10), hashMatch]),
+      found
+        .flat()
+        .map(({ sourceName, ref, hashMatch, metered }) => [
+          sourceName,
+          ref.slice(-10),
+          hashMatch,
+          metered === true,
+        ]),
     ).toEqual([
-      ["OpenSubtitles", "1953294863", false],
-      ["OpenSubtitles", "1953315756", true],
-      ["OpenSubtitles", "enc=cp1250", false],
-      ["OpenSubtitles API", "735363", true],
-      ["OpenSubtitles API", "12038440", false],
+      ["OpenSubtitles", "735363", true, true],
+      ["OpenSubtitles", "1953315756", true, false],
+      ["OpenSubtitles", "12038440", false, true],
+      ["OpenSubtitles", "1953294863", false, false],
+      ["OpenSubtitles", "enc=cp1250", false, false],
     ]);
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("strem.io"))).toHaveLength(
       1,

@@ -145,7 +145,7 @@ Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point a
 | `SUBDL_API_KEY`                 | no       | SubDL API key for the command line. Adds the SubDL source.                                                 |
 | `SUBSOURCE_API_KEY`             | no       | SubSource API key for the command line. Adds the SubSource source.                                         |
 
-With the app key, a file without a hash takes its timing references from the OpenSubtitles addon listing, not the OpenSubtitles API, so it spends none of the daily downloads. The downloads go only to subtitles made for the file that the addon does not list.
+With the app key, OpenSubtitles lists through its API: the most downloaded subtitles in your languages, plus the ones made for the file when it has a hash, each list kept for a day and shared by every install. A subtitle the OpenSubtitles addon also has downloads from the addon for free. Only a subtitle the addon does not have spends one of the daily downloads. Without the app key, or when the API does not answer, the addon listing is used.
 
 ### Database
 

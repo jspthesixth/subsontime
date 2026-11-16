@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { memorySharedState } from "../../src/jobs/shared-state.ts";
 import { openSubtitlesSource } from "../../src/sources/opensubtitles.ts";
+import { downloadBudget, openSubtitlesListing } from "../../src/sources/opensubtitles-hash.ts";
 import type { Source, VideoQuery } from "../../src/sources/source.ts";
 import { openSubtitlesV3 } from "../../src/sources/stremio-addon.ts";
 import { titloviSource } from "../../src/sources/titlovi.ts";
@@ -57,6 +58,10 @@ const record = async (name: string, bytes: ArrayBuffer, json: boolean) => {
 };
 
 globalThis.fetch = async (input, init) => {
+  if (step.endsWith("rest-down") && String(input).startsWith("https://api.opensubtitles.com")) {
+    throw new Error("The probe keeps REST down");
+  }
+
   const response = await realFetch(input, init);
   const bytes = await response.clone().arrayBuffer();
   const body = await response
@@ -102,6 +107,26 @@ const downloadFirst = (name: string, source: Source, query: VideoQuery) =>
   });
 
 const tokens = () => tokenCacheFor(memorySharedState(), "probe", installKeyOf(""));
+
+const listingWith = (key: string, dailyDownloads: number) => {
+  const state = memorySharedState();
+
+  return openSubtitlesListing({
+    manifestURL: "https://opensubtitles-v3.strem.io/manifest.json",
+    name: "OpenSubtitles",
+    appKey: key,
+    state,
+    budget: downloadBudget(state, dailyDownloads),
+    rest: openSubtitlesSource(undefined, key, tokens()),
+  });
+};
+
+const countFree = async (source: Source, query: VideoQuery) => {
+  const candidates = await source.search(query, signal());
+
+  return candidates.filter(({ metered }) => metered !== true).length;
+};
+
 const appKey = process.env["OPENSUBTITLES_APP_KEY"];
 const titloviUsername = process.env["TITLOVI_USERNAME"];
 const titloviPassword = process.env["TITLOVI_PASSWORD"];
@@ -118,8 +143,25 @@ if (appKey === undefined || appKey === "") {
   await probe("os-rest-series", async () => (await rest.search(gilmoreGirls, signal())).length);
   await probe("os-rest-hash", async () => (await rest.search(peterPanFile, signal())).length);
 
+  await probe(
+    "os-listing-movie",
+    async () => (await listingWith(appKey, 1).search(nightOfTheLivingDead, signal())).length,
+  );
+  await probe("os-listing-movie-free", () =>
+    countFree(listingWith(appKey, 0), nightOfTheLivingDead),
+  );
+  await probe(
+    "os-listing-hash",
+    async () => (await listingWith(appKey, 1).search(peterPanFile, signal())).length,
+  );
+  await probe("os-listing-series-free", () => countFree(listingWith(appKey, 0), gilmoreGirls));
+  await probe("os-listing-rest-down", () =>
+    countFree(listingWith(appKey, 0), nightOfTheLivingDead),
+  );
+
   if (values.download) {
     await downloadFirst("os-rest-download", rest, nightOfTheLivingDead);
+    await downloadFirst("os-listing-free-download", listingWith(appKey, 0), nightOfTheLivingDead);
   }
 }
 

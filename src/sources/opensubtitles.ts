@@ -55,7 +55,7 @@ export const movieHashOf = (query: VideoQuery) => {
   return hash !== undefined && /^[0-9a-f]{16}$/.test(hash) ? hash : undefined;
 };
 
-export const restQueryString = (query: VideoQuery) => {
+export const restQueryString = (query: VideoQuery, byDownloads = false) => {
   const languages = [
     ...new Set(query.languages.flatMap((lang) => toISO6391(lang) ?? [])),
   ].toSorted();
@@ -63,6 +63,7 @@ export const restQueryString = (query: VideoQuery) => {
   const params = {
     languages: languages.join(","),
     ...(hash === undefined ? {} : { moviehash: hash }),
+    ...(byDownloads ? { order_by: "download_count", order_direction: "desc" } : {}),
     ...(query.type === "series"
       ? {
           parent_imdb_id: imdbDigits(query.imdbId),
@@ -84,12 +85,10 @@ export const restQueryString = (query: VideoQuery) => {
 
 export const searchRESTEntries = async (
   appKey: string,
-  query: VideoQuery,
+  queryString: string | undefined,
   signal: AbortSignal,
   timeoutMs = searchTimeoutMs,
 ): Promise<RESTEntry[] | undefined> => {
-  const queryString = restQueryString(query);
-
   if (queryString === undefined) {
     return [];
   }
@@ -194,7 +193,10 @@ export const openSubtitlesSource = (
   return {
     name: sourceName,
     async search(query, signal) {
-      return (await searchRESTEntries(appKey, query, signal))?.flatMap(restCandidate) ?? [];
+      return (
+        (await searchRESTEntries(appKey, restQueryString(query), signal))?.flatMap(restCandidate) ??
+        []
+      );
     },
     async download(ref, signal) {
       const session = credentials === undefined ? undefined : await login(credentials, signal);
