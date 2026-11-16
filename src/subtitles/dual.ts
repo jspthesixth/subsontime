@@ -7,16 +7,40 @@ const overlapOf = (first: Cue, second: Cue) =>
 
 const italic = ({ text }: Cue) => `<i>${text.replace(/\s*\n\s*/g, " ")}</i>`;
 
-const placementsOf = (primary: Cue[], secondary: Cue[]) => {
-  const pairs = secondary
-    .flatMap((cue, second) =>
-      primary.flatMap((line, first) => {
-        const overlap = overlapOf(line, cue);
+const byStart = (cues: Cue[]) =>
+  cues
+    .map((cue, index) => ({ cue, index }))
+    .toSorted((left, right) => left.cue.start - right.cue.start);
 
-        return overlap > 0 ? [{ first, second, overlap }] : [];
-      }),
-    )
-    .toSorted((left, right) => right.overlap - left.overlap || left.first - right.first);
+const overlapsOf = (primary: Cue[], secondary: Cue[]) => {
+  const lines = byStart(primary);
+  let next = 0;
+  let open: typeof lines = [];
+
+  return byStart(secondary).flatMap(({ cue, index: second }) => {
+    let line = lines[next];
+
+    while (line !== undefined && line.cue.start < cue.end) {
+      open.push(line);
+      next += 1;
+      line = lines[next];
+    }
+
+    open = open.filter((each) => each.cue.end > cue.start);
+
+    return open.flatMap(({ cue: each, index: first }) => {
+      const overlap = overlapOf(each, cue);
+
+      return overlap > 0 ? [{ first, second, overlap }] : [];
+    });
+  });
+};
+
+const placementsOf = (primary: Cue[], secondary: Cue[]) => {
+  const pairs = overlapsOf(primary, secondary).toSorted(
+    (left, right) =>
+      right.overlap - left.overlap || left.first - right.first || left.second - right.second,
+  );
   const owner = new Map<number, number>();
   const attached = new Map<number, number>();
 

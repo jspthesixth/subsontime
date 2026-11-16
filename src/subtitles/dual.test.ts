@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { mergeDual } from "./dual.ts";
 
+const lines = (count: number, offset: number, text: string) =>
+  Array.from({ length: count }, (_, index) => ({
+    start: index * 2000 + offset,
+    end: index * 2000 + offset + 1800,
+    text: `${text} ${index}`,
+  }));
+
 describe("mergeDual", () => {
   it("puts the overlapping second-language cue below the first in italics", () => {
     expect(
@@ -93,5 +100,29 @@ describe("mergeDual", () => {
         [{ start: 0, end: 2000, text: "Bok\ntamo." }],
       ),
     ).toEqual([{ start: 0, end: 2000, text: "Hello there.\n<i>Bok tamo.</i>" }]);
+  });
+
+  it("pairs 1500 lines a side in one walk over their start times", () => {
+    let reads = 0;
+    const counted = (cues: ReturnType<typeof lines>) =>
+      cues.map(({ start, end, text }) => ({
+        get start() {
+          reads += 1;
+
+          return start;
+        },
+        end,
+        text,
+      }));
+
+    const merged = mergeDual(counted(lines(1500, 0, "One")), counted(lines(1500, 500, "Jedan")));
+
+    expect(merged).toHaveLength(1500);
+    expect(merged.at(-1)).toEqual({
+      start: 2_998_000,
+      end: 2_999_800,
+      text: "One 1499\n<i>Jedan 1499</i>",
+    });
+    expect(reads).toBeLessThan(100_000);
   });
 });
