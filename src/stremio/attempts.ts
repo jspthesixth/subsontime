@@ -1,3 +1,4 @@
+import { setTimeout } from "node:timers/promises";
 import type { Config } from "../config/config.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
@@ -5,7 +6,7 @@ import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import { retimeToAnchor } from "../timing/anchor.ts";
+import { agreeingWith, retimeToAnchor } from "../timing/anchor.ts";
 import { retime, type RetimeResult, type Track } from "../timing/retime.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { toFixCues } from "../timings/fingerprint.ts";
@@ -26,6 +27,7 @@ export const mismatchReason =
   "Made for another video. Its dialogue does not line up with this file anywhere.";
 
 const downloadTimeoutMs = 8000;
+const othersBudgetMs = 5000;
 const unreadableReason = "Could not be read.";
 
 const toCandidate = (ref: CandidateRef): Candidate => ({
@@ -63,14 +65,40 @@ export const settledTracks = async (tracks: Promise<Track>[]) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
 
+const inTime = (track: Promise<Track>) =>
+  Promise.race([
+    track,
+    setTimeout(othersBudgetMs, undefined, { ref: false }).then(() =>
+      Promise.reject(new Error("Too slow to compare")),
+    ),
+  ]);
+
 type Timing = {
   references: () => Promise<Track[]>;
   anchor: () => Promise<Anchor | undefined>;
+  othersThan: (track: Track, start: number, end?: number) => Promise<Track[]>;
+};
+
+const agreeingFirst = 3;
+
+const agreesWithFew = async (track: Track, othersThan: Timing["othersThan"]) => {
+  const first = await othersThan(track, 0, agreeingFirst);
+  const agreeing = agreeingWith(track.cues, first);
+
+  if (agreeing >= 2) {
+    return false;
+  }
+
+  const rest = await othersThan(track, agreeingFirst);
+
+  return (
+    first.length + rest.length >= agreeingFirst && agreeing + agreeingWith(track.cues, rest) < 2
+  );
 };
 
 const timeTrack = async (
   track: Track,
-  { references, anchor: anchorOf }: Timing,
+  { references, anchor: anchorOf, othersThan }: Timing,
   config: Config,
   signal: AbortSignal | undefined,
   shared: Shared | undefined,
@@ -106,7 +134,10 @@ const timeTrack = async (
 
   signal?.throwIfAborted();
 
-  return retime(track, ready);
+  const retimed = await retime(track, ready);
+  const alone = retimed.kind === "not-retimed" && (await agreesWithFew(track, othersThan));
+
+  return alone ? { kind: "mismatch", alone } : retimed;
 };
 
 export type Downloader = Download & { has: (candidate: CandidateRef) => boolean };
@@ -171,7 +202,7 @@ export const timedCues = (attempt: Attempt, config: Config): Cue[] | undefined =
 };
 
 export async function* resolveAttempts(
-  ref: Pick<SubtitleRef, "c" | "x" | "a">,
+  ref: Pick<SubtitleRef, "c" | "x" | "a" | "g">,
   config: Config,
   download: Download,
   signal?: AbortSignal,
@@ -205,6 +236,13 @@ export async function* resolveAttempts(
 
       return anchoring;
     },
+    othersThan: ({ candidate: { sourceName, ref: own } }, start, end) =>
+      settledTracks(
+        (ref.a ?? ref.g ?? [])
+          .filter(({ n, r }) => candidateKey(n, r) !== candidateKey(sourceName, own))
+          .slice(start, end)
+          .map((candidate) => inTime(download(candidate))),
+      ),
   };
 
   if (!lazyReferences && ref.c[0]?.h !== 1 && ref.a === undefined) {
@@ -285,7 +323,7 @@ export const sharesOf = (attempts: Attempt[], video: VideoKey): Share[] =>
       ];
     }
 
-    return result?.kind === "mismatch"
+    return result?.kind === "mismatch" && result.alone !== true
       ? [{ kind: "mismatch", input: { video, subtitleHashes: hashesOf(track.cues) } }]
       : [];
   });

@@ -187,6 +187,7 @@ export const subtitlesRoute =
       d: hiddenKey,
       t,
       s: second === undefined ? undefined : candidateRefsOf(second),
+      g: anchors.length > 0 || found.pool.length === 0 ? undefined : found.pool.map(toCandidateRef),
     });
     const urlOf = (ref: SubtitleRef) =>
       `${baseURL(context, publicURL, trustProxy)}/${context.req.param("config")}/sub/${encodeRef(ref, refKey)}.srt`;

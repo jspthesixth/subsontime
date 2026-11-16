@@ -1485,7 +1485,6 @@ describe("timing anchor", () => {
     await servedAt(app, body.subtitles[0]?.url ?? "");
     await servedAt(app, body.subtitles[1]?.url ?? "");
 
-    expect(source.download.mock.calls.filter(([ref]) => ref === "eng-broken")).toHaveLength(1);
     expect(
       set.mock.calls
         .filter(([key]) => key.startsWith("anchor:"))
@@ -1523,6 +1522,27 @@ describe("timing anchor", () => {
     );
 
     expect(ref.a).toBeUndefined();
+  });
+
+  it("skips a subtitle whose timing agrees with no other subtitle of the video, as a commentary track", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-commentary", lang: "hrv", cues: unrelated },
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      { ref: "eng", lang: "eng", cues: track },
+      { ref: "fre", lang: "fre", cues: transform(track, (time) => time + 40) },
+      { ref: "deu", lang: "deu", cues: transform(track, (time) => time - 500) },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"] }),
+      anchored("Movie.2024.1080p.mkv"),
+    );
+
+    expect(ref.a).toBeUndefined();
+    expect(ref.c.map(({ r }) => r)).toEqual(["hrv-commentary", "hrv-shifted"]);
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(shifted));
   });
 
   it("serves a candidate with as good a release name as the anchor without retiming it", async () => {

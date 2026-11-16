@@ -14,7 +14,7 @@ import {
   type ReleaseFamily,
 } from "../subtitles/release.ts";
 import { minimumScoreOf, rankingOf, scoreOf } from "../subtitles/score.ts";
-import { anchorWithGuardsOf, asGoodAsAnchor } from "../timing/anchor.ts";
+import { anchorWithGuardsOf, asGoodAsAnchor, guardChecks } from "../timing/anchor.ts";
 import { freeOnly, pickReferences } from "../timing/references.ts";
 import type { CandidateRef } from "./refs.ts";
 
@@ -91,15 +91,14 @@ export const searchVideo = async (
   const scoreContext = { video: query, fileRelease, family, ripGuess };
   const ranking = rankingOf(scoreContext);
 
-  const anchors = anchorWithGuardsOf(
-    everything.filter(({ metered }) => metered !== true).toSorted(ranking),
-    scoreContext,
-  );
+  const free = everything.filter(({ metered }) => metered !== true).toSorted(ranking);
+  const anchors = anchorWithGuardsOf(free, scoreContext);
   const [anchor] = anchors;
 
   return {
     references,
     anchors,
+    pool: free.slice(0, guardChecks + 1),
     asGoodAsAnchor: (candidate: Candidate) =>
       anchor !== undefined && asGoodAsAnchor(candidate, anchor, scoreContext),
     referencesFor: (candidates: Candidate[]) => {

@@ -143,3 +143,8 @@ export const anchorWithGuardsOf = <T extends Candidate>(ranked: T[], context: Sc
 
 export const asGoodAsAnchor = (candidate: Candidate, anchor: Candidate, context: ScoreContext) =>
   !anchor.hashMatch && releaseScoreOf(candidate, context) >= releaseScoreOf(anchor, context);
+
+export const sameVideoMinimumScore = 0.3;
+
+export const agreeingWith = (subtitle: Cue[], others: Track[]) =>
+  others.filter(({ cues }) => rigidlyAligned(cues, subtitle).score >= sameVideoMinimumScore).length;

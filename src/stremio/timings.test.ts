@@ -646,6 +646,32 @@ describe("sharing to Open Timings", () => {
     expect(defer).toHaveBeenCalledTimes(deferredAtListing);
   });
 
+  it("shares no mismatch for a subtitle that agrees with no other subtitle of the video", async () => {
+    const defer = deferSpy();
+    const { token } = installed();
+
+    const app = appWith(
+      {
+        listed: [
+          fakeSource("Fake", [
+            { ref: "a", cues: unrelated },
+            { ref: "b", lang: "fre", cues: track },
+            { ref: "c", lang: "deu", cues: track },
+            { ref: "d", lang: "ita", cues: track },
+          ]),
+        ],
+        references: [],
+      },
+      memoryStore(),
+      { defer },
+    );
+    const url = await firstURL(app, token);
+    const deferredAtListing = defer.mock.calls.length;
+
+    expect((await app.request(url)).status).toBe(404);
+    expect(defer).toHaveBeenCalledTimes(deferredAtListing);
+  });
+
   it("shares nothing without a video fingerprint", async () => {
     const defer = deferSpy();
     const { token } = installed();

@@ -29,7 +29,7 @@ export type RetimeResult =
     }
   | { kind: "shared-fix"; cues: Cue[]; agreeing: number; fromAudio: boolean }
   | { kind: "not-retimed"; cues: Cue[]; noFit?: true }
-  | { kind: "mismatch" };
+  | { kind: "mismatch"; alone?: true };
 
 export const retimedMinimumScore = 0.6;
 export const mismatchMaximumScore = 0.2;
