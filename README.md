@@ -1,33 +1,117 @@
 # Subs On Time
 
-Subtitles that fit the file you are playing. A Stremio addon that retimes every subtitle to your exact video.
+Subtitles that fit the file you are playing. Subs On Time finds subtitles for the exact video file and retimes each one to it, by a subtitle made for that file or by the soundtrack. Every fix goes to Open Timings, a shared database, so the next person with the same file gets it at once.
 
-## Run with Docker
+It runs as a Stremio addon, a Jellyfin plugin, a Bazarr+ provider and a command line for Bazarr or any player.
 
-```sh
-docker run -e SECRET=<at least 32 random characters> -e INSTALL_SALT=<at least 32 other random characters> -p 7000:7000 ghcr.io/jspthesixth/subsontime
-```
+## Install in Stremio
 
-To build the image yourself:
+Open [subsontime.com/stremio](https://subsontime.com/stremio), pick your languages and sources, and choose Install in Stremio. The install link carries your settings, sealed, so there is no account.
 
-```sh
-docker build -t subsontime .
-docker run -e SECRET=<at least 32 random characters> -e INSTALL_SALT=<at least 32 other random characters> -p 7000:7000 subsontime
-```
+## Integrations
 
-Open `http://localhost:7000/stremio` to configure the addon and get its install link.
+The Jellyfin plugin and the Bazarr+ provider ask for an install link: make one on the setup page above and paste it in their settings.
 
-## Command line
+- **Jellyfin**: in the Dashboard, open Plugins, Repositories, and add `https://subsontime.com/jellyfin/manifest.json`. Install Subs On Time from the Catalog and restart Jellyfin.
+- **Bazarr+**: download [`subsontime-bazarr-plus.zip`](https://github.com/jspthesixth/subsontime/releases/latest/download/subsontime-bazarr-plus.zip) from the latest release, upload it in Provider Hub and restart Bazarr+.
+- **Bazarr** (Sonarr and Radarr): install the command on the machine or container that runs Bazarr with `curl -fsSL https://subsontime.com/install.sh | sh`. In Settings, Subtitles, Post-Processing, turn on custom post-processing and paste:
+
+  ```sh
+  subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}}
+  ```
+
+### Command line
 
 For video files on disk, the `subsontime` command finds subtitles, times them to the exact file and writes `<video name>.<language>.srt` next to the video. It never overwrites a subtitle: when that name is taken it writes `<video name>.<language>.subsontime.srt`.
 
 ```sh
-node bin/subsontime.js fix "Example.Movie.2024.1080p.WEB-DL-GROUP.mkv" --lang hr,en --audio
+subsontime fix "Example.Movie.2024.1080p.WEB-DL-GROUP.mkv" --lang hr,en --audio
 ```
 
-It takes a file or a folder (one level deep, or every level with `--recursive`; samples and files under 50 MB are left out). `--audio` aligns to the soundtrack and needs `ffmpeg` (or `SUBSONTIME_FFMPEG` pointing at one). Fixes it times are shared with Open Timings under a random install id kept in `SUBSONTIME_CONFIG_DIR` when set, else in your config folder, else in `subsontime-<uid>` in the temp folder. For Bazarr in a linuxserver.io image, set `SUBSONTIME_CONFIG_DIR=/config/subsontime` on the container: its user cannot write its home folder. `--private` makes no contact with Open Timings at all. `--offline` makes no network call and needs both `--subtitle <path>` (the subtitle to align) and `--audio`. `OPENSUBTITLES_APP_KEY`, `TITLOVI_USERNAME` and `TITLOVI_PASSWORD`, `SUBDL_API_KEY` and `SUBSOURCE_API_KEY` add sources. Run `node bin/subsontime.js --help` for every option.
+It takes a file or a folder (one level deep, or every level with `--recursive`; samples and files under 50 MB are left out). `--audio` aligns to the soundtrack and needs `ffmpeg` (or `SUBSONTIME_FFMPEG` pointing at one). Fixes it times are shared with Open Timings under a random install id kept in `SUBSONTIME_CONFIG_DIR` when set, else in your config folder, else in `subsontime-<uid>` in the temp folder. For Bazarr in a linuxserver.io image, set `SUBSONTIME_CONFIG_DIR=/config/subsontime` on the container: its user cannot write its home folder. `--private` makes no contact with Open Timings at all. `--offline` makes no network call and needs both `--subtitle <path>` (the subtitle to align) and `--audio`. `OPENSUBTITLES_APP_KEY`, `TITLOVI_USERNAME` and `TITLOVI_PASSWORD`, `SUBDL_API_KEY` and `SUBSOURCE_API_KEY` add sources. Run `subsontime --help` for every option.
 
 It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on a usage error and 3 when `--audio` was given without ffmpeg.
+
+## Self-hosting
+
+The image `ghcr.io/jspthesixth/subsontime` runs on `linux/amd64` and `linux/arm64`. It needs two secrets, each at least 32 characters and different from each other (`openssl rand -hex 32` makes one):
+
+```sh
+docker run -e SECRET=<secret> -e INSTALL_SALT=<other secret> -p 7000:7000 ghcr.io/jspthesixth/subsontime
+```
+
+To build the image from a checkout instead, run `docker build -t subsontime .` and use `subsontime` as the image name. Open `http://localhost:7000/stremio` to configure the addon and get its install link. Without a database, Open Timings keeps fixes in memory and loses them on restart.
+
+### Docker Compose with Postgres
+
+Put `SECRET` and `INSTALL_SALT` in a `.env` file next to `compose.yaml`, with any other variable from the tables below:
+
+```yaml
+services:
+  subsontime:
+    image: ghcr.io/jspthesixth/subsontime:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://subsontime:subsontime@postgres:5432/subsontime
+    ports:
+      - "7000:7000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: subsontime
+      POSTGRES_PASSWORD: subsontime
+      POSTGRES_DB: subsontime
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subsontime"]
+      interval: 2s
+      retries: 20
+
+volumes:
+  postgres-data:
+```
+
+The image does not carry the database migrations. Apply them from a checkout of the same release, with `compose.yaml` in that folder, before the first start and after each upgrade:
+
+```sh
+docker compose run --rm -v "$PWD/migrations:/app/migrations:ro" -v "$PWD/scripts:/app/scripts:ro" subsontime node --experimental-strip-types scripts/migrate.ts
+docker compose up -d
+```
+
+A single server keeps rate limits, logins and running jobs in memory. When more than one instance serves the addon, they share that state through Redis behind an Upstash-compatible REST proxy. Add `REDIS_TOKEN=<secret>` to `.env`, save this as `compose.redis.yaml` and start with `docker compose -f compose.yaml -f compose.redis.yaml up -d`:
+
+```yaml
+services:
+  subsontime:
+    environment:
+      UPSTASH_REDIS_REST_URL: http://redis-http
+      UPSTASH_REDIS_REST_TOKEN: ${REDIS_TOKEN}
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  redis-http:
+    image: hiett/serverless-redis-http:0.0.10
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${REDIS_TOKEN}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      - redis
+```
+
+Set `TRUST_PROXY=1` when the server runs behind a reverse proxy, so rate limits apply per client instead of per proxy. Leave it unset when the server is reachable directly, because clients could then spoof the header. Set `PUBLIC_URL` to the address people reach it at.
+
+Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point at addons on your own network.
 
 ## Environment variables
 
@@ -35,12 +119,13 @@ It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on 
 
 ### Server
 
-| Variable             | Required | Purpose                                                         |
-| -------------------- | -------- | --------------------------------------------------------------- |
-| `PORT`               | no       | Port to listen on. Defaults to 7000.                            |
-| `PUBLIC_URL`         | no       | Public address of the server, used for the links it hands out.  |
-| `TRUST_PROXY`        | no       | Set to `1` to take the client address from `X-Forwarded-For`.   |
-| `ALLOW_LOCAL_ADDONS` | no       | Set to `1` to accept addon URLs on private and local addresses. |
+| Variable             | Required | Purpose                                                                       |
+| -------------------- | -------- | ----------------------------------------------------------------------------- |
+| `PORT`               | no       | Port to listen on. Defaults to 7000.                                          |
+| `PUBLIC_URL`         | no       | Public address of the server, used for the links it hands out.                |
+| `TRUST_PROXY`        | no       | Set to `1` to take the client address from `X-Forwarded-For`.                 |
+| `ALLOW_LOCAL_ADDONS` | no       | Set to `1` to accept addon URLs on private and local addresses.               |
+| `VERCEL`             | no       | Set by Vercel. `1` turns on Vercel Analytics and Speed Insights on the pages. |
 
 ### Secrets
 
@@ -107,13 +192,11 @@ With the app key, a file without a hash takes its timing references from the Ope
 | ------------------- | -------- | --------------------------------------------------------------------------------------- |
 | `DATABASE_URL_TEST` | no       | Postgres connection string the database tests run against. They are skipped without it. |
 
-## Self-hosting notes
+## Open Timings data
 
-Set `TRUST_PROXY=1` when the server runs behind a reverse proxy, so rate limits apply per client instead of per proxy. Leave it unset when the server is reachable directly, because clients could then spoof the header.
+Every fix is public. `GET https://subsontime.com/api/v1/fixes?video=<hash>:<size>` returns the known fixes for one file, and the [Open Timings page](https://subsontime.com/timings#api) documents the API. `https://subsontime.com/api/v1/dump` redirects to the daily dump of every file with a fix or a hidden subtitle, as gzipped JSON Lines. The data and the dumps are [CC0-1.0](DATA-LICENSE.md).
 
-Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point at addons on your own network.
-
-Set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` and `KV_REST_API_TOKEN`) when more than one instance serves the addon, as on Vercel. Without them every instance keeps this state in its own memory, which is right for a single server.
+A self-hosted server writes its own dump only with `BLOB_READ_WRITE_TOKEN` and a daily `GET /api/cron/dump` sent with `Authorization: Bearer <CRON_SECRET>`. Without the token `/api/v1/dump` returns 404.
 
 ## Support
 
@@ -138,4 +221,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks, the conventions and how r
 
 ## License
 
-GPL-3.0-or-later
+The code is GPL-3.0-or-later, see [LICENSE](LICENSE). Open Timings data is CC0-1.0, see [DATA-LICENSE.md](DATA-LICENSE.md). Report security issues as [SECURITY.md](SECURITY.md) describes.
