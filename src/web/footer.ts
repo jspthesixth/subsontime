@@ -14,6 +14,7 @@ export const footer = (analytics: boolean) =>
       </div>
       <nav class="foot-links" aria-label="Footer">
         <a href="/stremio">Stremio</a>
+        <a href="/integrations">Sonarr, Radarr, Jellyfin</a>
         <a href="/timings">Open Timings</a>
         <a href="/check">Check a file</a>
         <a href="/timings#api">API</a>

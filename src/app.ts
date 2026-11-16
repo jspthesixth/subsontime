@@ -31,6 +31,7 @@ import { checkPage } from "./web/check-page.ts";
 import { checkReportRoute, checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
 import { homePage } from "./web/home-page.ts";
+import { integrationsPage } from "./web/integrations-page.ts";
 import { setupPage } from "./web/setup-page.ts";
 import { timingsPage } from "./web/timings-page.ts";
 import { limitKeyOf, rateLimit } from "./web/rate-limit.ts";
@@ -148,6 +149,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.get("/", (context) => context.html(homePage(deps.analytics)));
   app.get("/stremio", (context) => context.html(setupPage(deps.analytics)));
   app.get("/check", (context) => context.html(checkPage(deps.analytics)));
+  app.get("/integrations", (context) =>
+    context.html(integrationsPage(baseURL(context, deps.publicURL), deps.analytics)),
+  );
   app.get("/timings", async (context) => {
     const stats =
       openTimings === undefined

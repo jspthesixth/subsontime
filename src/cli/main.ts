@@ -12,6 +12,7 @@ import { memorySharedState } from "../jobs/shared-state.ts";
 import { fromLocales, toISO6391, toISO6392 } from "../languages.ts";
 import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
 import { tokenCacheFor } from "../sources/token-cache.ts";
+import { bazarrCommand } from "./bazarr-command.ts";
 import { bazarr } from "./bazarr.ts";
 import {
   abandonWrites,
@@ -49,7 +50,7 @@ Finds subtitles for each video, times them to the exact file and writes
 <video name>.<language>.srt next to it.
 
 As Bazarr's post-processing command, syncs the subtitle Bazarr wrote:
-  subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}}
+  ${bazarrCommand}
 
 Options:
   --lang <codes>      Languages, ISO 639-1 or 639-2, comma separated (default: yours and English)

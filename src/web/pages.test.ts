@@ -5,7 +5,7 @@ const app = createApp({
   secret: "a-test-secret-that-is-long-enough-1234",
 });
 
-describe.each(["/", "/stremio", "/check", "/timings"])("GET %s", (path) => {
+describe.each(["/", "/stremio", "/check", "/timings", "/integrations"])("GET %s", (path) => {
   it("returns an English HTML page with one h1 and the stylesheet", async () => {
     const response = await app.request(path);
     const page = await response.text();
@@ -17,10 +17,11 @@ describe.each(["/", "/stremio", "/check", "/timings"])("GET %s", (path) => {
     expect(page).toMatch(/<link rel="stylesheet" href="\/styles\.css"/);
   });
 
-  it("links only to pages that exist", async () => {
+  it("links Integrations from the header and the footer", async () => {
     const page = await (await app.request(path)).text();
 
-    expect(page).not.toMatch(/href="\/integrations/);
+    expect(page).toMatch(/<header[\s\S]*href="\/integrations"[\s\S]*<\/header>/);
+    expect(page).toMatch(/<footer[\s\S]*href="\/integrations"[\s\S]*<\/footer>/);
   });
 
   it("links Open Timings from the header and the footer", async () => {
@@ -29,12 +30,6 @@ describe.each(["/", "/stremio", "/check", "/timings"])("GET %s", (path) => {
     expect(page.match(/href="\/timings"/g)?.length).toBeGreaterThanOrEqual(2);
     expect(page).toMatch(/<header[\s\S]*href="\/timings"[\s\S]*<\/header>/);
     expect(page).toMatch(/<footer[\s\S]*href="\/timings"[\s\S]*<\/footer>/);
-  });
-
-  it("mentions no integration that does not exist yet", async () => {
-    const page = await (await app.request(path)).text();
-
-    expect(page).not.toMatch(/Bazarr|Jellyfin|command line/i);
   });
 
   it("loads Vercel Web Analytics and says so only on Vercel", async () => {
@@ -188,6 +183,79 @@ describe("GET /", () => {
     expect(main).toContain("Keep it free");
     expect(footer).toMatch(koFi);
     expect(page).not.toContain("github.com/sponsors");
+  });
+
+  it("links Integrations from the hero and from every library card", async () => {
+    const main = (await (await app.request("/")).text()).match(/<main[\s\S]*<\/main>/)?.[0] ?? "";
+
+    expect(main).toContain("Streaming or a library. Same fixes.");
+    expect(main).toMatch(
+      /<a class="btn btn-ghost btn-wide-mobile" href="\/integrations"\s*>For Sonarr, Radarr and Jellyfin<\/a/,
+    );
+    expect(
+      main.match(/<a class="btn btn-ghost btn-sm" href="\/integrations">Set up<\/a>/g),
+    ).toHaveLength(3);
+  });
+});
+
+describe("GET /integrations", () => {
+  const hosted = createApp({
+    secret: "a-test-secret-that-is-long-enough-1234",
+    publicURL: "https://subsontime.com/",
+  });
+
+  it("marks Integrations as the current page", async () => {
+    const page = await (await app.request("/integrations")).text();
+
+    expect(page).toMatch(/<a\s+class="nav-link"\s+href="\/integrations"\s+aria-current="page"/);
+  });
+
+  it("gives the Bazarr post-processing command the command line expects", async () => {
+    const page = await (await hosted.request("/integrations")).text();
+
+    expect(page).toContain(
+      '<pre class="code">subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}}</pre>',
+    );
+    expect(
+      page.match(
+        /<pre class="code">curl -fsSL https:\/\/subsontime\.com\/install\.sh \| sh<\/pre>/g,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("gives the Jellyfin repository on the server's own address", async () => {
+    const hostedPage = await (await hosted.request("/integrations")).text();
+    const selfHosted = await (
+      await app.request("/integrations", {
+        headers: { "x-forwarded-proto": "https", "x-forwarded-host": "subs.example.org" },
+      })
+    ).text();
+
+    expect(hostedPage).toContain(
+      '<pre class="code">https://subsontime.com/jellyfin/manifest.json</pre>',
+    );
+    expect(selfHosted).toContain(
+      '<pre class="code">https://subs.example.org/jellyfin/manifest.json</pre>',
+    );
+  });
+
+  it("installs the Bazarr+ provider as a zip of its two files", async () => {
+    const page = (await (await hosted.request("/integrations")).text()).replace(/\s+/g, " ");
+
+    expect(page).toContain("provider.json");
+    expect(page).toContain("provider.py");
+    expect(page).toContain(
+      'href="https://github.com/jspthesixth/subsontime/tree/main/plugins/bazarr-plus"',
+    );
+  });
+
+  it("sends Jellyfin and Bazarr+ to the setup page for the install link", async () => {
+    const page = await (await hosted.request("/integrations")).text();
+    const sectionOf = (id: string) =>
+      page.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0] ?? "";
+
+    expect(sectionOf("jellyfin")).toMatch(/install link[\s\S]*href="\/stremio"/);
+    expect(sectionOf("bazarr-plus")).toMatch(/install link[\s\S]*href="\/stremio"/);
   });
 });
 

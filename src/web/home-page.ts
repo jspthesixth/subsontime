@@ -67,6 +67,23 @@ const flowNodes = [
   },
 ];
 
+const libraryCards = [
+  {
+    title: "Sonarr and Radarr",
+    body: html`Through Bazarr. Confirmed fixes others found are applied, the rest is synced against
+    the audio.`,
+  },
+  {
+    title: "Jellyfin",
+    body: html`A plugin that finds subtitles for your library and applies shared fixes file by file.`,
+  },
+  {
+    title: "Any player",
+    body: html`One command for mpv, VLC or Kodi:
+      <span class="mono ink">subsontime fix movie.mkv</span>`,
+  },
+];
+
 const flowArrow = html`<div class="flow-arrow" aria-hidden="true">
   <svg width="28" height="16" viewBox="0 0 28 16">
     <path d="M1 8h24M19 2l6 6-6 6" stroke="currentColor" stroke-width="1.6" fill="none"></path>
@@ -99,6 +116,9 @@ const content = html`<main>
       </p>
       <div class="row-wrap gap-12">
         <a class="btn btn-primary btn-wide-mobile" href="/stremio">Add to Stremio ${arrowIcon}</a>
+        <a class="btn btn-ghost btn-wide-mobile" href="/integrations"
+          >For Sonarr, Radarr and Jellyfin</a
+        >
       </div>
     </div>
   </section>
@@ -166,7 +186,7 @@ const content = html`<main>
     <div class="stack gap-48">
       <div class="stack gap-16 measure">
         <p class="eyebrow eyebrow-accent">Where you watch</p>
-        <h2 class="h2">Made for Stremio</h2>
+        <h2 class="h2">Streaming or a library. Same fixes.</h2>
       </div>
       <div>
         <div class="where">
@@ -176,6 +196,14 @@ const content = html`<main>
           </p>
           <a class="btn btn-primary btn-sm" href="/stremio">Add to Stremio</a>
         </div>
+        ${libraryCards.map(
+          ({ title, body }) =>
+            html`<div class="where">
+              <h3 class="h3">${title}</h3>
+              <p class="body">${body}</p>
+              <a class="btn btn-ghost btn-sm" href="/integrations">Set up</a>
+            </div>`,
+        )}
       </div>
     </div>
   </section>
