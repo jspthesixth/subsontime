@@ -32,6 +32,10 @@ const loopback = new BlockList();
   ["169.254.0.0", 16],
   ["172.16.0.0", 12],
   ["192.168.0.0", 16],
+  ["192.0.0.0", 24],
+  ["198.18.0.0", 15],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
 ].forEach(([network, prefix]) => blocked.addSubnet(String(network), Number(prefix), "ipv4"));
 
 [
@@ -39,6 +43,10 @@ const loopback = new BlockList();
   ["64:ff9b::", 96],
   ["fc00::", 7],
   ["fe80::", 10],
+  ["ff00::", 8],
+  ["2002::", 16],
+  ["2001::", 32],
+  ["2001:db8::", 32],
 ].forEach(([network, prefix]) => blocked.addSubnet(String(network), Number(prefix), "ipv6"));
 
 loopback.addSubnet("127.0.0.0", 8, "ipv4");

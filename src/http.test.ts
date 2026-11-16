@@ -76,6 +76,32 @@ describe("fetchWithTimeout guard", () => {
     expect(isPublicURL(url, false)).toBe(true);
   });
 
+  it.each([
+    ["https://224.0.0.1/"],
+    ["https://240.0.0.1/"],
+    ["https://255.255.255.255/"],
+    ["https://192.0.0.8/"],
+    ["https://198.18.0.1/"],
+    ["https://[ff02::1]/"],
+    ["https://[2002:a00:1::]/"],
+    ["https://[2001:0:4136:e378::1]/"],
+    ["https://[2001:db8::1]/"],
+  ])("does not count %s as public", (url) => {
+    expect(isPublicURL(url, false)).toBe(false);
+  });
+
+  it("blocks a host that resolves to a 6to4 address", async () => {
+    const tunnel = createGuard({
+      allowLocal: false,
+      resolve: (_hostname, _options, callback) =>
+        callback(null, [{ address: "2002:a00:1::", family: 6 }]),
+    });
+
+    await expect(fetchWithTimeout("https://example.test/", {}, 1000, tunnel)).rejects.toThrow(
+      "Blocked address",
+    );
+  });
+
   it("blocks a hostname that resolves to a loopback address", async () => {
     const { port, requests } = await listen((_, response) => response.end("secret"));
 
@@ -185,14 +211,14 @@ describe("fetchWithTimeout lookups", () => {
   it("connects to the address the lookup gives for a hostname", async () => {
     const { port } = await listen((_, response) => response.end("local"));
 
-    const resolving = createGuard({
-      allowLocal: true,
-      resolve: (_hostname, _options, callback) =>
-        callback(null, [{ address: "127.0.0.1", family: 4 }]),
-    });
+    const resolve = vi.fn<NonNullable<Parameters<typeof createGuard>[0]["resolve"]>>(
+      (_hostname, _options, callback) => callback(null, [{ address: "127.0.0.1", family: 4 }]),
+    );
+    const resolving = createGuard({ allowLocal: true, resolve });
     const response = await fetchWithTimeout(`http://localhost:${port}/`, {}, 1000, resolving);
 
     expect(await response.text()).toBe("local");
+    expect(resolve).toHaveBeenCalledWith("localhost", expect.anything(), expect.any(Function));
   });
 });
 
