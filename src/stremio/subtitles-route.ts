@@ -200,6 +200,7 @@ export const subtitlesRoute =
             recordFileHash(state, fileKey, {
               w: { h: listed.hash, z: listed.size },
               x: references,
+              a: anchors.length === 0 ? undefined : anchors,
               m: config.languages.flatMap((lang) =>
                 found
                   .ranked(lang)

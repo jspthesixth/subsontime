@@ -589,6 +589,37 @@ describe("a hash from the other listing", () => {
     expect(retime).not.toHaveBeenCalled();
   });
 
+  it("retimes a subtitle from the listing before the hash to the hashed listing's anchor", async () => {
+    const source = fakeSource("Fake", [
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      { ref: "disc", cues: track },
+      { ref: "again", cues: transform(track, (time) => time + 40) },
+    ]);
+    const app = appWith({
+      listed: [
+        {
+          ...source,
+          search: async (query, signal) =>
+            (await source.search(query, signal)).map((candidate) => ({
+              ...candidate,
+              hashMatch: matchedByHash.get(query.videoHash ?? "") === candidate.ref,
+            })),
+        },
+      ],
+      references: [],
+    });
+    const token = sealed({ languages: ["hrv"] });
+
+    const first = await list(app, token, withoutHash);
+
+    await list(app, token, withHash);
+
+    const served = await servedAt(app, first.body.subtitles[0]?.url ?? "");
+
+    expect(startsOf(served)).toEqual(startsOf(track));
+    expect(retime).not.toHaveBeenCalled();
+  });
+
   it("lists the hash match without the hash once the other listing brought it", async () => {
     const app = appWith(hashAware());
     const token = sealed();
