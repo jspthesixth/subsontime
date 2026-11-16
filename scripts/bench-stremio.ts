@@ -21,7 +21,7 @@ import { openSubtitlesBudgetSchema, readGroup, sourcesSchema } from "../src/conf
 import { sourcesFromConfig } from "../src/sources/from-config.ts";
 
 const usage =
-  "usage: node scripts/bench-stremio.ts <run|validate> <train|test> [--root dir] [--only text] [--rest-downloads n]";
+  "usage: node scripts/bench-stremio.ts <run|validate> <train|test> [--root dir] [--only text] [--rest-downloads n] [--settled]";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -29,6 +29,7 @@ const { positionals, values } = parseArgs({
     root: { type: "string", default: join(homedir(), "subsontime-audio-eval") },
     only: { type: "string" },
     "rest-downloads": { type: "string", default: "20" },
+    settled: { type: "boolean", default: false },
   },
 });
 
@@ -106,6 +107,7 @@ const run = async () => {
       filename,
       fingerprint: await fingerprintOf(file.path),
       languages: languagesOf(file),
+      settled: values.settled,
       sourcesFor: (config, tokens, state) =>
         sourcesFromConfig(config, {
           tokens,
@@ -136,14 +138,14 @@ const run = async () => {
   const table = summaryTable(results);
 
   await writeFile(
-    join(out, `${sha}.json`),
+    join(out, `${sha}${values.settled ? "-settled" : ""}.json`),
     JSON.stringify(
       { revision: sha, split: dataset.split, totals: cached.counts, results },
       null,
       1,
     ),
   );
-  await writeFile(join(out, `${sha}.md`), `${table}\n`);
+  await writeFile(join(out, `${sha}${values.settled ? "-settled" : ""}.md`), `${table}\n`);
   console.log(table);
 };
 

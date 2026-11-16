@@ -106,6 +106,7 @@ describe("tierOf", () => {
 
     expect(tierOf({ c: [{ ...listed, h: 1 }], x: [] }, seen, filename)).toBe("hash");
     expect(tierOf({ c: [listed], x: [] }, seen, filename)).toBe("none");
+    expect(tierOf({ c: [listed], x: [listed] }, seen, filename)).toBe("none");
     expect(
       tierOf({ c: [listed], x: [{ n: "OpenSubtitles", r: "same", l: "eng" }] }, seen, filename),
     ).toBe("exact-release");

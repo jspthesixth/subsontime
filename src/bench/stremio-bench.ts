@@ -350,16 +350,20 @@ export const tierOf = (
   seen: Map<string, Candidate>,
   filename: string,
 ): Tier => {
-  if ([...ref.c.slice(0, 1), ...ref.x].some(({ h }) => h === 1)) {
+  const [first] = ref.c;
+
+  const references = ref.x.filter(({ n, r }) => n !== first?.n || r !== first.r);
+
+  if ([...ref.c.slice(0, 1), ...references].some(({ h }) => h === 1)) {
     return "hash";
   }
 
-  if (ref.x.length === 0) {
+  if (references.length === 0) {
     return "none";
   }
 
   const fileRelease = parseRelease(filename);
-  const releases = ref.x.flatMap(({ n, r }) => seen.get(candidateKey(n, r))?.release ?? []);
+  const releases = references.flatMap(({ n, r }) => seen.get(candidateKey(n, r))?.release ?? []);
 
   if (releases.some((release) => sameRelease(release, fileRelease))) {
     return "exact-release";
@@ -386,12 +390,14 @@ export const benchFile = async ({
   fingerprint,
   languages,
   sourcesFor,
+  settled = false,
 }: {
   file: BenchFile;
   filename: string;
   fingerprint: Fingerprint;
   languages: string[];
   sourcesFor: SourcesFor;
+  settled?: boolean;
 }): Promise<Run[]> => {
   const type = file.kind === "film" ? "movie" : "series";
   const name = encodeURIComponent(filename);
@@ -417,6 +423,10 @@ export const benchFile = async ({
     const base = `/${seal(defaultConfig([lang]), benchSecret)}/subtitles/${type}/${file.imdbId}`;
 
     await app.request(`${base}/filename=${name}.json`);
+
+    if (settled) {
+      await Promise.all(deferred);
+    }
 
     const listing = await app.request(
       `${base}/videoHash=${fingerprint.hash}&videoSize=${fingerprint.size}&filename=${name}.json`,
