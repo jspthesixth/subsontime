@@ -48,6 +48,7 @@ const codecOf = new Map<VideoCodec, string>([
   [VideoCodec.X264, "h264"],
   [VideoCodec.H264, "h264"],
   [VideoCodec.AV1, "av1"],
+  [VideoCodec.XVID, "xvid"],
 ]);
 
 const resolutions: [RegExp, NonNullable<Release["resolution"]>][] = [
@@ -109,14 +110,26 @@ const tagGroup = (tag: string[]) => {
     : undefined;
 };
 
+const isTitleBoundary = (token: string) =>
+  /^((19|20)\d\d|s\d+(e\d+)?|\d+x\d+)$/i.test(token) || isAlias(token);
+
+const withoutTitleVideoStandards = (tokens: string[]) => {
+  const boundary = tokens.findIndex(isTitleBoundary);
+
+  return tokens.filter(
+    (token, index) => !/^(pal|ntsc)$/i.test(token) || (boundary !== -1 && index > boundary),
+  );
+};
+
 export const parseRelease = (name: string): Release => {
   const stem = name.replace(/\.(mkv|mp4|avi|srt|sub|ass|vtt)$/i, "");
   const tagged = stem.replace(noiseAfterTag, "");
   const tag = tokenize(tagged.match(trailingTag)?.[1] ?? "");
   const releaseTag = tag.some(isAlias);
   const tokens = tokenize(releaseTag ? tagged : tagged.replace(trailingTag, ""));
-  const named = tokens.join(".");
+  const named = withoutTitleVideoStandards(tokens).join(".");
   const { extended, unrated, directors } = parseEdition(named);
+
   const resolution = parseResolution(named).resolution;
 
   return {
@@ -133,8 +146,19 @@ export const parseRelease = (name: string): Release => {
   };
 };
 
-const sameGroup = (a: Release, b: Release) =>
-  a.group !== undefined && b.group !== undefined && a.group.toLowerCase() === b.group.toLowerCase();
+const equivalentGroups = [
+  ["lol", "dimension"],
+  ["asap", "immerse", "fleet"],
+  ["avs", "sva"],
+];
+
+const groupsOf = (group: string) =>
+  equivalentGroups.find((groups) => groups.includes(group)) ?? [group];
+
+export const sameGroup = (a: Release, b: Release) =>
+  a.group !== undefined &&
+  b.group !== undefined &&
+  groupsOf(a.group.toLowerCase()).includes(b.group.toLowerCase());
 
 export const sameRelease = (a: Release, b: Release) =>
   a.source !== undefined &&
@@ -143,16 +167,9 @@ export const sameRelease = (a: Release, b: Release) =>
   a.resolution === b.resolution &&
   sameGroup(a, b);
 
-export const releaseSimilarity = (a: Release, b: Release) =>
-  [
-    a.source !== undefined && a.source === b.source,
-    a.resolution !== undefined && a.resolution === b.resolution,
-    sameGroup(a, b),
-  ].filter(Boolean).length;
-
 export type ReleaseFamily = { source?: Release["source"]; group: string };
 
-const videoCodecOf = (filename: string) => {
+export const videoCodecOf = (filename: string) => {
   const { codec } = parseVideoCodec(filename);
 
   return codec === undefined ? undefined : codecOf.get(codec);

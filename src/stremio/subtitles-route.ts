@@ -17,7 +17,7 @@ import {
   releaseFamilyOf,
   type ReleaseFamily,
 } from "../subtitles/release.ts";
-import { minimumScoreOf, scoreOf } from "../subtitles/score.ts";
+import { minimumScoreOf, rankingOf, scoreOf } from "../subtitles/score.ts";
 import { freeFirst, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
@@ -65,6 +65,7 @@ export const searchVideo = async (
     searchAll(sources.references, query),
     learnedFamily,
   ]);
+
   const fileRelease = parseRelease(query.filename ?? "");
   const all = [...listed, ...referenceOnly];
   const inFamily = ({ release }: Candidate) =>
@@ -74,10 +75,8 @@ export const searchVideo = async (
   const guessed = ({ release }: Candidate) => ripGuess && isDiscOrWeb(release);
   const fromGuess = learned.length === 0 && ripGuess;
   const references = fromGuess ? freeFirst(all.filter(guessed)) : learned;
-  const scored = new Map(
-    listed.map((candidate) => [candidate, scoreOf(candidate, { video: query, family, ripGuess })]),
-  );
-  const scoreOfListed = (candidate: Candidate) => scored.get(candidate) ?? 0;
+  const scoreContext = { video: query, fileRelease, family, ripGuess };
+  const ranking = rankingOf(scoreContext);
 
   return {
     references,
@@ -98,12 +97,10 @@ export const searchVideo = async (
       .map(({ release }) => releaseFamilyOf(release))
       .find((observed) => observed !== undefined),
     ranked: (lang: string) =>
-      listed
-        .filter((candidate) => candidate.lang === lang)
-        .toSorted((a, b) => scoreOfListed(b) - scoreOfListed(a)),
+      listed.filter((candidate) => candidate.lang === lang).toSorted(ranking),
     passing: (candidates: Candidate[]) => {
       const minimum = minimumScoreOf(query.type);
-      const kept = candidates.filter((candidate) => scoreOfListed(candidate) >= minimum);
+      const kept = candidates.filter((candidate) => scoreOf(candidate, scoreContext) >= minimum);
 
       return kept.length > 0 ? kept : candidates;
     },
@@ -178,6 +175,7 @@ export const subtitlesRoute =
         ? undefined
         : hiddenKeyFor(openTimings, state, listed, viewerOf(config, openTimings.installSalt)),
     ]);
+
     const unflagged = (ref: CandidateRef) =>
       recalled === undefined ? ref : { ...ref, h: undefined };
     const references = found.references.map(toCandidateRef);

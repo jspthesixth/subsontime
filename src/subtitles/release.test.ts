@@ -4,7 +4,6 @@ import {
   parseRelease,
   releaseFamilyOf,
   releaseSignatureOf,
-  releaseSimilarity,
   sameRelease,
 } from "./release.ts";
 
@@ -59,6 +58,16 @@ describe("parseRelease", () => {
     ["Movie.2001.DVDR-GRP", "dvdrip"],
     ["Movie.2001.1080p.BRRip.x264-GRP", "bluray"],
   ])("reads the source of %s", (name, source) => {
+    expect(parseRelease(name).source).toBe(source);
+  });
+
+  it.each([
+    ["Pal Joey 1957", undefined],
+    ["Pal Joey (1957) 720p", undefined],
+    ["Pal.Joey.1957.1080p.BluRay.x264-GRP", "bluray"],
+    ["Movie.1999.PAL.DVDR-GRP", "dvdrip"],
+    ["Movie.1999.PAL-GRP", "dvdrip"],
+  ])("reads PAL and NTSC only as release tokens in %s", (name, source) => {
     expect(parseRelease(name).source).toBe(source);
   });
 
@@ -139,6 +148,15 @@ describe("parseRelease", () => {
 });
 
 describe("sameRelease", () => {
+  it("counts equivalent release groups as one", () => {
+    expect(
+      sameRelease(
+        parseRelease("Show.S01E24.720p.HDTV.x264-LOL.mkv"),
+        parseRelease("Show.S01E24.720p.HDTV.X264-DIMENSION"),
+      ),
+    ).toBe(true);
+  });
+
   const web = parseRelease("Example.Movie.2024.1080p.WEB-DL.DDP5.1.H.264-GROUP.mkv");
 
   it("is true when source, resolution and group match", () => {
@@ -158,22 +176,6 @@ describe("sameRelease", () => {
 
   it("is false when the resolution differs", () => {
     expect(sameRelease(web, parseRelease("Movie.720p.WEB-DL.x264-GROUP"))).toBe(false);
-  });
-});
-
-describe("releaseSimilarity", () => {
-  it("is 0 for unrelated releases", () => {
-    const a = parseRelease("Example.Movie.2024.1080p.WEB-DL.DDP5.1.H.264-GROUP.mkv");
-    const b = parseRelease("Movie.2024.EXTENDED.2160p.BluRay.x265-FLUX");
-
-    expect(releaseSimilarity(a, b)).toBe(0);
-  });
-
-  it("counts one point per matching field", () => {
-    const a = parseRelease("A.1080p.WEB-DL.x264-GROUP");
-
-    expect(releaseSimilarity(a, parseRelease("B.720p.WEB-DL.x264-GROUP"))).toBe(2);
-    expect(releaseSimilarity(a, a)).toBe(3);
   });
 });
 

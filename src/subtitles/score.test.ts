@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Candidate } from "../sources/source.ts";
 import { parseRelease } from "./release.ts";
-import { minimumScoreOf, scoreOf } from "./score.ts";
+import { minimumScoreOf, rankingOf, scoreOf } from "./score.ts";
 
 const named = (releaseName: string, overrides: Partial<Candidate> = {}): Candidate => ({
   sourceName: "OpenSubtitles",
@@ -61,6 +61,16 @@ describe("scoreOf", () => {
     ).toBe(486 + 162 + 162 + 54 + 54 + 18 + 4 + 1 + 1);
   });
 
+  it.each([
+    ["Show.S01E24.1080p.BluRay.H.264-GRP", "Show.S01E24.1080p.BluRay.x264-GRP.mkv"],
+    ["Show.S01E24.1080p.BluRay.HEVC-GRP", "Show.S01E24.1080p.BluRay.x265-GRP.mkv"],
+    ["Show.S01E24.DVDRip.DivX-GRP", "Show.S01E24.DVDRip.XviD-GRP.avi"],
+  ])("matches the codec of %s to %s", (name, filename) => {
+    expect(scoreOf(named(name), { video: episode(filename) })).toBe(
+      486 + 162 + 162 + 54 + 54 + 18 + 4 + 1 + 1,
+    );
+  });
+
   it("counts the learned family as a release group match", () => {
     const family = { source: "dvdrip" as const, group: "clerks" };
 
@@ -93,6 +103,26 @@ describe("scoreOf", () => {
 
     expect(scores).toEqual(scores.toSorted((a, b) => b - a));
     expect(new Set(scores).size).toBe(4);
+  });
+});
+
+describe("rankingOf", () => {
+  it("puts an exact release ahead of a learned family with the same source", () => {
+    const video = episode("Show.S01E24.1080p.BluRay.x264-GRP.mkv");
+    const family = { source: "bluray" as const, group: "other" };
+    const exact = named("Show.S01E24.1080p.BluRay-GRP");
+    const learned = named("Show.S01E24.1080p.BluRay.x264-OTHER");
+
+    expect(scoreOf(learned, { video, family })).toBeGreaterThan(scoreOf(exact, { video, family }));
+    expect([learned, exact].toSorted(rankingOf({ video, family }))).toEqual([exact, learned]);
+  });
+
+  it("puts a hash match first", () => {
+    const video = episode("Show.S01E24.1080p.BluRay.x264-GRP.mkv");
+    const exact = named("Show.S01E24.1080p.BluRay.x264-GRP");
+    const hash = named("Other.HDTV-X", { hashMatch: true });
+
+    expect([exact, hash].toSorted(rankingOf({ video }))).toEqual([hash, exact]);
   });
 });
 
