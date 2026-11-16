@@ -7,3 +7,5 @@ public/*
 crates/*/target
 .env*
 docs
+.vercel
+dist
