@@ -28,7 +28,7 @@ For video files on disk, the `subsontime` command finds subtitles, times them to
 subsontime fix "Example.Movie.2024.1080p.WEB-DL-GROUP.mkv" --lang hr,en --audio
 ```
 
-It takes a file or a folder (one level deep, or every level with `--recursive`; samples and files under 50 MB are left out). `--audio` aligns to the soundtrack and needs `ffmpeg` (or `SUBSONTIME_FFMPEG` pointing at one). Fixes it times are shared with Open Timings under a random install id kept in `SUBSONTIME_CONFIG_DIR` when set, else in your config folder, else in `subsontime-<uid>` in the temp folder. For Bazarr in a linuxserver.io image, set `SUBSONTIME_CONFIG_DIR=/config/subsontime` on the container: its user cannot write its home folder. `--private` makes no contact with Open Timings at all. `--offline` makes no network call and needs both `--subtitle <path>` (the subtitle to align) and `--audio`. `OPENSUBTITLES_APP_KEY`, `TITLOVI_USERNAME` and `TITLOVI_PASSWORD`, `SUBDL_API_KEY` and `SUBSOURCE_API_KEY` add sources. Run `subsontime --help` for every option.
+It takes a file or a folder (one level deep, or every level with `--recursive`; samples and files under 50 MB are left out). `--audio` aligns to the soundtrack and needs `ffmpeg` (or `SUBSONTIME_FFMPEG` pointing at one). Fixes it times are shared with Open Timings under a random install id kept in `SUBSONTIME_CONFIG_DIR` when set, else in your config folder, else in `subsontime-<uid>` in the temp folder. For Bazarr in a linuxserver.io image, set `SUBSONTIME_CONFIG_DIR=/config/subsontime` on the container: its user cannot write its home folder. `--private` makes no contact with Open Timings at all. `--offline` makes no network call and needs both `--subtitle <path>` (the subtitle to align) and `--audio`. `OPENSUBTITLES_APP_KEY`, `TITLOVI_USERNAME` and `TITLOVI_PASSWORD`, `SUBDL_API_KEY` and `SUBSOURCE_API_KEY` add sources. `OPENSUBTITLES_USERNAME` and `OPENSUBTITLES_PASSWORD` download OpenSubtitles with your own account. Run `subsontime --help` for every option.
 
 It exits with 0 when it wrote at least one subtitle, 1 when it wrote none, 2 on a usage error and 3 when `--audio` was given without ffmpeg.
 
@@ -140,12 +140,14 @@ Set `ALLOW_LOCAL_ADDONS=1` only for development. It lets a configuration point a
 | ------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
 | `OPENSUBTITLES_APP_KEY`         | no       | App key for the OpenSubtitles source. With it, a file's hash finds the subtitles made for it.              |
 | `OPENSUBTITLES_DAILY_DOWNLOADS` | no       | OpenSubtitles API downloads allowed per UTC day across the server. Defaults to 4, below the free plan's 5. |
+| `OPENSUBTITLES_USERNAME`        | no       | OpenSubtitles username for the command line. With the password, downloads use your own account.            |
+| `OPENSUBTITLES_PASSWORD`        | no       | OpenSubtitles password for the command line.                                                               |
 | `TITLOVI_USERNAME`              | no       | Titlovi username for the command line. With the password, adds the Titlovi source.                         |
 | `TITLOVI_PASSWORD`              | no       | Titlovi password for the command line.                                                                     |
 | `SUBDL_API_KEY`                 | no       | SubDL API key for the command line. Adds the SubDL source.                                                 |
 | `SUBSOURCE_API_KEY`             | no       | SubSource API key for the command line. Adds the SubSource source.                                         |
 
-With the app key, OpenSubtitles lists through its API: the most downloaded subtitles in your languages, plus the ones made for the file when it has a hash, each list kept for a day and shared by every install. A subtitle the OpenSubtitles addon also has downloads from the addon for free. Only a subtitle the addon does not have spends one of the daily downloads. Without the app key, or when the API does not answer, the addon listing is used.
+With the app key, OpenSubtitles lists through its API: the most downloaded subtitles in your languages, plus the ones made for the file when it has a hash, each list kept for a day and shared by every install. A subtitle the OpenSubtitles addon also has downloads from the addon for free. A subtitle the addon does not have downloads with the account signed in on the setup page (or through `OPENSUBTITLES_USERNAME`), and only when it is the one served. Without an account, or once its downloads run out, it spends one of the daily downloads. Without the app key, or when the API does not answer, the addon listing is used.
 
 ### Database
 

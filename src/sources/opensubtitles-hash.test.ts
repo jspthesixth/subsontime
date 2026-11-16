@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import downloadFixture from "../../test/fixtures/sources/opensubtitles-rest-download.json" with { type: "json" };
+import quotaFixture from "../../test/fixtures/sources/opensubtitles-rest-download-quota.json" with { type: "json" };
+import loginFixture from "../../test/fixtures/sources/opensubtitles-rest-login.json" with { type: "json" };
 import restFixture from "../../test/fixtures/sources/opensubtitles-rest-hash-search.json" with { type: "json" };
 import v3Fixture from "../../test/fixtures/sources/opensubtitles-v3-hash-movie.json" with { type: "json" };
 import { memorySharedState, type SharedState } from "../jobs/shared-state.ts";
@@ -92,7 +94,11 @@ const openBudget = (left = true): DownloadBudget => ({
   spend: async () => left,
 });
 
-const sourceWith = (state: SharedState = memorySharedState(), budget = openBudget()) =>
+const sourceWith = (
+  state: SharedState = memorySharedState(),
+  budget = openBudget(),
+  credentials?: { username: string; password: string },
+) =>
   openSubtitlesListing({
     manifestURL,
     name: "OpenSubtitles",
@@ -104,7 +110,45 @@ const sourceWith = (state: SharedState = memorySharedState(), budget = openBudge
       budget,
       state,
     ),
+    login:
+      credentials === undefined
+        ? undefined
+        : openSubtitlesSource(credentials, "app-key", memoryTokenCache()),
   });
+
+const alice = { username: "alice", password: "secret" };
+
+const countingBudget = () => {
+  const spend = vi.fn<() => Promise<boolean>>(async () => true);
+
+  return { budget: { left: async () => false, spend }, spend };
+};
+
+const stubUserDownloads = (userAnswer: Response) => {
+  const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+    const url = urlOf(input);
+
+    if (url.endsWith("/login")) {
+      return new Response(JSON.stringify(loginFixture));
+    }
+
+    if (url.endsWith("/download")) {
+      return new Headers(init?.headers).has("Authorization")
+        ? userAnswer.clone()
+        : new Response(JSON.stringify(downloadFixture));
+    }
+
+    return new Response(fileBytes);
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+
+  return () =>
+    fetchMock.mock.calls.map(([input, init]) => [
+      urlOf(input),
+      new Headers(init?.headers).get("Authorization"),
+    ]);
+};
 
 const fail = async () => {
   throw new Error("down");
@@ -257,6 +301,20 @@ describe("openSubtitlesListing search", () => {
     ]);
   });
 
+  it("lists the REST-only rows with a login once the budget is spent", async () => {
+    stubAPIs();
+
+    const candidates = await sourceWith(memorySharedState(), openBudget(false), alice).search(
+      peterPan,
+      signal(),
+    );
+
+    expect(candidates.filter(({ metered }) => metered === true).map(({ ref }) => ref)).toEqual([
+      "735363",
+      "12038440",
+    ]);
+  });
+
   it("serves the v3 listing alone and retries REST later when REST fails", async () => {
     const { restSearches } = stubAPIs({ restStatus: 429 });
 
@@ -328,6 +386,67 @@ describe("openSubtitlesListing download", () => {
 
     expect(await source.download("735363", signal())).toEqual(fileBytes);
     expect(restDownloads()).toHaveLength(1);
+  });
+
+  it("serves a REST-only row with the user's account and keeps the file", async () => {
+    const calls = stubUserDownloads(new Response(JSON.stringify(downloadFixture)));
+    const { budget, spend } = countingBudget();
+
+    const source = sourceWith(memorySharedState(), budget, alice);
+
+    await source.download("735363", signal(), true);
+
+    expect(await source.download("735363", signal(), true)).toEqual(fileBytes);
+    expect(calls()).toEqual([
+      ["https://api.opensubtitles.com/api/v1/login", null],
+      ["https://vip-api.opensubtitles.com/api/v1/download", "Bearer fixture-token"],
+      [downloadFixture.link, null],
+    ]);
+    expect(spend).not.toHaveBeenCalled();
+  });
+
+  it("serves through the app-key budget once the user's downloads run out", async () => {
+    const calls = stubUserDownloads(new Response(JSON.stringify(quotaFixture), { status: 406 }));
+    const { budget, spend } = countingBudget();
+
+    const bytes = await sourceWith(memorySharedState(), budget, alice).download(
+      "735363",
+      signal(),
+      true,
+    );
+
+    expect(bytes).toEqual(fileBytes);
+    expect(calls().slice(1)).toEqual([
+      ["https://vip-api.opensubtitles.com/api/v1/download", "Bearer fixture-token"],
+      ["https://api.opensubtitles.com/api/v1/download", null],
+      [downloadFixture.link, null],
+    ]);
+    expect(spend).toHaveBeenCalledTimes(1);
+  });
+
+  it("never spends the user's downloads on a subtitle that is not served", async () => {
+    const calls = stubUserDownloads(new Response(JSON.stringify(downloadFixture)));
+    const { budget, spend } = countingBudget();
+
+    await sourceWith(memorySharedState(), budget, alice).download("735363", signal());
+
+    expect(calls()).toEqual([
+      ["https://api.opensubtitles.com/api/v1/download", null],
+      [downloadFixture.link, null],
+    ]);
+    expect(spend).toHaveBeenCalledTimes(1);
+  });
+
+  it("serves a row v3 has through v3 even with a login", async () => {
+    const calls = stubUserDownloads(new Response(JSON.stringify(downloadFixture)));
+
+    await sourceWith(memorySharedState(), openBudget(), alice).download(
+      matchedV3URL,
+      signal(),
+      true,
+    );
+
+    expect(calls()).toEqual([[matchedV3URL, null]]);
   });
 
   it("refuses a REST download once the budget is spent", async () => {

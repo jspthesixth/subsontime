@@ -42,6 +42,28 @@ export const downloadBudget = (
   };
 };
 
+const cachedFile = async (
+  state: SharedState,
+  ref: string,
+  download: () => Promise<Uint8Array>,
+): Promise<Uint8Array> => {
+  const key = `os:file:${ref}`;
+  const stored = await orMiss(() => state.get(key), undefined);
+
+  if (stored !== undefined) {
+    return new Uint8Array(Buffer.from(stored, "base64"));
+  }
+
+  const bytes = await download();
+
+  await orMiss(
+    () => state.set(key, Buffer.from(bytes).toString("base64"), cacheSeconds),
+    undefined,
+  );
+
+  return bytes;
+};
+
 export const budgetedDownloads = (
   source: Source,
   budget: DownloadBudget,
@@ -50,27 +72,14 @@ export const budgetedDownloads = (
   name: source.name,
   search: async (query, signal) =>
     (await source.search(query, signal)).map((candidate) => ({ ...candidate, metered: true })),
-  async download(ref, signal) {
-    const key = `os:file:${ref}`;
-    const cachedFile = await orMiss(() => state.get(key), undefined);
+  download: (ref, signal) =>
+    cachedFile(state, ref, async () => {
+      if (!(await budget.spend())) {
+        throw new Error("The OpenSubtitles download budget is spent");
+      }
 
-    if (cachedFile !== undefined) {
-      return new Uint8Array(Buffer.from(cachedFile, "base64"));
-    }
-
-    if (!(await budget.spend())) {
-      throw new Error("The OpenSubtitles download budget is spent");
-    }
-
-    const bytes = await source.download(ref, signal);
-
-    await orMiss(
-      () => state.set(key, Buffer.from(bytes).toString("base64"), cacheSeconds),
-      undefined,
-    );
-
-    return bytes;
-  },
+      return source.download(ref, signal);
+    }),
 });
 
 const legacyIdOf = (entry: RESTEntry) => {
@@ -124,6 +133,7 @@ export const openSubtitlesListing = ({
   state,
   budget,
   rest,
+  login,
 }: {
   manifestURL: string;
   name: string;
@@ -131,6 +141,7 @@ export const openSubtitlesListing = ({
   state: SharedState;
   budget: DownloadBudget;
   rest: Source;
+  login?: Source;
 }): Source => {
   const addon = stremioAddonSource(manifestURL, name);
   const allowSearch = rateLimit(state, (key) => key, "opensubtitles", searchesPerSecond, 1000);
@@ -178,9 +189,9 @@ export const openSubtitlesListing = ({
     const byLegacyId = new Map(
       v3.flatMap((entry) => (entry.id === undefined ? [] : [[String(entry.id), entry] as const])),
     );
-    const meterable = rows.some((row) => !byLegacyId.has(legacyIdOf(row) ?? ""))
-      ? await budget.left()
-      : false;
+    const meterable =
+      login !== undefined ||
+      (rows.some((row) => !byLegacyId.has(legacyIdOf(row) ?? "")) && (await budget.left()));
 
     return rows.flatMap((row): Candidate[] => {
       const listed = byLegacyId.get(legacyIdOf(row) ?? "");
@@ -230,7 +241,16 @@ export const openSubtitlesListing = ({
           .map((entry) => addonCandidate(name, entry)),
       ];
     },
-    download: (ref, signal) =>
-      /^\d+$/.test(ref) ? rest.download(ref, signal) : addon.download(ref, signal),
+    download(ref, signal, served) {
+      if (!/^\d+$/.test(ref)) {
+        return addon.download(ref, signal);
+      }
+
+      return served === true && login !== undefined
+        ? cachedFile(state, ref, () => login.download(ref, signal)).catch(() =>
+            rest.download(ref, signal),
+          )
+        : rest.download(ref, signal);
+    },
   };
 };

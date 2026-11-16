@@ -63,6 +63,8 @@ export const openSubtitlesBudgetSchema = v.pipe(
 export const sourcesSchema = v.pipe(
   v.object({
     OPENSUBTITLES_APP_KEY: text,
+    OPENSUBTITLES_USERNAME: username,
+    OPENSUBTITLES_PASSWORD: text,
     TITLOVI_USERNAME: username,
     TITLOVI_PASSWORD: text,
     SUBDL_API_KEY: text,
@@ -71,12 +73,16 @@ export const sourcesSchema = v.pipe(
   v.transform(
     ({
       OPENSUBTITLES_APP_KEY,
+      OPENSUBTITLES_USERNAME,
+      OPENSUBTITLES_PASSWORD,
       TITLOVI_USERNAME,
       TITLOVI_PASSWORD,
       SUBDL_API_KEY,
       SUBSOURCE_API_KEY,
     }) => ({
       openSubtitlesAppKey: OPENSUBTITLES_APP_KEY,
+      openSubtitlesUsername: OPENSUBTITLES_USERNAME,
+      openSubtitlesPassword: OPENSUBTITLES_PASSWORD,
       titloviUsername: TITLOVI_USERNAME,
       titloviPassword: TITLOVI_PASSWORD,
       subdlAPIKey: SUBDL_API_KEY,

@@ -512,6 +512,51 @@ describe("subtitle file", () => {
     expect(sources.references[0]?.download).not.toHaveBeenCalled();
   });
 
+  it("downloads the served subtitles as served and the anchor and references as not", async () => {
+    const sources = mismatchSources();
+    const { app, url } = await firstSlot(sources);
+
+    await app.request(url);
+
+    expect(sources.listed[0]?.download.mock.calls.map(([ref, , served]) => [ref, served])).toEqual([
+      ["wrong", true],
+      ["right", false],
+    ]);
+    expect(
+      sources.references[0]?.download.mock.calls.map(([ref, , served]) => [ref, served]),
+    ).toEqual([["r", false]]);
+  });
+
+  it("downloads a metered reference that failed again as served when it is served", async () => {
+    const download = vi.fn<Source["download"]>(async (_ref, _signal, served) => {
+      if (served !== true) {
+        throw new Error("The budget is spent");
+      }
+
+      return new TextEncoder().encode(writeSRT(track));
+    });
+    const source = {
+      ...fakeSource("Fake", [
+        { ref: "a", metered: true, releaseName: "Movie.2024.1080p.BluRay.x264-GROUP" },
+      ]),
+      download,
+    };
+    const app = appWith({ listed: [source], references: [] });
+    const { body } = await list(app, sealed(), `movie/tt0111161/filename=${fileName}.json`);
+
+    const url = body.subtitles[0]?.url ?? "";
+
+    expect(refOf(url).x.map(({ r }) => r)).toEqual(["a"]);
+
+    const response = await app.request(url);
+
+    expect(response.status).toBe(200);
+    expect(download.mock.calls.map(([ref, , served]) => [ref, served])).toEqual([
+      ["a", false],
+      ["a", true],
+    ]);
+  });
+
   it("downloads a candidate that is also a reference once", async () => {
     const source = fakeSource("Fake", [{ ref: "a", hashMatch: true, cues: track }]);
     const { app, url } = await firstSlot({ listed: [source], references: [] });

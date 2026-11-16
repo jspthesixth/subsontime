@@ -43,7 +43,7 @@ export type Attempt = {
   result?: RetimeResult;
   hidden?: Hidden;
 };
-export type Download = (candidate: CandidateRef) => Promise<Track>;
+export type Download = (candidate: CandidateRef, served?: boolean) => Promise<Track>;
 export type SubtitleCache = {
   get(id: string): Promise<string | undefined>;
   set(id: string, srt: string): Promise<void>;
@@ -70,6 +70,7 @@ const fetchTrack = async (
   sources: Map<string, Source>,
   ref: CandidateRef,
   signal: AbortSignal | undefined,
+  served: boolean,
 ): Promise<Track> => {
   const source = sources.get(ref.n);
 
@@ -80,6 +81,7 @@ const fetchTrack = async (
   const bytes = await source.download(
     ref.r,
     AbortSignal.any([AbortSignal.timeout(downloadTimeoutMs), ...(signal ? [signal] : [])]),
+    served,
   );
 
   return { candidate: toCandidate(ref), cues: parseSubtitle(decodeSubtitle(bytes, ref.l)) };
@@ -188,9 +190,11 @@ export const downloader = (sources: SourceSet, signal?: AbortSignal): Downloader
   );
   const downloads = new Map<string, Promise<Track>>();
 
-  const download = (candidate: CandidateRef) => {
+  const download = (candidate: CandidateRef, served = false) => {
     const key = candidateKey(candidate.n, candidate.r);
-    const track = downloads.get(key) ?? fetchTrack(byName, candidate, signal);
+    const known = downloads.get(key);
+    const fresh = () => fetchTrack(byName, candidate, signal, served);
+    const track = (served && known !== undefined ? known.catch(fresh) : known) ?? fresh();
 
     downloads.set(key, track);
 
@@ -263,7 +267,9 @@ export async function* resolveAttempts(
   const timing: Timing = {
     references: () => {
       downloaded ??=
-        config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
+        config.timing === "off"
+          ? Promise.resolve([])
+          : settledTracks(ref.x.map((candidate) => download(candidate)));
 
       return downloaded;
     },
@@ -279,7 +285,7 @@ export async function* resolveAttempts(
   }
 
   for (const candidate of ref.c) {
-    const attempt: Attempt = await download(candidate)
+    const attempt: Attempt = await download(candidate, true)
       .then(async (track): Promise<Attempt> => {
         const hidden = hiddenMatch(track.cues, shared);
 
@@ -401,7 +407,7 @@ type Cased = (cues: Cue[], served: CandidateRef) => Promise<Cue[]>;
 const keyOf = ({ n, r }: CandidateRef) => candidateKey(n, r);
 
 const mixedCaseOf = async (candidates: CandidateRef[], download: Download) =>
-  (await settledTracks(candidates.map(download)))
+  (await settledTracks(candidates.map((candidate) => download(candidate))))
     .map((track) => track.cues)
     .filter((cues) => !isMostlyCapitals(cues));
 

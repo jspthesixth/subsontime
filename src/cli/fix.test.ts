@@ -685,6 +685,75 @@ describe("exit codes", () => {
     expect(output).toContain("\n  en  no subtitles found\n");
   });
 
+  it("downloads OpenSubtitles with the account from the environment", async () => {
+    const video = await writeVideo(`${movieName}.mkv`);
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+
+      if (url.endsWith("/login")) {
+        return new Response(JSON.stringify({ token: "user-token" }));
+      }
+
+      if (url.endsWith("/download")) {
+        return new Response(JSON.stringify({ link: "https://dl.example.com/7.srt" }));
+      }
+
+      if (url.startsWith("https://api.opensubtitles.com/api/v1/subtitles")) {
+        return new Response(
+          JSON.stringify({ data: [{ attributes: { language: "en", files: [{ file_id: 7 }] } }] }),
+        );
+      }
+
+      return url.startsWith("https://dl.example.com")
+        ? new Response(writeSRT(track))
+        : new Response(JSON.stringify({ subtitles: [] }));
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await run(
+      [
+        "fix",
+        video,
+        "--lang",
+        "en",
+        "--imdb",
+        "tt0111161",
+        "--private",
+        "--sources",
+        "opensubtitles",
+      ],
+      {
+        env: {
+          OPENSUBTITLES_APP_KEY: "app-key",
+          OPENSUBTITLES_USERNAME: " alice\t",
+          OPENSUBTITLES_PASSWORD: "secret",
+        },
+      },
+    );
+
+    const calls = fetchMock.mock.calls.filter(([url]) => /\/(login|download)$/.test(String(url)));
+
+    expect(
+      calls.map(([url, init]) => [
+        String(url),
+        String(init?.body),
+        new Headers(init?.headers).get("Authorization"),
+      ]),
+    ).toEqual([
+      [
+        "https://api.opensubtitles.com/api/v1/login",
+        JSON.stringify({ username: "alice", password: "secret" }),
+        null,
+      ],
+      [
+        "https://api.opensubtitles.com/api/v1/download",
+        JSON.stringify({ file_id: 7 }),
+        "Bearer user-token",
+      ],
+    ]);
+  });
+
   it("leaves the OpenSubtitles download limit alone without the OpenSubtitles source", async () => {
     const video = await writeVideo(`${movieName}.mkv`);
 

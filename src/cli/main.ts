@@ -111,11 +111,28 @@ const sourcesOf = (env: Env, text: string | undefined): SourceSet => {
     throw new UsageError(`Unknown source ${unknown}. Use ${sourceNames.join(", ")}`);
   }
 
-  const { openSubtitlesAppKey, titloviUsername, titloviPassword, subdlAPIKey, subsourceAPIKey } =
-    readGroup(sourcesSchema, env);
+  const {
+    openSubtitlesAppKey,
+    openSubtitlesUsername,
+    openSubtitlesPassword,
+    titloviUsername,
+    titloviPassword,
+    subdlAPIKey,
+    subsourceAPIKey,
+  } = readGroup(sourcesSchema, env);
 
   const settings: [string, SourceSettings | undefined][] = [
     ["opensubtitles", { kind: "stremio-addon", url: openSubtitlesAddonURL }],
+    [
+      "opensubtitles",
+      openSubtitlesUsername && openSubtitlesPassword
+        ? {
+            kind: "opensubtitles",
+            username: openSubtitlesUsername,
+            password: openSubtitlesPassword,
+          }
+        : undefined,
+    ],
     [
       "titlovi",
       titloviUsername && titloviPassword

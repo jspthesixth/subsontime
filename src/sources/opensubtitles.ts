@@ -159,14 +159,14 @@ export const openSubtitlesSource = (
   appKey: string,
   tokens: TokenCache,
 ): Source => {
-  const login = async (user: Credentials, signal: AbortSignal): Promise<Session> => {
+  const login = async (user: Credentials, signal: AbortSignal, fresh = false): Promise<Session> => {
     const key = createHash("sha256").update(user.username).digest("hex");
     const cached = v.safeParse(
       sessionSchema,
       JSON.parse((await tokens.get(key)) ?? "null") as unknown,
     );
 
-    if (cached.success) {
+    if (cached.success && !fresh) {
       return cached.output;
     }
 
@@ -199,22 +199,28 @@ export const openSubtitlesSource = (
       );
     },
     async download(ref, signal) {
-      const session = credentials === undefined ? undefined : await login(credentials, signal);
-      const response = await fetchWithTimeout(
-        `${session?.baseURL ?? defaultBaseURL}/download`,
-        {
-          method: "POST",
-          headers: {
-            ...baseHeaders(appKey),
-            "Content-Type": "application/json",
-            ...(session === undefined ? {} : { Authorization: `Bearer ${session.token}` }),
+      const requestDownload = (session?: Session) =>
+        fetchWithTimeout(
+          `${session?.baseURL ?? defaultBaseURL}/download`,
+          {
+            method: "POST",
+            headers: {
+              ...baseHeaders(appKey),
+              "Content-Type": "application/json",
+              ...(session === undefined ? {} : { Authorization: `Bearer ${session.token}` }),
+            },
+            body: JSON.stringify({ file_id: Number(ref) }),
+            signal,
+            maxBytes: maximumSearchBytes,
           },
-          body: JSON.stringify({ file_id: Number(ref) }),
-          signal,
-          maxBytes: maximumSearchBytes,
-        },
-        requestTimeoutMs,
-      );
+          requestTimeoutMs,
+        );
+      const session = credentials === undefined ? undefined : await login(credentials, signal);
+      const first = await requestDownload(session);
+      const response =
+        first.status === 401 && credentials !== undefined
+          ? await requestDownload(await login(credentials, signal, true))
+          : first;
       const parsed = v.safeParse(downloadSchema, await response.json().catch(() => undefined));
 
       if (!response.ok || !parsed.success) {

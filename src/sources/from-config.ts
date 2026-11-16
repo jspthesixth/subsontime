@@ -38,7 +38,8 @@ const isV3 = (settings: SourceSettings) =>
 
 const isLogin = (settings: SourceSettings) => settings.kind === "opensubtitles";
 
-const openSubtitlesFor = (appKey: string, deps: SourceDeps): OpenSubtitles => {
+const openSubtitlesFor = (appKey: string, config: Config, deps: SourceDeps): OpenSubtitles => {
+  const credentials = config.sources.find((settings) => settings.kind === "opensubtitles");
   const budget = downloadBudget(
     deps.state,
     deps.openSubtitlesDailyDownloads ?? defaultDailyDownloads,
@@ -57,6 +58,10 @@ const openSubtitlesFor = (appKey: string, deps: SourceDeps): OpenSubtitles => {
       state: deps.state,
       budget,
       rest,
+      login:
+        credentials === undefined
+          ? undefined
+          : openSubtitlesSource(credentials, appKey, deps.tokens),
     }),
     reference: renamed(rest, openSubtitlesAPIName),
   };
@@ -87,7 +92,7 @@ const toSources = (
 
 export const sourcesFromConfig = (config: Config, deps: SourceDeps): SourceSet => {
   const appKey = deps.openSubtitlesAppKey;
-  const openSubtitles = appKey === undefined ? undefined : openSubtitlesFor(appKey, deps);
+  const openSubtitles = appKey === undefined ? undefined : openSubtitlesFor(appKey, config, deps);
   const covered = config.sources.some((settings) => isV3(settings) || isLogin(settings));
 
   return {

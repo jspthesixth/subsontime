@@ -1,0 +1,8 @@
+{
+  "_note": "Hand-made: the OpenAPI spec documents only the 200 answer of /download. Shape of the quota fields from the recorded download, with no downloads remaining.",
+  "requests": 21,
+  "remaining": -1,
+  "message": "You have downloaded your allowed 20 subtitles for 24h.Your quota will be renewed in 06 hours and 55 minutes (2026-11-16 23:59:59 UTC) ts=1794848668 ",
+  "reset_time": "06 hours and 55 minutes",
+  "reset_time_utc": "2026-11-16T23:59:59.000Z"
+}

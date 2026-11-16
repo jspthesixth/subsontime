@@ -26,7 +26,7 @@ export type Candidate = {
 export interface Source {
   name: string;
   search(query: VideoQuery, signal: AbortSignal): Promise<Candidate[]>;
-  download(ref: string, signal: AbortSignal): Promise<Uint8Array>;
+  download(ref: string, signal: AbortSignal, served?: boolean): Promise<Uint8Array>;
 }
 
 export const maximumSearchBytes = 2 * 1024 * 1024;

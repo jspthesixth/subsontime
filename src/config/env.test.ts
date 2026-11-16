@@ -27,6 +27,8 @@ describe("readEnvironment", () => {
       secrets: { secret, installSalt },
       sources: {
         openSubtitlesAppKey: undefined,
+        openSubtitlesUsername: undefined,
+        openSubtitlesPassword: undefined,
         openSubtitlesDailyDownloads: 4,
         titloviUsername: undefined,
         titloviPassword: undefined,
@@ -72,6 +74,8 @@ describe("readEnvironment", () => {
       secrets: { secret, installSalt },
       sources: {
         openSubtitlesAppKey: "app-key",
+        openSubtitlesUsername: undefined,
+        openSubtitlesPassword: undefined,
         openSubtitlesDailyDownloads: 95,
         titloviUsername: "titlovi-user",
         titloviPassword: "titlovi-password",
@@ -82,6 +86,19 @@ describe("readEnvironment", () => {
       sharedState: { url: "http://localhost:8079", token: "token" },
       dumps: { blobToken: "blob-token", cronSecret: "cron-secret" },
     });
+  });
+
+  it("reads an OpenSubtitles account with the username trimmed", () => {
+    const { sources } = readEnvironment({
+      ...secrets,
+      OPENSUBTITLES_USERNAME: " alice\t",
+      OPENSUBTITLES_PASSWORD: " secret\t",
+    });
+
+    expect([sources.openSubtitlesUsername, sources.openSubtitlesPassword]).toEqual([
+      "alice",
+      " secret\t",
+    ]);
   });
 
   it("trims a pasted Titlovi.com username and keeps the password", () => {

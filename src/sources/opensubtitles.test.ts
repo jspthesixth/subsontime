@@ -226,6 +226,42 @@ describe("openSubtitlesSource download", () => {
     expect(fetchMock.mock.calls.filter(([url]) => url === `${baseURL}/login`)).toHaveLength(2);
   });
 
+  it("signs in again once when OpenSubtitles refuses the cached token", async () => {
+    const fetchMock = stubFetch(
+      json(loginFixture),
+      json(downloadFixture),
+      new Response(fileBytes),
+      json({ message: "You cannot consume this service", status: 401 }, 401),
+      json(loginFixture),
+      json(downloadFixture),
+      new Response(fileBytes),
+    );
+    const source = openSubtitlesSource(credentials, appKey, memoryTokenCache());
+
+    await source.download("501", signal());
+
+    expect(await source.download("501", signal())).toEqual(fileBytes);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `${baseURL}/login`,
+      "https://vip-api.opensubtitles.com/api/v1/download",
+      downloadFixture.link,
+      "https://vip-api.opensubtitles.com/api/v1/download",
+      `${baseURL}/login`,
+      "https://vip-api.opensubtitles.com/api/v1/download",
+      downloadFixture.link,
+    ]);
+  });
+
+  it("signs in again only once", async () => {
+    const refused = () => json({ message: "You cannot consume this service", status: 401 }, 401);
+    const fetchMock = stubFetch(json(loginFixture), refused(), json(loginFixture), refused());
+
+    await expect(
+      openSubtitlesSource(credentials, appKey, memoryTokenCache()).download("501", signal()),
+    ).rejects.toThrow("Download failed with status 401");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("caches the token under the SHA-256 of the username", async () => {
     const tokens = memoryTokenCache();
 
