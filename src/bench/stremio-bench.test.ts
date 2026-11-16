@@ -1,11 +1,19 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { parseRelease } from "../subtitles/release.ts";
 import { retimedSources, shifted, track } from "../stremio/test-app.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
-import { benchFile, cachingFetch, countOutcomes, dailyLedger, tierOf } from "./stremio-bench.ts";
+import {
+  benchFile,
+  cachingFetch,
+  countOutcomes,
+  dailyLedger,
+  languagesOf,
+  loadDataset,
+  tierOf,
+} from "./stremio-bench.ts";
 import { clustersOf, retimedTo } from "./anchor.ts";
 import { availabilityOf, candidateKey, signalsOf } from "./oracle.ts";
 import { shapeOf, truthOf } from "./truth.ts";
@@ -230,5 +238,39 @@ describe("anchor", () => {
     expect(clusters.map((cluster) => cluster.map(({ ref }) => ref))).toEqual([["a", "b"], ["c"]]);
     expect(counter.checks).toBe(2);
     expect(retimedTo(track, shifted, counter)[0]?.start).toBe(track[0]?.start);
+  });
+});
+
+const labelled = (subtitle: string, lang: string) => ({
+  file: "a1",
+  subtitle,
+  lang,
+  status: "labelled",
+  cues: "cues.json",
+});
+
+describe("loadDataset", () => {
+  it("asks for the language codes users can choose", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bench-dataset-"));
+
+    await writeFile(join(root, "cues.json"), JSON.stringify([]));
+    await writeFile(
+      join(root, "manifest.json"),
+      JSON.stringify({
+        files: [{ sha256: "a1", split: "train", kind: "film", imdbId: "tt0063350", path: "x.mkv" }],
+        subtitles: [],
+      }),
+    );
+    await writeFile(
+      join(root, "labels.json"),
+      JSON.stringify({
+        entries: [labelled("s1", "fre"), labelled("s2", "ger"), labelled("s3", "pob")],
+      }),
+    );
+
+    const [file] = (await loadDataset(root, "train", {})).files;
+
+    expect(file?.verified.map(({ lang }) => lang)).toEqual(["fra", "deu", "pob"]);
+    expect(file === undefined ? [] : languagesOf(file)).toEqual(["eng", "deu", "fra", "pob"]);
   });
 });

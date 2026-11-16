@@ -8,6 +8,7 @@ import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
 import { memorySharedState, type SharedState } from "../jobs/shared-state.ts";
+import { code3Of } from "../languages.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
 import type { TokenCache } from "../sources/token-cache.ts";
@@ -119,7 +120,7 @@ export const loadDataset = async (root: string, name: string, env: NodeJS.Proces
           : [
               readJSON(join(root, cues), CuesSchema).then((trusted) => ({
                 file,
-                verified: { id: subtitle, lang, cues: trusted },
+                verified: { id: subtitle, lang: code3Of(lang), cues: trusted },
               })),
             ],
       ),
