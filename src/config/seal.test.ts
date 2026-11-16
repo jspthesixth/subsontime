@@ -7,6 +7,14 @@ import { seal, unseal } from "./seal.ts";
 
 const secret = "a".repeat(32);
 
+const sealedPayload = (payload: unknown) => {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", createHash("sha256").update(secret).digest(), iv);
+  const body = Buffer.concat([cipher.update(JSON.stringify(payload), "utf8"), cipher.final()]);
+
+  return Buffer.concat([Buffer.from([1]), iv, body, cipher.getAuthTag()]).toString("base64url");
+};
+
 describe("seal", () => {
   it("round trips a config", () => {
     const config = defaultConfig(["eng", "hrv"]);
@@ -32,6 +40,22 @@ describe("seal", () => {
     );
   });
 
+  it("rejects a token whose version byte is zero", () => {
+    const bytes = Buffer.from(seal(defaultConfig(["eng"]), secret), "base64url");
+
+    bytes[0] = 0;
+
+    expect(() => unseal(bytes.toString("base64url"), secret)).toThrow(
+      "This install link is not valid",
+    );
+  });
+
+  it("rejects a correctly sealed payload that is not a config", () => {
+    expect(() => unseal(sealedPayload({ version: 1 }), secret)).toThrow(
+      "This install link is not valid",
+    );
+  });
+
   it("rejects a token sealed with another secret", () => {
     const token = seal(defaultConfig(["eng"]), secret);
 
@@ -46,12 +70,7 @@ describe("seal", () => {
   it("opens a link sealed before the Open Timings switches with both on", () => {
     const { useShared, share, ...old } = defaultConfig(["eng"]);
 
-    const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", createHash("sha256").update(secret).digest(), iv);
-    const body = Buffer.concat([cipher.update(JSON.stringify(old), "utf8"), cipher.final()]);
-    const token = Buffer.concat([Buffer.from([1]), iv, body, cipher.getAuthTag()]).toString(
-      "base64url",
-    );
+    const token = sealedPayload(old);
 
     expect([useShared, share]).toEqual([true, true]);
     expect(unseal(token, secret)).toEqual({ ...old, useShared: true, share: true });
