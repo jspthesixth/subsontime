@@ -3,7 +3,7 @@ import type { CheckRow } from "../check-route.ts";
 import { combobox } from "./lib/combobox.ts";
 import { clone, find } from "./lib/dom.ts";
 import { errorOf, postJSON } from "./lib/post-json.ts";
-import { sizeText } from "./lib/size-text.ts";
+import { sizeText } from "../../format.ts";
 import { videoHash } from "./lib/video-hash.ts";
 
 type Title = { id: string; type: "movie" | "series"; name: string; year?: string };

@@ -15,6 +15,7 @@ import {
 } from "../audio/align-audio.ts";
 import { audioStreamOf, pcmFrom } from "../audio/ffmpeg.ts";
 import { defaultConfig } from "../config/default-config.ts";
+import { seconds, sizeText, speedText } from "../format.ts";
 import { toISO6391 } from "../languages.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
@@ -123,16 +124,6 @@ const detail = (paint: Paint, { label, value, tone = "value" }: Line) =>
     : `      ${label.padEnd(detailWidth)}${paint[tone](value)}`;
 
 const codeOf = (lang: string) => toISO6391(lang) ?? lang;
-
-const sizeText = (size: number) =>
-  size >= 1e9 ? `${(size / 1e9).toFixed(2)} GB` : `${(size / 1e6).toFixed(2)} MB`;
-
-const seconds = (ms: number) => `${ms < 0 ? "-" : "+"}${Math.abs(ms / 1000).toFixed(2)} s`;
-
-const fpsText = (fps: number) => String(Number(fps.toFixed(3)));
-
-const speedText = (ratio: number, fps: number | undefined) =>
-  fps === undefined ? `×${ratio.toFixed(4)}` : `${fpsText(fps)} to ${fpsText(fps * ratio)}`;
 
 const clock = (ms: number) =>
   [ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60]

@@ -3,7 +3,7 @@ import { clone, find } from "./lib/dom.ts";
 import { timingsOf } from "../../timings/timings-schema.ts";
 import { fixRows, type FixRowView } from "./lib/fix-rows.ts";
 import { errorOf } from "./lib/post-json.ts";
-import { sizeText } from "./lib/size-text.ts";
+import { sizeText } from "../../format.ts";
 import { videoHash } from "./lib/video-hash.ts";
 
 const fingerprintPattern = /^([0-9a-f]{16}):([1-9]\d{0,15})$/;

@@ -5,6 +5,7 @@ import type { RouteDeps } from "../app.ts";
 import { languagesSchema, type Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { invalidLinkMessage } from "../config/seal.ts";
+import { seconds, speedText } from "../format.ts";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, VideoQuery } from "../sources/source.ts";
@@ -90,19 +91,10 @@ const languageNames = new Map(languageOptions.map(({ code, name }) => [code, nam
 
 const nameOf = (code: string) => languageNames.get(code) ?? code;
 
-const seconds = (ms: number) => `${ms < 0 ? "-" : "+"}${Math.abs(ms / 1000).toFixed(2)} s`;
-
-const fpsText = (fps: number) => String(Number(fps.toFixed(3)));
-
-const speedText = (ratio: number, fps: number | undefined) =>
-  fps === undefined
-    ? `speed ×${ratio.toFixed(4)}`
-    : `speed ${fpsText(fps)} to ${fpsText(fps * ratio)}`;
-
 const retimedDetail = ({ offsetMs, speedRatio, cuts }: Retimed, fps: number | undefined) =>
   [
     seconds(offsetMs),
-    ...(speedRatio === 1 ? [] : [speedText(speedRatio, fps)]),
+    ...(speedRatio === 1 ? [] : [`speed ${speedText(speedRatio, fps)}`]),
     ...(cuts > 0 ? [`${cuts} ${cuts === 1 ? "cut" : "cuts"}`] : []),
   ].join(" · ");
 

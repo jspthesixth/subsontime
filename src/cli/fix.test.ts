@@ -1010,7 +1010,7 @@ describe("summary", () => {
 
     expect(output.replace(/· \d+\.\d s/, "· <time>")).toBe(
       [
-        `  file        ${hash} · 0.10 MB`,
+        `  file        ${hash} · 100.00 KB`,
         "  title       tt0111161",
         "  searching   Fake, Reference · <time>",
         "",
