@@ -8,6 +8,7 @@ const tagLength = 16;
 const invalidMessage = "This install link is not valid";
 
 export const invalidLinkMessage = "This install link is not valid. Set up again.";
+export const newerLinkMessage = "This install link is from a newer version";
 
 function deriveKey(secret: string): Buffer {
   return createHash("sha256").update(secret).digest();
@@ -34,7 +35,7 @@ export function unseal(token: string, secret: string): Config {
   }
 
   if ((bytes[0] ?? 0) > currentVersion) {
-    throw new ConfigError("This install link is from a newer version");
+    throw new ConfigError(newerLinkMessage);
   }
 
   if (bytes[0] !== currentVersion) {

@@ -8,7 +8,7 @@ import jellyfinReleases from "../plugins/jellyfin/releases.json" with { type: "j
 import { baseURL } from "./base-url.ts";
 import { ConfigError, type Config } from "./config/config.ts";
 import type { Environment } from "./config/env.ts";
-import { invalidLinkMessage, unseal } from "./config/seal.ts";
+import { invalidLinkMessage, newerLinkMessage, unseal } from "./config/seal.ts";
 import { sealedConfigPattern } from "./config/sealed-config.ts";
 import { memorySingleFlight, sharedSingleFlight, type SingleFlight } from "./jobs/single-flight.ts";
 import {
@@ -81,7 +81,6 @@ export type RouteDeps = {
   defer: (work: Promise<unknown>) => void;
 };
 
-const newerLinkMessage = "This install link is from a newer version";
 const notJSONMessage = "Send the request as JSON";
 const tooLargeMessage = "This request is too large";
 const failedMessage = "Something went wrong";
