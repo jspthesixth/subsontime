@@ -153,7 +153,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   }
 
   app.get("/", (context) => context.html(homePage(deps.analytics)));
-  app.get("/stremio", (context) => context.html(setupPage(deps.analytics)));
+  app.get("/stremio", (context) =>
+    context.html(setupPage(deps.analytics, deps.openSubtitlesAppKey !== undefined)),
+  );
   app.get("/check", (context) => context.html(checkPage(deps.analytics)));
   app.get("/integrations", (context) =>
     context.html(integrationsPage(baseURL(context, deps.publicURL), deps.analytics)),

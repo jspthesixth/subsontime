@@ -20,7 +20,7 @@ import {
 } from "../subtitles/release.ts";
 import { minimumScoreOf, rankingOf, scoreOf } from "../subtitles/score.ts";
 import { anchorWithGuardsOf, asGoodAsAnchor } from "../timing/anchor.ts";
-import { freeFirst, pickReferences } from "../timing/references.ts";
+import { freeOnly, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
 import { canBeTimed, downloader, warmAnchor } from "./file-route.ts";
@@ -104,7 +104,7 @@ export const searchVideo = async (
   const ripGuess = family === undefined && looksLikeRip(query.filename ?? "");
   const guessed = ({ release }: Candidate) => ripGuess && isDiscOrWeb(release);
   const fromGuess = learned.length === 0 && ripGuess;
-  const references = fromGuess ? freeFirst(all.filter(guessed)) : learned;
+  const references = fromGuess ? freeOnly(all.filter(guessed)) : learned;
   const scoreContext = { video: query, fileRelease, family, ripGuess };
   const ranking = rankingOf(scoreContext);
 

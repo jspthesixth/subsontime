@@ -152,32 +152,35 @@ const accountRow = ({ kind, name, body, add, saved, fields }: (typeof accounts)[
     </form>
   </div>`;
 
-const sourcesBlock = html`<section class="setup-block" aria-labelledby="s2">
-  ${setupHead("02", "s2", "Sources", "Where to look. Accounts are used only to search and download for you, and are stored encrypted in your install link.")}
-  <div class="stack gap-24">
-    <div class="list" id="source-list">${accounts.map(accountRow)}</div>
-    <form class="field" id="addon-form">
-      <label class="label" for="addon-url">Any Stremio subtitle addon</label>
-      <div class="input-row">
-        <input
-          id="addon-url"
-          class="input input-mono"
-          type="url"
-          placeholder="https://…/manifest.json"
-          pattern="https?://.+/manifest\\.json"
-          title="Must be an https manifest.json URL"
-          autocomplete="off"
-          required
-        />
-        <button type="submit" class="btn btn-ghost">Add source</button>
+const sourcesBlock = (signIn: boolean) =>
+  html`<section class="setup-block" aria-labelledby="s2">
+    ${setupHead("02", "s2", "Sources", "Where to look. Accounts are used only to search and download for you, and are stored encrypted in your install link.")}
+    <div class="stack gap-24">
+      <div class="list" id="source-list">
+        ${accounts.filter(({ kind }) => signIn || kind !== "opensubtitles").map(accountRow)}
       </div>
-      <p class="hint">
-        Paste the link of a subtitle addon you already use. Its subtitles get retimed like all the
-        others.
-      </p>
-    </form>
-  </div>
-</section>`;
+      <form class="field" id="addon-form">
+        <label class="label" for="addon-url">Any Stremio subtitle addon</label>
+        <div class="input-row">
+          <input
+            id="addon-url"
+            class="input input-mono"
+            type="url"
+            placeholder="https://…/manifest.json"
+            pattern="https?://.+/manifest\\.json"
+            title="Must be an https manifest.json URL"
+            autocomplete="off"
+            required
+          />
+          <button type="submit" class="btn btn-ghost">Add source</button>
+        </div>
+        <p class="hint">
+          Paste the link of a subtitle addon you already use. Its subtitles get retimed like all the
+          others.
+        </p>
+      </form>
+    </div>
+  </section>`;
 
 const timingOption = (
   value: string,
@@ -363,26 +366,28 @@ const templates = html`<template id="chip-template"
   >
   <template id="installed-template">${installedView}</template>`;
 
-const content = html`<main class="wrap" id="setup" style="padding-top: 72px; padding-bottom: 96px;">
-    <div class="stack gap-16 measure" style="padding-bottom: 56px;">
-      <p class="eyebrow eyebrow-accent">Stremio addon</p>
-      <h1 class="h2" id="page-title" tabindex="-1">Set up Subs On Time</h1>
-      <p class="lede">Only the language is required. Everything else has a default that works.</p>
-    </div>
+const contentOf = (openSubtitlesSignIn: boolean) =>
+  html`<main class="wrap" id="setup" style="padding-top: 72px; padding-bottom: 96px;">
+      <div class="stack gap-16 measure" style="padding-bottom: 56px;">
+        <p class="eyebrow eyebrow-accent">Stremio addon</p>
+        <h1 class="h2" id="page-title" tabindex="-1">Set up Subs On Time</h1>
+        <p class="lede">Only the language is required. Everything else has a default that works.</p>
+      </div>
 
-    <div class="stack gap-48">
-      ${languagesBlock} ${sourcesBlock} ${timingBlock} ${extrasBlock} ${sharingBlock}
-    </div>
-  </main>
-  ${installBar} ${templates}`;
+      <div class="stack gap-48">
+        ${languagesBlock} ${sourcesBlock(openSubtitlesSignIn)} ${timingBlock} ${extrasBlock}
+        ${sharingBlock}
+      </div>
+    </main>
+    ${installBar} ${templates}`;
 
-export const setupPage = (analytics?: boolean) =>
+export const setupPage = (analytics: boolean | undefined, openSubtitlesSignIn: boolean) =>
   layout({
     analytics,
     title: "Set up Subs On Time for Stremio",
     description:
       "Choose your subtitle languages and sources, then install Subs On Time in Stremio.",
     active: "stremio",
-    content,
+    content: contentOf(openSubtitlesSignIn),
     scripts: ["setup"],
   });

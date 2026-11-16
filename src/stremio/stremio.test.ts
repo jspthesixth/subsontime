@@ -572,34 +572,14 @@ describe("subtitle file", () => {
     ).toEqual([["r", false]]);
   });
 
-  it("downloads a metered reference that failed again as served when it is served", async () => {
-    const download = vi.fn<Source["download"]>(async (_ref, _signal, served) => {
-      if (served !== true) {
-        throw new Error("The budget is spent");
-      }
-
-      return new TextEncoder().encode(writeSRT(track));
-    });
-    const source = {
-      ...fakeSource("Fake", [
-        { ref: "a", metered: true, releaseName: "Movie.2024.1080p.BluRay.x264-GROUP" },
-      ]),
-      download,
-    };
+  it("never takes a metered subtitle as a reference", async () => {
+    const source = fakeSource("Fake", [
+      { ref: "a", metered: true, releaseName: "Movie.2024.1080p.BluRay.x264-GROUP" },
+    ]);
     const app = appWith({ listed: [source], references: [] });
     const { body } = await list(app, sealed(), `movie/tt0111161/filename=${fileName}.json`);
 
-    const url = body.subtitles[0]?.url ?? "";
-
-    expect(refOf(url).x.map(({ r }) => r)).toEqual(["a"]);
-
-    const response = await app.request(url);
-
-    expect(response.status).toBe(200);
-    expect(download.mock.calls.map(([ref, , served]) => [ref, served])).toEqual([
-      ["a", false],
-      ["a", true],
-    ]);
+    expect(refOf(body.subtitles[0]?.url ?? "").x).toEqual([]);
   });
 
   it("downloads a candidate that is also a reference once", async () => {
@@ -1426,7 +1406,7 @@ describe("timing anchor", () => {
     expect(startsOf(await servedAt(app, url))).toEqual(startsOf(track));
   });
 
-  it("keeps a hash reference over a release-name anchor", async () => {
+  it("times to the release-name anchor when the only hash match is metered", async () => {
     const later = transform(track, (time) => time + 1000);
     const listed = fakeSource("OpenSubtitles", [
       { ref: "hrv-shifted", lang: "hrv", cues: shifted },
@@ -1451,7 +1431,8 @@ describe("timing anchor", () => {
     const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
 
     expect(ref.a?.[0]?.r).toBe("eng-release");
-    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(track));
+    expect(ref.x).toEqual([]);
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(later));
   });
 
   it("keeps the hash flag of an anchor the other listing matched", async () => {
@@ -1569,7 +1550,7 @@ describe("timing anchor", () => {
 
     const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
 
-    expect(ref.x.map(({ r }) => r)).toEqual(["hrv-hash"]);
+    expect(ref.x).toEqual([]);
     expect(startsOf(await servedAt(app, url))).toEqual(startsOf(track));
     expect(references.download).not.toHaveBeenCalled();
   });

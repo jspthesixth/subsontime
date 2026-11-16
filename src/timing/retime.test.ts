@@ -294,10 +294,10 @@ describe("pickReferences", () => {
     expect(refs(pickReferences(candidates, fileRelease))).toEqual(["b", "c"]);
   });
 
-  it("takes a metered hash match when nothing free matches", () => {
+  it("takes no metered hash match even when nothing free matches", () => {
     const candidates = [{ ...hashMatch("a", "hrv"), metered: true }, sameRelease("b")];
 
-    expect(refs(pickReferences(candidates, fileRelease))).toEqual(["a"]);
+    expect(refs(pickReferences(candidates, fileRelease))).toEqual([]);
   });
 
   it("picks nothing when no candidate matches", () => {

@@ -36,6 +36,15 @@ const searchSchema = v.object({ data: v.array(v.unknown()) });
 const loginSchema = v.object({ token: v.string(), base_url: v.optional(v.string()) });
 const sessionSchema = v.object({ token: v.string(), baseURL: v.string() });
 const downloadSchema = v.object({ link: v.string() });
+const usedUpSchema = v.object({
+  remaining: v.pipe(v.number(), v.maxValue(0)),
+  reset_time_utc: v.optional(v.string()),
+});
+const usedUpFallbackSeconds = 24 * 60 * 60;
+
+export class RefusedDownload extends Error {
+  override name = "RefusedDownload";
+}
 
 export type RESTEntry = v.InferOutput<typeof restEntrySchema>;
 type Credentials = { username: string; password: string };
@@ -174,7 +183,7 @@ export const openSubtitlesSource = (
     const parsed = v.safeParse(loginSchema, await response.json().catch(() => undefined));
 
     if (!response.ok || !parsed.success) {
-      throw new Error("OpenSubtitles login failed");
+      throw new RefusedDownload("OpenSubtitles login failed");
     }
 
     const session = {
@@ -199,6 +208,15 @@ export const openSubtitlesSource = (
       );
     },
     async download(ref, signal) {
+      const usedUpKey =
+        credentials === undefined
+          ? undefined
+          : `quota:${createHash("sha256").update(credentials.username).digest("hex")}`;
+
+      if (usedUpKey !== undefined && (await tokens.get(usedUpKey)) !== undefined) {
+        throw new RefusedDownload("The OpenSubtitles downloads of this account are used up");
+      }
+
       const requestDownload = (session?: Session) =>
         fetchWithTimeout(
           `${session?.baseURL ?? defaultBaseURL}/download`,
@@ -221,10 +239,26 @@ export const openSubtitlesSource = (
         first.status === 401 && credentials !== undefined
           ? await requestDownload(await login(credentials, signal, true))
           : first;
-      const parsed = v.safeParse(downloadSchema, await response.json().catch(() => undefined));
+      const body: unknown = await response.json().catch(() => undefined);
+      const parsed = v.safeParse(downloadSchema, body);
 
       if (!response.ok || !parsed.success) {
-        throw new Error(`Download failed with status ${response.status}`);
+        const usedUp = v.safeParse(usedUpSchema, body);
+        const message = `Download failed with status ${response.status}`;
+
+        if (usedUpKey !== undefined && usedUp.success) {
+          const seconds = Math.ceil(
+            (Date.parse(usedUp.output.reset_time_utc ?? "") - Date.now()) / 1000,
+          );
+
+          await tokens.set(usedUpKey, "used up", seconds > 0 ? seconds : usedUpFallbackSeconds);
+
+          throw new RefusedDownload(message);
+        }
+
+        throw response.status === 401 || response.status === 403
+          ? new RefusedDownload(message)
+          : new Error(message);
       }
 
       const file = await fetchWithTimeout(

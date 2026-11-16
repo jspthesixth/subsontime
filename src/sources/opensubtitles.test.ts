@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import downloadFixture from "../../test/fixtures/sources/opensubtitles-rest-download.json" with { type: "json" };
 import loginFixture from "../../test/fixtures/sources/opensubtitles-rest-login.json" with { type: "json" };
+import quotaFixture from "../../test/fixtures/sources/opensubtitles-rest-download-quota.json" with { type: "json" };
 import searchFixture from "../../test/fixtures/sources/opensubtitles-rest-search.json" with { type: "json" };
 import packageJSON from "../../package.json" with { type: "json" };
 import { parseRelease } from "../subtitles/release.ts";
@@ -259,6 +260,32 @@ describe("openSubtitlesSource download", () => {
     await expect(
       openSubtitlesSource(credentials, appKey, memoryTokenCache()).download("501", signal()),
     ).rejects.toThrow("Download failed with status 401");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("remembers used-up downloads until the reset time OpenSubtitles gives", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-11-16T17:00:00Z"));
+
+    const fetchMock = stubFetch(
+      json(loginFixture),
+      json(quotaFixture, 406),
+      json(downloadFixture),
+      new Response(fileBytes),
+    );
+    const source = openSubtitlesSource(credentials, appKey, memoryTokenCache());
+
+    await expect(source.download("501", signal())).rejects.toThrow(
+      "Download failed with status 406",
+    );
+    await expect(source.download("501", signal())).rejects.toThrow(
+      "The OpenSubtitles downloads of this account are used up",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(Date.parse("2026-11-17T00:00:01Z"));
+
+    expect(await source.download("501", signal())).toEqual(fileBytes);
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 

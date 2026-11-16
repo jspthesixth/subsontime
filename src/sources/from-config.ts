@@ -50,21 +50,18 @@ const openSubtitlesFor = (appKey: string, config: Config, deps: SourceDeps): Ope
     deps.state,
   );
 
-  return {
-    listed: openSubtitlesListing({
-      manifestURL: openSubtitlesV3URL,
-      name: openSubtitlesV3Name,
-      appKey,
-      state: deps.state,
-      budget,
-      rest,
-      login:
-        credentials === undefined
-          ? undefined
-          : openSubtitlesSource(credentials, appKey, deps.tokens),
-    }),
-    reference: renamed(rest, openSubtitlesAPIName),
-  };
+  const listed = openSubtitlesListing({
+    manifestURL: openSubtitlesV3URL,
+    name: openSubtitlesV3Name,
+    appKey,
+    state: deps.state,
+    budget,
+    rest,
+    login:
+      credentials === undefined ? undefined : openSubtitlesSource(credentials, appKey, deps.tokens),
+  });
+
+  return { listed, reference: renamed(listed, openSubtitlesAPIName) };
 };
 
 const toSources = (

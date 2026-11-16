@@ -192,9 +192,7 @@ export const downloader = (sources: SourceSet, signal?: AbortSignal): Downloader
 
   const download = (candidate: CandidateRef, served = false) => {
     const key = candidateKey(candidate.n, candidate.r);
-    const known = downloads.get(key);
-    const fresh = () => fetchTrack(byName, candidate, signal, served);
-    const track = (served && known !== undefined ? known.catch(fresh) : known) ?? fresh();
+    const track = downloads.get(key) ?? fetchTrack(byName, candidate, signal, served);
 
     downloads.set(key, track);
 

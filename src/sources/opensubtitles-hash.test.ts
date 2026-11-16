@@ -424,6 +424,28 @@ describe("openSubtitlesListing download", () => {
     expect(spend).toHaveBeenCalledTimes(1);
   });
 
+  it("does not spend the app-key budget when the user's download times out", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      if (urlOf(input).endsWith("/login")) {
+        return new Response(JSON.stringify(loginFixture));
+      }
+
+      if (new Headers(init?.headers).has("Authorization")) {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      }
+
+      return new Response(JSON.stringify(downloadFixture));
+    });
+    const { budget, spend } = countingBudget();
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      sourceWith(memorySharedState(), budget, alice).download("735363", signal(), true),
+    ).rejects.toThrow("The operation timed out.");
+    expect(spend).not.toHaveBeenCalled();
+  });
+
   it("never spends the user's downloads on a subtitle that is not served", async () => {
     const calls = stubUserDownloads(new Response(JSON.stringify(downloadFixture)));
     const { budget, spend } = countingBudget();

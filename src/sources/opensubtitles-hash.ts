@@ -4,6 +4,7 @@ import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import { parseJSON } from "../json.ts";
 import { rateLimit } from "../web/rate-limit.ts";
 import {
+  RefusedDownload,
   movieHashOf,
   restCandidate,
   restEntrySchema,
@@ -247,9 +248,13 @@ export const openSubtitlesListing = ({
       }
 
       return served === true && login !== undefined
-        ? cachedFile(state, ref, () => login.download(ref, signal)).catch(() =>
-            rest.download(ref, signal),
-          )
+        ? cachedFile(state, ref, () => login.download(ref, signal)).catch((error: unknown) => {
+            if (!(error instanceof RefusedDownload)) {
+              throw error;
+            }
+
+            return rest.download(ref, signal);
+          })
         : rest.download(ref, signal);
     },
   };
