@@ -9,7 +9,7 @@ import { parseJSON } from "../json.ts";
 import { lookUp, type Summaries } from "./api.ts";
 import type { TimingsStore, VideoKey } from "./db.ts";
 
-type DumpDeps = { groupingKey: Buffer; blobToken: string };
+type DumpDeps = { groupingKey: Buffer; blobToken: string; state: SharedState };
 
 const pageSize = 500;
 const lookUpBatch = 8;
@@ -73,7 +73,7 @@ async function* dumpLines(store: TimingsStore, groupingKey: Buffer) {
 
 export const writeDump = async (
   store: TimingsStore,
-  { groupingKey, blobToken }: DumpDeps,
+  { groupingKey, blobToken, state }: DumpDeps,
   now: Date,
 ): Promise<Pointer> => {
   const date = now.toISOString().slice(0, 10);
@@ -108,8 +108,12 @@ export const writeDump = async (
     token: blobToken,
   });
 
+  await remember(state, pointer);
+
   if (previous !== undefined && previous.url !== pointer.url) {
-    await del(previous.url, { token: blobToken });
+    await del(previous.url, { token: blobToken }).catch((error: unknown) =>
+      console.error(`Old dump delete failed: ${error instanceof Error ? error.name : "unknown"}`),
+    );
   }
 
   return pointer;
@@ -149,11 +153,7 @@ export const dumpCronRoute =
       return context.json({ error: notConfiguredMessage }, 503);
     }
 
-    const pointer = await writeDump(store, { groupingKey, blobToken }, new Date());
-
-    await remember(state, pointer);
-
-    return context.json(pointer);
+    return context.json(await writeDump(store, { groupingKey, blobToken, state }, new Date()));
   };
 
 export const latestDumpRoute =

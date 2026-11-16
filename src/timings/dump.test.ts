@@ -4,6 +4,7 @@ import type { Readable } from "node:stream";
 import { del, get, put, type PutBlobResult } from "@vercel/blob";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
+import { memorySharedState } from "../jobs/shared-state.ts";
 import { memoryStore, type TimingsStore } from "./db.ts";
 import { writeDump } from "./dump.ts";
 import { groupingKeyOf } from "./submitter.ts";
@@ -96,6 +97,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.UTC(2026, 10, 16, 3, 30));
   keepUploads();
+  vi.mocked(del).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -110,7 +112,7 @@ describe("writeDump", () => {
     const store = await seeded();
     const app = appWith(store, {});
 
-    await writeDump(store, { groupingKey, blobToken }, new Date());
+    await writeDump(store, { groupingKey, blobToken, state: memorySharedState() }, new Date());
 
     const [dump] = uploads;
 
@@ -133,7 +135,11 @@ describe("writeDump", () => {
   });
 
   it("uploads the dump publicly under its date, then points to it", async () => {
-    await writeDump(await seeded(), { groupingKey, blobToken }, new Date());
+    await writeDump(
+      await seeded(),
+      { groupingKey, blobToken, state: memorySharedState() },
+      new Date(),
+    );
 
     expect(uploads.map(({ pathname, options }) => ({ pathname, options }))).toEqual([
       {
@@ -170,7 +176,11 @@ describe("writeDump", () => {
   it("deletes the dump the pointer replaced", async () => {
     pointer(JSON.stringify({ url: yesterdayURL, date: "2026-11-15", videos: 1 }));
 
-    await writeDump(await seeded(), { groupingKey, blobToken }, new Date());
+    await writeDump(
+      await seeded(),
+      { groupingKey, blobToken, state: memorySharedState() },
+      new Date(),
+    );
 
     expect(vi.mocked(del).mock.calls).toEqual([
       [yesterdayURL, { token: "vercel_blob_rw_store_secret" }],
@@ -183,7 +193,11 @@ describe("writeDump", () => {
   it("keeps the dump a same-day rerun points to again", async () => {
     pointer(JSON.stringify({ url: dumpURL, date: "2026-11-16", videos: 2 }));
 
-    await writeDump(await seeded(), { groupingKey, blobToken }, new Date());
+    await writeDump(
+      await seeded(),
+      { groupingKey, blobToken, state: memorySharedState() },
+      new Date(),
+    );
 
     expect(del).not.toHaveBeenCalled();
   });
@@ -205,9 +219,9 @@ describe("writeDump", () => {
       },
     };
 
-    await expect(writeDump(failing, { groupingKey, blobToken }, new Date())).rejects.toThrow(
-      "connection lost",
-    );
+    await expect(
+      writeDump(failing, { groupingKey, blobToken, state: memorySharedState() }, new Date()),
+    ).rejects.toThrow("connection lost");
     expect(vi.mocked(put).mock.calls.map(([pathname]) => pathname)).toEqual([
       "open-timings-2026-11-16.jsonl.gz",
     ]);
@@ -277,7 +291,11 @@ describe("writeDump", () => {
         return blobAt(pathname);
       });
 
-      const result = await writeDump(store, { groupingKey, blobToken }, new Date());
+      const result = await writeDump(
+        store,
+        { groupingKey, blobToken, state: memorySharedState() },
+        new Date(),
+      );
 
       expect(result).toEqual({ url: dumpURL, date: "2026-11-16", videos: 1_000_000 });
       expect(consumed).toBe(1_000_000);
@@ -291,6 +309,23 @@ describe("writeDump", () => {
 });
 
 describe("GET /api/cron/dump", () => {
+  it("keeps the new dump and answers 200 when deleting the old one fails", async () => {
+    pointer(JSON.stringify({ url: yesterdayURL, date: "2026-11-15", videos: 1 }));
+    vi.mocked(del).mockRejectedValue(new Error(`cannot delete ${yesterdayURL}`));
+
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = appWith(await seeded(), { blobToken, cronSecret });
+    const cron = await runCron(app, `Bearer ${cronSecret}`);
+    const latest = await app.request("/api/v1/dump");
+
+    expect(cron.status).toBe(200);
+    expect(await cron.json()).toEqual({ url: dumpURL, date: "2026-11-16", videos: 2 });
+    expect(latest.headers.get("location")).toBe(dumpURL);
+    expect(errors.mock.calls).toEqual([["Old dump delete failed: Error"]]);
+    expect(get).toHaveBeenCalledTimes(1);
+    errors.mockRestore();
+  });
+
   it("refuses every caller when no cron secret is set", async () => {
     const response = await runCron(appWith(memoryStore(), { blobToken }), "Bearer undefined");
 
