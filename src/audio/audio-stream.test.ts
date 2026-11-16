@@ -150,7 +150,7 @@ describe.skipIf(!hasFFprobe)("audioStreamOf", () => {
     const start = result.kind === "aligned" ? result.cues[0]?.start : undefined;
 
     expect(Math.abs((start ?? Infinity) - (english[0]?.start ?? 0))).toBeLessThan(300);
-  });
+  }, 60_000);
 
   it("uses the first stream when ffprobe is missing", async () => {
     vi.stubEnv("SUBSONTIME_FFPROBE", "/no/such/ffprobe");

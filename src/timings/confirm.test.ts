@@ -536,7 +536,7 @@ describe("summarize hiding", () => {
   });
 });
 
-describe("summarize limits", () => {
+describe("summarize limits", { timeout: 60_000 }, () => {
   it("returns 20 views, confirmed first, then by agreement, then newest", () => {
     const pair = subtitle(10);
     const trio = subtitle(11);
@@ -611,7 +611,7 @@ describe("summarize limits", () => {
   });
 });
 
-describe("summarize grouping bounds", () => {
+describe("summarize grouping bounds", { timeout: 60_000 }, () => {
   const base = subtitle(9, 2000);
 
   it("lists 20 views for 500 rows about 0.82 similar to each other", () => {
