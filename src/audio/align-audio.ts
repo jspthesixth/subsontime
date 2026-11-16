@@ -154,6 +154,7 @@ export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAli
   }
 
   const { start, end } = windowOf(rigid.cues);
+
   const thirdOffsetsMs = thirdsOf(cues).map((third) =>
     third.length === 0
       ? null
