@@ -42,15 +42,16 @@ const createOnce = (path: string) =>
 export const fallbackConfigDir = (temp: string, uid: number | undefined) =>
   join(temp, `subsontime-${uid ?? "user"}`);
 
-const ownDirectory = async (directory: string) => {
+export const ownDirectory = async (directory: string, platform: string) => {
   const info = await lstat(directory);
   const uid = process.getuid?.();
+  const checksModes = platform !== "win32";
 
-  if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) {
+  if (!info.isDirectory() || (checksModes && uid !== undefined && info.uid !== uid)) {
     throw new Error("the fallback folder is not this user's");
   }
 
-  if ((info.mode & 0o077) !== 0) {
+  if (checksModes && (info.mode & 0o077) !== 0) {
     throw new Error("the fallback folder is open to other users");
   }
 };
@@ -79,7 +80,7 @@ export const installIdFrom = (directory: string, fallback: string | undefined) =
     }
 
     await mkdir(fallback, { recursive: true, mode: 0o700 });
-    await ownDirectory(fallback);
+    await ownDirectory(fallback, process.platform);
 
     return installIdIn(fallback);
   });

@@ -25,7 +25,13 @@ import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { memoryStore } from "../timings/db.ts";
 import { abandonWrites, findVideos, shareLinesFor, shiftText } from "./fix.ts";
 import { cleanName, identify } from "./identify.ts";
-import { configDirOf, fallbackConfigDir, installIdFrom, installIdIn } from "./install-id.ts";
+import {
+  configDirOf,
+  fallbackConfigDir,
+  installIdFrom,
+  installIdIn,
+  ownDirectory,
+} from "./install-id.ts";
 import { main, type CLIDeps } from "./main.ts";
 import {
   confirmFix,
@@ -944,6 +950,15 @@ describe("install id location", () => {
       "the fallback folder is open to other users",
     );
     expect(await readdir(fallback)).toEqual([]);
+  });
+
+  it("takes a fallback folder on Windows, which reports no POSIX modes", async () => {
+    const fallback = join(work, "fallback");
+
+    await mkdir(fallback);
+    await chmod(fallback, 0o777);
+
+    await expect(ownDirectory(fallback, "win32")).resolves.toBeUndefined();
   });
 
   it("refuses a fallback that is not a folder of its own", async () => {
