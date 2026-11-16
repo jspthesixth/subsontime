@@ -16,9 +16,9 @@ import {
   type FileResult,
   type Listed,
 } from "../src/bench/stremio-bench.ts";
-import { availabilityOf, judgeCandidates, oracleTables, signalsOf } from "../src/bench/oracle.ts";
 import { openSubtitlesAddonURL } from "../src/config/default-config.ts";
 import { stremioAddonSource } from "../src/sources/stremio-addon.ts";
+import type { Truth } from "../src/bench/truth.ts";
 import { timingErrorOf } from "../src/audio/evaluate.ts";
 import { fileFingerprint } from "../src/cli/video-hash.ts";
 import { openSubtitlesBudgetSchema, readGroup, sourcesSchema } from "../src/config/env.ts";
@@ -91,6 +91,9 @@ const cachedFetch = () =>
   });
 
 const oracle = async () => {
+  const { availabilityOf, judgeCandidates, oracleTables, signalsOf } =
+    await import("../src/bench/oracle.ts");
+
   const from = positionals[2] ?? "";
   const { results } = JSON.parse(await readFile(from, "utf8")) as { results: FileResult[] };
 
@@ -103,25 +106,22 @@ const oracle = async () => {
   globalThis.fetch = cachedFetch().fetch;
 
   const truthsByFile = new Map(
-    await results.reduce<Promise<[string, Awaited<ReturnType<typeof judgeCandidates>>][]>>(
-      async (done, result) => {
-        const file = files.find(({ sha256 }) => sha256 === result.file);
-        const judged =
-          file === undefined
-            ? new Map()
-            : await judgeCandidates({
-                file,
-                candidates: result.runs.flatMap(({ candidates }) => candidates),
-                download,
-                cacheDir: join(cache, "candidates"),
-              });
+    await results.reduce<Promise<[string, Map<string, Truth>][]>>(async (done, result) => {
+      const file = files.find(({ sha256 }) => sha256 === result.file);
+      const judged =
+        file === undefined
+          ? new Map()
+          : await judgeCandidates({
+              file,
+              candidates: result.runs.flatMap(({ candidates }) => candidates),
+              download,
+              cacheDir: join(cache, "candidates"),
+            });
 
-        console.log(`${result.filename}: ${judged.size} candidates judged`);
+      console.log(`${result.filename}: ${judged.size} candidates judged`);
 
-        return [...(await done), [result.file, judged]];
-      },
-      Promise.resolve([]),
-    ),
+      return [...(await done), [result.file, judged]];
+    }, Promise.resolve([])),
   );
   const rows = results.flatMap((result) => {
     const truths = truthsByFile.get(result.file) ?? new Map();
