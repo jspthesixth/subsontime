@@ -10,7 +10,7 @@ import {
   downloadBudget,
   openSubtitlesListing,
   type DownloadBudget,
-} from "./opensubtitles-hash.ts";
+} from "./opensubtitles-listing.ts";
 import { openSubtitlesSource } from "./opensubtitles.ts";
 import type { Candidate, VideoQuery } from "./source.ts";
 import { memoryTokenCache } from "./test-sources.ts";

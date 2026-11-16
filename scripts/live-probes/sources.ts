@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { memorySharedState } from "../../src/jobs/shared-state.ts";
 import { openSubtitlesSource } from "../../src/sources/opensubtitles.ts";
-import { downloadBudget, openSubtitlesListing } from "../../src/sources/opensubtitles-hash.ts";
+import { downloadBudget, openSubtitlesListing } from "../../src/sources/opensubtitles-listing.ts";
 import type { Source, VideoQuery } from "../../src/sources/source.ts";
 import { openSubtitlesAddonURL } from "../../src/config/default-config.ts";
 import { openSubtitlesV3Name } from "../../src/sources/from-config.ts";

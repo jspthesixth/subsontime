@@ -3,7 +3,11 @@ import { openSubtitlesAddonURL } from "../config/default-config.ts";
 import { defaultDailyDownloads } from "../config/env.ts";
 import type { SharedState } from "../jobs/shared-state.ts";
 import { openSubtitlesSource } from "./opensubtitles.ts";
-import { budgetedDownloads, downloadBudget, openSubtitlesListing } from "./opensubtitles-hash.ts";
+import {
+  budgetedDownloads,
+  downloadBudget,
+  openSubtitlesListing,
+} from "./opensubtitles-listing.ts";
 import type { Source } from "./source.ts";
 import { stremioAddonSource } from "./stremio-addon.ts";
 import { subdlSource } from "./subdl.ts";
