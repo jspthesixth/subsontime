@@ -113,8 +113,7 @@ export const addonEntries = async (
     .map((entry) => v.safeParse(entrySchema, entry))
     .flatMap((entry) =>
       entry.success ? [{ id: entry.output.id, candidate: toCandidate(name, entry.output) }] : [],
-    )
-    .filter(({ candidate }) => query.languages.includes(candidate.lang));
+    );
 };
 
 export const stremioAddonSource = (manifestURL: string, name: string): Source => ({

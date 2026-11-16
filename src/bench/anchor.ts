@@ -1,44 +1,14 @@
 import type { Cue } from "../subtitles/cue.ts";
-import { parseRelease, sameGroup } from "../subtitles/release.ts";
-import { alignCues, alignOffset, bestSpeedRatio, speedRatios } from "../timing/alass.ts";
-import { deltasOf, median, retimedMinimumScore } from "../timing/retime.ts";
+import { parseRelease } from "../subtitles/release.ts";
+import { rankingOf, releaseScoreOf, type ScoreContext } from "../subtitles/score.ts";
+import { rigidlyAligned, sameTiming, timingAnchorOf, type Counter } from "../timing/anchor.ts";
+import { retimedMinimumScore } from "../timing/retime.ts";
 import type { BenchFile, FileResult, Listed, Run } from "./stremio-bench.ts";
 import { truthOf, type Truth } from "./truth.ts";
 
 export type Member = Listed & { cues: Cue[] };
 
-export const agreementMs = 150;
-export const agreementShare = 0.9;
-
-export type Counter = { alignments: number };
-
-export const sameTiming = async (reference: Cue[], subtitle: Cue[], counter: Counter) => {
-  const speedRatio = bestSpeedRatio(reference, subtitle, speedRatios);
-
-  counter.alignments += speedRatios.length;
-
-  if (speedRatio !== 1) {
-    return false;
-  }
-
-  const rigid = alignOffset(reference, subtitle);
-
-  counter.alignments += 1;
-
-  if (rigid.score < retimedMinimumScore || Math.abs(rigid.offsetMs) > agreementMs) {
-    return false;
-  }
-
-  const split = await alignCues(reference, subtitle);
-
-  counter.alignments += 1;
-
-  const deltas = deltasOf(subtitle, split.cues, 1);
-  const shift = median(deltas);
-  const within = deltas.filter((delta) => Math.abs(delta - shift) <= agreementMs).length;
-
-  return Math.abs(shift) <= agreementMs && within / Math.max(deltas.length, 1) >= agreementShare;
-};
+type Video = ScoreContext["video"];
 
 export const clustersOf = async (members: Member[], counter: Counter) =>
   members.reduce<Promise<Member[][]>>(async (done, member) => {
@@ -59,16 +29,13 @@ export const clustersOf = async (members: Member[], counter: Counter) =>
     return clusters;
   }, Promise.resolve([]));
 
-const releaseScore = (member: Member, filename: string) => {
-  const file = parseRelease(filename);
-  const release = parseRelease(member.releaseName ?? "");
+const withRelease = (member: Member) => ({
+  ...member,
+  release: parseRelease(member.releaseName ?? ""),
+});
 
-  return (
-    (sameGroup(release, file) ? 18 : 0) +
-    (release.source !== undefined && release.source === file.source ? 4 : 0) +
-    (release.resolution !== undefined && release.resolution === file.resolution ? 1 : 0)
-  );
-};
+const releaseScore = (member: Member, video: Video) =>
+  releaseScoreOf(withRelease(member), { video });
 
 const largest = (clusters: Member[][]) =>
   clusters.reduce<Member[] | undefined>(
@@ -79,10 +46,10 @@ const largest = (clusters: Member[][]) =>
 const withHash = (clusters: Member[][]) =>
   clusters.find((cluster) => cluster.some(({ hashMatch }) => hashMatch));
 
-const byRelease = (clusters: Member[][], filename: string) => {
+const byRelease = (clusters: Member[][], video: Video) => {
   const scored = clusters.map((cluster) => ({
     cluster,
-    score: Math.max(...cluster.map((member) => releaseScore(member, filename))),
+    score: Math.max(...cluster.map((member) => releaseScore(member, video))),
   }));
   const best = Math.max(0, ...scored.map(({ score }) => score));
 
@@ -96,7 +63,7 @@ const atLeastTwo = (cluster: Member[] | undefined) =>
 
 export type Strategy = {
   name: string;
-  anchor: (clusters: Member[][], filename: string, members: Member[]) => Member[] | undefined;
+  anchor: (clusters: Member[][], video: Video, members: Member[]) => Member[] | undefined;
   sameLanguageMember?: boolean;
 };
 
@@ -105,49 +72,39 @@ export const strategies: Strategy[] = [
   { name: "B hash, else A", anchor: (clusters) => withHash(clusters) ?? largest(clusters) },
   {
     name: "C release, else A",
-    anchor: (clusters, filename) => byRelease(clusters, filename) ?? largest(clusters),
+    anchor: (clusters, video) => byRelease(clusters, video) ?? largest(clusters),
   },
   {
     name: "D1 B, then C, then A",
-    anchor: (clusters, filename) =>
-      withHash(clusters) ?? byRelease(clusters, filename) ?? largest(clusters),
+    anchor: (clusters, video) =>
+      withHash(clusters) ?? byRelease(clusters, video) ?? largest(clusters),
   },
   { name: "D2 A, size >= 2", anchor: (clusters) => atLeastTwo(largest(clusters)) },
   {
     name: "D3 D1, size >= 2",
-    anchor: (clusters, filename) =>
-      withHash(clusters) ??
-      atLeastTwo(byRelease(clusters, filename)) ??
-      atLeastTwo(largest(clusters)),
+    anchor: (clusters, video) =>
+      withHash(clusters) ?? atLeastTwo(byRelease(clusters, video)) ?? atLeastTwo(largest(clusters)),
   },
   {
     name: "D4 D3, same-language member first",
-    anchor: (clusters, filename) =>
-      withHash(clusters) ??
-      atLeastTwo(byRelease(clusters, filename)) ??
-      atLeastTwo(largest(clusters)),
+    anchor: (clusters, video) =>
+      withHash(clusters) ?? atLeastTwo(byRelease(clusters, video)) ?? atLeastTwo(largest(clusters)),
     sameLanguageMember: true,
   },
   {
     name: "E hash or release candidate, no clustering",
-    anchor: (_clusters, filename, members) => {
-      const hashed = members.find(({ hashMatch }) => hashMatch);
-      const best = Math.max(0, ...members.map((member) => releaseScore(member, filename)));
-      const released = members.find(
-        (member) => best > 0 && releaseScore(member, filename) === best,
-      );
-      const anchor = hashed ?? released;
+    anchor: (_clusters, video, members) => {
+      const candidates = members.map(withRelease);
+      const anchor = timingAnchorOf(candidates.toSorted(rankingOf({ video })), { video });
+      const member = anchor === undefined ? undefined : members[candidates.indexOf(anchor)];
 
-      return anchor === undefined ? undefined : [anchor];
+      return member === undefined ? undefined : [member];
     },
   },
 ];
 
 export const retimedTo = (anchor: Cue[], subtitle: Cue[], counter: Counter) => {
-  const speedRatio = bestSpeedRatio(anchor, subtitle, speedRatios);
-  const aligned = alignOffset(anchor, subtitle, { speedRatio });
-
-  counter.alignments += speedRatios.length + 1;
+  const aligned = rigidlyAligned(anchor, subtitle, counter);
 
   return aligned.score >= retimedMinimumScore ? aligned.cues : subtitle;
 };
@@ -189,7 +146,11 @@ export const simulateFile = async ({
   const byKey = new Map(members.map((member) => [keyOf(member), member]));
 
   const simulateRun = async (strategy: Strategy, run: Run): Promise<Simulated> => {
-    const anchor = strategy.anchor(clusters, result.filename, members);
+    const anchor = strategy.anchor(
+      clusters,
+      { type: file.kind === "film" ? "movie" : "series", filename: result.filename },
+      members,
+    );
     const served =
       run.servedRef === undefined
         ? undefined

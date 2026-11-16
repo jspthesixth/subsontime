@@ -59,12 +59,12 @@ describe("stremioAddonSource", () => {
     expect(candidates.map(({ ref }) => ref)).toEqual(["https://subs.example.com/42.srt"]);
   });
 
-  it("maps the OpenSubtitles v3 response to candidates", async () => {
+  it("maps the OpenSubtitles v3 response to candidates in every language", async () => {
     stubFetch(JSON.stringify(fixture));
 
     const candidates = await openSubtitlesV3.search(movie, AbortSignal.timeout(1000));
 
-    expect(candidates).toHaveLength(7);
+    expect(candidates).toHaveLength(8);
     expect(candidates[0]).toEqual({
       sourceName: "OpenSubtitles",
       ref: "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/36919",
@@ -74,7 +74,7 @@ describe("stremioAddonSource", () => {
       hashMatch: false,
       fps: 23.98,
     });
-    expect(candidates.map((candidate) => candidate.lang)).not.toContain("hrv");
+    expect(candidates.map((candidate) => candidate.lang)).toContain("hrv");
   });
 
   it("marks hash matches", async () => {

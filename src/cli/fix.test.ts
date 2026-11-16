@@ -939,7 +939,7 @@ describe("summary", () => {
     const video = await writeVideo(`${movieName}.mkv`);
 
     const { output } = await run(
-      ["fix", video, "--lang", "hr", "--imdb", "tt0111161", "--private"],
+      ["fix", video, "--lang", "hr,en", "--imdb", "tt0111161", "--private"],
       { sources: boardSources(), color: true },
     );
 

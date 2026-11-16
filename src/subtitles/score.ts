@@ -6,6 +6,7 @@ import {
   parseRelease,
   sameGroup,
   sameRelease,
+  sourceKindOf,
   videoCodecOf,
   type Release,
   type ReleaseFamily,
@@ -61,7 +62,7 @@ const same = <T>(a: T | undefined, b: T | undefined) => a !== undefined && a ===
 
 type Video = Pick<VideoQuery, "type" | "season" | "episode" | "filename">;
 
-type ScoreContext = {
+export type ScoreContext = {
   video: Video;
   fileRelease?: Release;
   family?: ReleaseFamily;
@@ -142,6 +143,17 @@ export const rankingOf = (context: ScoreContext) => {
     Number(b.hashMatch) - Number(a.hashMatch) ||
     Number(exact(b)) - Number(exact(a)) ||
     scored(b) - scored(a);
+};
+
+export const releaseScoreOf = ({ release }: Candidate, context: ScoreContext) => {
+  const scores = scoresOf(context.video.type);
+  const fileRelease = fileReleaseOf(context);
+
+  return (
+    (sameGroup(release, fileRelease) ? scores.releaseGroup : 0) +
+    (same(sourceKindOf(release), sourceKindOf(fileRelease)) ? scores.source : 0) +
+    (same(release.resolution, fileRelease.resolution) ? scores.resolution : 0)
+  );
 };
 
 export const minimumScoreOf = (type: Video["type"]) =>

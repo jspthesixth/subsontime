@@ -21,6 +21,7 @@ const subtitleRefSchema = v.object({
   }),
   c: v.array(candidateRefSchema),
   x: v.array(candidateRefSchema),
+  a: v.optional(v.array(candidateRefSchema)),
   w: v.optional(v.object({ h: v.string(), z: v.number() })),
   k: v.optional(v.string()),
   d: v.optional(v.string()),

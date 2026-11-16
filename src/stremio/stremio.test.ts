@@ -2,7 +2,9 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJSON from "../../package.json" with { type: "json" };
+import gilmoreFixture from "../../test/fixtures/subtitles/gilmore-s05e17.json" with { type: "json" };
 import familyFixture from "../../test/fixtures/subtitles/act-breaks-s01e24.json" with { type: "json" };
+import santaFixture from "../../test/fixtures/subtitles/santa-clause-2-pal.json" with { type: "json" };
 import restHashFixture from "../../test/fixtures/sources/opensubtitles-rest-hash-search.json" with { type: "json" };
 import v3HashFixture from "../../test/fixtures/sources/opensubtitles-v3-hash-movie.json" with { type: "json" };
 import { createApp, type AppDeps } from "../app.ts";
@@ -16,7 +18,7 @@ import { memorySharedState } from "../jobs/shared-state.ts";
 import { memorySingleFlight } from "../jobs/single-flight.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { writeSRT } from "../subtitles/write.ts";
-import { retime } from "../timing/retime.ts";
+import { median, retime } from "../timing/retime.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { decodeRef, encodeRef, refKey, type SubtitleRef } from "./refs.ts";
 
@@ -340,6 +342,10 @@ describe("subtitle list", () => {
       q: { t: "movie", i: "tt0111161" },
       c: [{ n: "Fake", r: "a", l: "eng" }],
       x: [{ n: "Reference", r: "r", l: "eng", h: 1 }],
+      a: [
+        { n: "Reference", r: "r", l: "eng", h: 1 },
+        { n: "Fake", r: "a", l: "eng" },
+      ],
     });
   });
 });
@@ -815,7 +821,7 @@ describe("release families", () => {
 
   it("retimes against the release family in another language", async () => {
     const app = appWith(byQuery(familyEntries({ discLang: "eng" })));
-    const token = sealed({ languages: ["hrv"] });
+    const token = sealed({ languages: ["hrv", "eng"] });
 
     await list(app, token, `series/tt1442437:1:23/${joy(23, "Hawaii")}${withHashOf(23)}.json`);
 
@@ -906,7 +912,7 @@ describe("a file that looks like a disc or web rip", () => {
 
   it("retimes a broadcast subtitle against a disc one in another language", async () => {
     const app = appWith(byQuery(familyEntries({ discLang: "eng" })));
-    const token = sealed({ languages: ["hrv"] });
+    const token = sealed({ languages: ["hrv", "eng"] });
 
     const { url, ref } = await firstRefAt(
       app,
@@ -998,6 +1004,205 @@ describe("minimum score", () => {
     expect(body.subtitles.map(({ label }) => label)).toEqual(["OpenSubtitles"]);
     expect(refOf(body.subtitles[0]?.url ?? "").c.map(({ r }) => r)).toEqual(["other-episode"]);
   });
+});
+
+const anchored = (path: string) =>
+  `movie/tt0111161/filename=${encodeURIComponent(path)}&videoSize=1&videoHash=0123456789abcdef.json`;
+
+const startsOf = (cues: { start: number }[]) => cues.map(({ start }) => start);
+
+const servedAt = async (app: ReturnType<typeof appWith>, url: string) =>
+  parseSubtitle(await (await app.request(url)).text());
+
+const santaSpans = (key: keyof typeof santaFixture) => timed(santaFixture[key]);
+
+const gilmoreSpans = (key: keyof typeof gilmoreFixture) => timed(gilmoreFixture[key]);
+
+const hashAnchored = () =>
+  fakeSource("OpenSubtitles", [
+    { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+    { ref: "fre-shifted", lang: "fre", cues: shifted },
+    { ref: "eng-hash", lang: "eng", hashMatch: true, cues: track },
+    { ref: "eng-again", lang: "eng", cues: transform(track, (time) => time + 40) },
+  ]);
+
+describe("timing anchor", () => {
+  it("retimes the requested language to a hash match in another language", async () => {
+    const app = appWith({ listed: [hashAnchored()], references: [] });
+
+    const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    expect(ref.a?.map(({ r }) => r)).toEqual([
+      "eng-hash",
+      "hrv-shifted",
+      "fre-shifted",
+      "eng-again",
+    ]);
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(track));
+  });
+
+  it("retimes the requested language to the release-name candidate in another language", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-shifted", lang: "hrv", releaseName: "Movie.2024.HDTV.x264-OTHER", cues: shifted },
+      { ref: "eng-web", lang: "eng", releaseName: "Movie.2024.720p.WEB-DL-ANY", cues: track },
+      {
+        ref: "eng-release",
+        lang: "eng",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: track,
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    expect(ref.a?.[0]?.r).toBe("eng-release");
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(track));
+  });
+
+  it("serves a subtitle that already shares the anchor's timing as it is", async () => {
+    const close = transform(track, (time) => time + 40);
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-close", lang: "hrv", releaseName: "Movie.2024.720p.WEB-DL-ANY", cues: close },
+      {
+        ref: "eng-release",
+        lang: "eng",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: track,
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(close));
+    expect(retime).not.toHaveBeenCalled();
+  });
+
+  it("trusts no anchor that no other subtitle shares, as with The Santa Clause 2 timed for PAL", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "hrv-dvd",
+        lang: "hrv",
+        releaseName: "Santa.Clause.2.2002.FS.DVDRip.XviD.iNT-420RipZ.HR",
+        cues: santaSpans("hrvDisc"),
+      },
+      {
+        ref: "ara-pal",
+        lang: "ara",
+        releaseName: "The.Santa.Clause.2.2002.1080p.bluray.mora.25r",
+        fps: 25,
+        cues: santaSpans("palAnchor"),
+      },
+      {
+        ref: "eng-bluray",
+        lang: "eng",
+        releaseName: "The Santa Clause 2 (2002) 720p BluRay.en",
+        fps: 23.976,
+        cues: santaSpans("engBluRay"),
+      },
+      {
+        ref: "eng-dvd",
+        lang: "eng",
+        releaseName: "Santa.Clause.2.2002.FS.DVDRip.XviD.iNT-420RipZ.EN",
+        fps: 23.976,
+        cues: santaSpans("engDvd"),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"] }),
+      anchored("The.Santa.Clause.2.2002.1080p.BluRay.x264-nikt0.mkv"),
+    );
+
+    expect(ref.a?.[0]?.r).toBe("ara-pal");
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(santaSpans("hrvDisc")));
+  }, 60_000);
+
+  it("keeps today's entry when nothing names a timing anchor", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      { ref: "eng", lang: "eng", cues: track },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv"] }),
+      "movie/tt0111161.json",
+    );
+
+    expect(ref.a).toBeUndefined();
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(shifted));
+  });
+
+  it("decides the anchor once for every language of the file", async () => {
+    const source = hashAnchored();
+    const app = appWith({ listed: [source], references: [] });
+
+    const { body } = await list(app, sealed({ languages: ["hrv", "fre"] }), anchored(fileName));
+
+    await servedAt(app, body.subtitles[0]?.url ?? "");
+    await servedAt(app, body.subtitles[1]?.url ?? "");
+
+    expect(source.download.mock.calls.filter(([ref]) => ref === "eng-again")).toHaveLength(1);
+  });
+
+  it("serves Gilmore Girls S05E17 in Croatian retimed to its DVD timing", async () => {
+    const hrvBroadcast = gilmoreSpans("hrvBroadcast");
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "hrv-broadcast",
+        lang: "hrv",
+        releaseName: "gilmore.girls.517.hdtv-lol.[BT]-hrv",
+        cues: hrvBroadcast,
+      },
+      {
+        ref: "eng-dvd-hi",
+        lang: "eng",
+        releaseName: "Gilmore Girls S05E17 Pulp Friction.DVDRip.HI.cc.en.WB",
+        cues: gilmoreSpans("engDvdHearingImpaired"),
+      },
+      {
+        ref: "eng-dvd-plain",
+        lang: "eng",
+        releaseName: "Gilmore Girls S05E17 Pulp Friction.DVDRip.NonHI.cc.en.WB",
+        cues: gilmoreSpans("engDvdPlain"),
+      },
+      {
+        ref: "eng-dvd",
+        lang: "eng",
+        releaseName: "Gilmore Girls s05e17 Pulp Friction Dvdrip Xvid-Topaz",
+        cues: gilmoreSpans("engDvd"),
+      },
+      {
+        ref: "eng-broadcast",
+        lang: "eng",
+        releaseName: "Gilmore Girls [5x17] - Pulp Friction - LOL -",
+        cues: gilmoreSpans("engBroadcast"),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { body } = await list(
+      app,
+      sealed({ languages: ["hrv", "eng"] }),
+      `series/tt0238784:5:17/filename=${encodeURIComponent("Gilmore Girls (2000) - S05E17 - Pulp Friction (1080p BluRay x265 Celdra).mkv")}.json`,
+    );
+
+    const [hrv, eng] = await Promise.all(body.subtitles.map(({ url }) => servedAt(app, url)));
+
+    const shifts = (hrv ?? []).map((cue, index) => cue.start - (hrvBroadcast[index]?.start ?? 0));
+
+    expect(refOf(body.subtitles[0]?.url ?? "").a?.[0]?.r).toBe("eng-dvd-hi");
+    expect(median(shifts.slice(0, 60))).toBeGreaterThan(700);
+    expect(median(shifts.slice(0, 60))).toBeLessThan(1900);
+    expect(median(shifts.slice(-60))).toBeGreaterThan(2700);
+    expect(median(shifts.slice(-60))).toBeLessThan(3800);
+    expect(startsOf(eng ?? [])).toEqual(startsOf(gilmoreSpans("engDvdHearingImpaired")));
+  }, 60_000);
 });
 
 describe("refs", () => {

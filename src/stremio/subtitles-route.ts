@@ -18,6 +18,7 @@ import {
   type ReleaseFamily,
 } from "../subtitles/release.ts";
 import { minimumScoreOf, rankingOf, scoreOf } from "../subtitles/score.ts";
+import { anchorWithGuardsOf } from "../timing/anchor.ts";
 import { freeFirst, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
@@ -67,7 +68,8 @@ export const searchVideo = async (
   ]);
 
   const fileRelease = parseRelease(query.filename ?? "");
-  const all = [...listed, ...referenceOnly];
+  const everything = [...listed, ...referenceOnly];
+  const all = everything.filter(({ lang }) => query.languages.includes(lang));
   const inFamily = ({ release }: Candidate) =>
     family !== undefined && inReleaseFamily(release, family);
   const learned = pickReferences(all, fileRelease, family);
@@ -80,6 +82,10 @@ export const searchVideo = async (
 
   return {
     references,
+    anchors: anchorWithGuardsOf(
+      everything.filter(({ metered }) => metered !== true).toSorted(ranking),
+      scoreContext,
+    ),
     referencesFor: (candidates: Candidate[]) => {
       const first = candidates[0];
       const allInFamily = candidates.every(
@@ -179,6 +185,7 @@ export const subtitlesRoute =
     const unflagged = (ref: CandidateRef) =>
       recalled === undefined ? ref : { ...ref, h: undefined };
     const references = found.references.map(toCandidateRef);
+    const anchors = found.anchors.map(toCandidateRef).map(unflagged);
 
     const recording = [
       ...(listed === undefined || fileKey === undefined
@@ -219,6 +226,7 @@ export const subtitlesRoute =
           q,
           c: candidates.map(toCandidateRef).map(unflagged),
           x: found.referencesFor(candidates).map(toCandidateRef).map(unflagged),
+          a: anchors.length === 0 ? undefined : anchors,
           w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
           k: listed === undefined ? fileKey : undefined,
           d: hiddenKey,

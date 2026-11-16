@@ -2,7 +2,7 @@ import type { Candidate } from "../sources/source.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { alignCues, alignOffset, bestSpeedRatio, speedRatioFromFPS, speedRatios } from "./alass.ts";
 
-type Track = { candidate: Candidate; cues: Cue[] };
+export type Track = { candidate: Candidate; cues: Cue[] };
 
 type Aligned = {
   reference: Track;
@@ -35,7 +35,7 @@ export const retimedMinimumScore = 0.6;
 export const mismatchMaximumScore = 0.2;
 export const splitWorthScore = 0.85;
 
-const agreementMs = 150;
+export const agreementMs = 150;
 const cutMs = 1000;
 
 export const median = (values: number[]) => {

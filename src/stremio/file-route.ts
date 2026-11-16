@@ -14,6 +14,7 @@ import { stripHearingImpaired } from "../subtitles/hearing-impaired.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
+import { retimeToAnchor } from "../timing/anchor.ts";
 import { retime, type RetimeResult } from "../timing/retime.ts";
 import { submitFix, submitMismatch } from "../timings/api.ts";
 import type { VideoKey } from "../timings/db.ts";
@@ -29,6 +30,7 @@ import {
   type OpenTimings,
   type Shared,
 } from "./open-timings.ts";
+import { anchorFor, type Anchor } from "./anchors.ts";
 import { recalledFileHash, withFileHash } from "./file-hashes.ts";
 import { candidateKey, decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
@@ -86,9 +88,11 @@ const settledTracks = async (tracks: Promise<Track>[]) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
 
+type References = { tracks: Track[]; anchor?: Anchor };
+
 const timeTrack = async (
   track: Track,
-  references: () => Promise<Track[]>,
+  references: () => Promise<References>,
   config: Config,
   signal: AbortSignal | undefined,
   shared: Shared | undefined,
@@ -107,11 +111,17 @@ const timeTrack = async (
     return fixed;
   }
 
-  const ready = await references();
+  const { tracks, anchor } = await references();
 
   signal?.throwIfAborted();
 
-  return retime(track, ready);
+  if (anchor === undefined) {
+    return retime(track, tracks);
+  }
+
+  return anchor.sharing.has(candidateKey(track.candidate.sourceName, track.candidate.ref))
+    ? { kind: "not-retimed", cues: track.cues }
+    : retimeToAnchor(track, anchor.track);
 };
 
 export const downloader = (sources: SourceSet, signal?: AbortSignal): Download => {
@@ -148,13 +158,23 @@ export async function* resolveAttempts(
   download: Download,
   signal?: AbortSignal,
   shared?: Shared,
-  { lazyReferences = false }: { lazyReferences?: boolean } = {},
+  {
+    lazyReferences = false,
+    anchorOf,
+  }: { lazyReferences?: boolean; anchorOf?: () => Promise<Anchor | undefined> } = {},
 ): AsyncGenerator<Attempt> {
-  let downloaded: Promise<Track[]> | undefined;
+  let downloaded: Promise<References> | undefined;
+
+  const anchoredOrListed = async (): Promise<References> => {
+    const anchor = await anchorOf?.();
+
+    return anchor === undefined
+      ? { tracks: await settledTracks(ref.x.map(download)) }
+      : { tracks: [], anchor };
+  };
 
   const references = () => {
-    downloaded ??=
-      config.timing === "off" ? Promise.resolve([]) : settledTracks(ref.x.map(download));
+    downloaded ??= config.timing === "off" ? Promise.resolve({ tracks: [] }) : anchoredOrListed();
 
     return downloaded;
   };
@@ -169,7 +189,11 @@ export async function* resolveAttempts(
         const hidden = hiddenMatch(track.cues, shared);
 
         return hidden === undefined
-          ? { candidate, track, result: await timeTrack(track, references, config, signal, shared) }
+          ? {
+              candidate,
+              track,
+              result: await timeTrack(track, references, config, signal, shared),
+            }
           : { candidate, track, hidden, result: { kind: "mismatch" } };
       })
       .catch(() => ({ candidate }));
@@ -348,14 +372,11 @@ export const fileRoute =
         openTimings === undefined || video === undefined || !config.useShared
           ? undefined
           : await fileShared(openTimings, state, video, viewer, ref.d);
+      const download = downloader(sourcesFor(config, context.get("tokens")));
       const attempts = await recordAttempts(
-        resolveAttempts(
-          ref,
-          config,
-          downloader(sourcesFor(config, context.get("tokens"))),
-          undefined,
-          shared,
-        ),
+        resolveAttempts(ref, config, download, undefined, shared, {
+          anchorOf: () => anchorFor(state, ref, download),
+        }),
       );
       const fresh = servedOf(attempts, config, ref.t === "dialogue");
 
