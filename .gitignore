@@ -7,3 +7,6 @@ public/*
 !public/install.sh
 dist/
 crates/*/target/
+plugins/**/bin/
+plugins/**/obj/
+plugins/**/TestResults/
