@@ -305,6 +305,51 @@ describe("subtitle list", () => {
     ).toEqual([["eng-best", "OpenSubtitles", ["1", "a"]]]);
   });
 
+  it("keeps a free subtitle behind an entry and its extras that would be all metered", async () => {
+    const metered = ["m1", "m2", "m3", "m4", "m5"].map((ref) => ({ ref, metered: true }));
+    const meteredSecond = metered.map((entry) => ({
+      ...entry,
+      ref: `${entry.ref}-hr`,
+      lang: "hrv",
+    }));
+    const { body } = await list(
+      appWith({
+        listed: [
+          fakeSource("OpenSubtitles", [
+            ...metered,
+            { ref: "f1" },
+            { ref: "f2" },
+            ...meteredSecond,
+            { ref: "f1-hr", lang: "hrv" },
+          ]),
+        ],
+        references: [fakeSource("Reference", [{ ref: "r", hashMatch: true }])],
+      }),
+      sealed({
+        extras: {
+          hideMismatches: true,
+          dialogueOnly: true,
+          foreignParts: false,
+          sourceInLanguage: false,
+          dualLanguage: "hrv",
+        },
+      }),
+      "movie/tt0111161.json",
+    );
+
+    expect(
+      body.subtitles.map(({ id, url }) => [
+        id,
+        refOf(url).c.map(({ r }) => r),
+        refOf(url).s?.map(({ r }) => r),
+      ]),
+    ).toEqual([
+      ["eng-best", ["m1", "m2", "m3", "f1"], undefined],
+      ["eng-dialogue", ["m1", "m2", "m3", "f1"], undefined],
+      ["eng+hrv-dual", ["m1", "m2", "m3", "f1"], ["m1-hr", "m2-hr", "m3-hr", "f1-hr"]],
+    ]);
+  });
+
   it("lists at most ten candidates per language", async () => {
     const source = fakeSource(
       "Fake",

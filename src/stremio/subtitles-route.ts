@@ -37,8 +37,21 @@ const displayNames = new Map([["OpenSubtitles API", "OpenSubtitles"]]);
 
 const displayNameOf = ({ sourceName }: Candidate) => displayNames.get(sourceName) ?? sourceName;
 
-const bySource = (candidates: Candidate[]) =>
-  [...Map.groupBy(candidates, displayNameOf).values()].map((group) => group.slice(0, bestSlotSize));
+const withFree = (group: Candidate[], pool: Candidate[]) => {
+  const free = pool.find(({ metered }) => metered !== true);
+
+  return free === undefined || !group.every(({ metered }) => metered === true)
+    ? group
+    : [...group.slice(0, bestSlotSize - 1), free];
+};
+
+const bySource = (candidates: Candidate[], pool: Candidate[]) =>
+  [...Map.groupBy(candidates, displayNameOf)].map(([name, group]) =>
+    withFree(
+      group.slice(0, bestSlotSize),
+      pool.filter((candidate) => displayNameOf(candidate) === name),
+    ),
+  );
 
 const bestIdOf = (lang: string, index: number) =>
   index === 0 ? `${lang}-best` : `${lang}-best-${index + 1}`;
@@ -138,7 +151,7 @@ export const searchVideo = async (
 };
 
 export const bestGroupsOf = (found: Awaited<ReturnType<typeof searchVideo>>, lang: string) =>
-  bySource(found.passing(found.ranked(lang)));
+  bySource(found.passing(found.ranked(lang)), found.ranked(lang));
 
 const readExtras = (context: Context<AppEnv>) => {
   const extra = context.req.param("extra");
@@ -296,7 +309,8 @@ export const subtitlesRoute =
         return [];
       }
 
-      const second = found.passing(found.ranked(dualLanguage)).slice(0, bestSlotSize);
+      const ranked = found.ranked(dualLanguage);
+      const second = withFree(found.passing(ranked).slice(0, bestSlotSize), ranked);
       const ref = refOf(best, { second });
 
       return second.length === 0 ||
@@ -353,7 +367,7 @@ export const subtitlesRoute =
     };
     const foreignPartsEntriesOf = (lang: string) => {
       const flagged = config.extras.foreignParts ? found.foreignPartsOnly(lang) : [];
-      const [best = []] = bySource(found.passing(flagged));
+      const [best = []] = bySource(found.passing(flagged), flagged);
 
       return best.length === 0
         ? []
