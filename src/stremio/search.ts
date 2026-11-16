@@ -11,6 +11,7 @@ import {
   looksLikeRip,
   parseRelease,
   releaseFamilyOf,
+  sourceFitsFile,
   type ReleaseFamily,
 } from "../subtitles/release.ts";
 import { minimumScoreOf, rankingOf, scoreOf } from "../subtitles/score.ts";
@@ -68,7 +69,7 @@ export const searchVideo = async (
   query: VideoQuery,
   learnedFamily: Promise<ReleaseFamily | undefined> = Promise.resolve(undefined),
 ) => {
-  const [found, referenceOnly, family] = await Promise.all([
+  const [found, referenceOnly, learned] = await Promise.all([
     searchAll(sources.listed, query),
     searchAll(sources.references, query),
     learnedFamily,
@@ -76,6 +77,8 @@ export const searchVideo = async (
 
   const listed = found.filter((candidate) => !isForeignPartsOnly(candidate));
   const fileRelease = parseRelease(query.filename ?? "");
+  const family =
+    learned !== undefined && sourceFitsFile(learned.source, fileRelease) ? learned : undefined;
   const everything = [
     ...listed,
     ...referenceOnly.filter((candidate) => !isForeignPartsOnly(candidate)),
@@ -83,11 +86,12 @@ export const searchVideo = async (
   const all = everything.filter(({ lang }) => query.languages.includes(lang));
   const inFamily = ({ release }: Candidate) =>
     family !== undefined && inReleaseFamily(release, family);
-  const learned = pickReferences(all, fileRelease, family);
+  const picked = pickReferences(all, fileRelease, family);
   const ripGuess = family === undefined && looksLikeRip(query.filename ?? "");
-  const guessed = ({ release }: Candidate) => ripGuess && isDiscOrWeb(release);
-  const fromGuess = learned.length === 0 && ripGuess;
-  const references = fromGuess ? freeOnly(all.filter(guessed)) : learned;
+  const guessed = ({ release }: Candidate) =>
+    ripGuess && isDiscOrWeb(release) && sourceFitsFile(release.source, fileRelease);
+  const fromGuess = picked.length === 0 && ripGuess;
+  const references = fromGuess ? freeOnly(all.filter(guessed)) : picked;
   const scoreContext = { video: query, fileRelease, family, ripGuess };
   const ranking = rankingOf(scoreContext);
 
@@ -106,7 +110,7 @@ export const searchVideo = async (
       const allInFamily = candidates.every(
         (candidate) => !candidate.hashMatch && inFamily(candidate),
       );
-      const guessedFirst = fromGuess && first !== undefined && isDiscOrWeb(first.release);
+      const guessedFirst = fromGuess && first !== undefined && guessed(first);
 
       return allInFamily || guessedFirst ? [] : references;
     },

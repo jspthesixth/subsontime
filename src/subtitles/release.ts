@@ -199,6 +199,11 @@ export const isDiscOrWeb = (release: Release) => {
   return kind === "disc" || kind === "web";
 };
 
+const isHD = ({ resolution }: Release) => resolution !== undefined && resolution !== "480p";
+
+export const sourceFitsFile = (source: Release["source"], file: Release) =>
+  source !== "dvdrip" || file.source === "dvdrip" || (file.source === undefined && !isHD(file));
+
 export const looksLikeRip = (filename: string) => {
   const { source, resolution, group } = parseRelease(filename);
 

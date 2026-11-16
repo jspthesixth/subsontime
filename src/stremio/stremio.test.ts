@@ -810,7 +810,7 @@ const withHashOf = (episode: number) =>
   `&videoSize=${200_000_000 + episode}&videoHash=${hashOf(episode)}`;
 
 const familyEntries =
-  ({ discLang = "hrv", matched = "dvd", discRelease = "dvdrip.xvid-clerks" } = {}) =>
+  ({ discLang = "hrv", matched = "dvd", discRelease = "webrip.xvid-clerks" } = {}) =>
   (query: VideoQuery): Entry[] => [
     {
       ref: `e${query.episode ?? 0}-hdtv`,
@@ -828,6 +828,21 @@ const familyEntries =
       cues: disc,
     },
   ];
+
+const dvdAndBluRays = ({ episode = 0, videoHash }: VideoQuery): Entry[] => [
+  {
+    ref: `e${episode}-dvd`,
+    lang: "hrv",
+    releaseName: `modern.family.s01e${episode}.dvdrip.xvid-clerks`,
+    hashMatch: videoHash === hashOf(episode),
+    cues: transform(disc, (time) => time + 1000),
+  },
+  ...["1080p.BluRay.x264-ONE", "720p.BluRay.x264-TWO"].map((release) => ({
+    ref: `e${episode}-${release}`,
+    releaseName: `Modern.Family.S01E${episode}.${release}`,
+    cues: disc,
+  })),
+];
 
 const firstRefAt = async (app: ReturnType<typeof appWith>, token: string, path: string) => {
   const { body } = await list(app, token, path);
@@ -951,7 +966,9 @@ describe("release families", () => {
   });
 
   it("times the second language of a dual entry against the release family", async () => {
-    const app = appWith(byQuery(familyEntries({ discLang: "eng" })));
+    const app = appWith(
+      byQuery(familyEntries({ discLang: "eng", discRelease: "bluray.x264-clerks" })),
+    );
     const token = sealed({
       languages: ["eng"],
       extras: { ...defaultConfig(["eng"]).extras, dualLanguage: "hrv" },
@@ -1110,6 +1127,35 @@ describe("a file that looks like a disc or web rip", () => {
 
     expect(ref.x.map(({ r }) => r)).toEqual(["e24-dvd"]);
     expect(close.length / (disc.length - 1)).toBeGreaterThan(0.95);
+  });
+
+  it("retimes a DVD subtitle to the BluRay ones for a 1080p rip", async () => {
+    const app = appWith(byQuery(dvdAndBluRays));
+
+    const { url, ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["hrv", "eng"] }),
+      `series/tt1442437:1:24/${joy(24, "Family Portrait")}.json`,
+    );
+
+    expect(ref.c[0]?.r).toBe("e24-dvd");
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(disc));
+  });
+
+  it("retimes a DVD subtitle to the BluRay ones when a 1080p rip learned a DVD family", async () => {
+    const app = appWith(byQuery(dvdAndBluRays));
+    const token = sealed({ languages: ["hrv", "eng"] });
+
+    await list(app, token, episode23);
+
+    const { url, ref } = await firstRefAt(
+      app,
+      token,
+      `series/tt1442437:1:24/${joy(24, "Family Portrait")}.json`,
+    );
+
+    expect(ref.c[0]?.r).toBe("e24-dvd");
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(disc));
   });
 
   it("lists no dual entry when the best entry is the guessed release of a rip", async () => {
