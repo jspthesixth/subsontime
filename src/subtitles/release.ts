@@ -1,3 +1,13 @@
+import {
+  parseEdition,
+  parseResolution,
+  parseSource,
+  parseVideoCodec,
+  Resolution,
+  Source,
+  VideoCodec,
+} from "@ctrl/video-filename-parser";
+
 export type Release = {
   source?: "bluray" | "web-dl" | "webrip" | "hdtv" | "dvdrip";
   resolution?: "2160p" | "1080p" | "720p" | "480p";
@@ -13,7 +23,32 @@ const sources: [RegExp, NonNullable<Release["source"]>][] = [
   [/^(dvdrip|dvd)$/i, "dvdrip"],
 ];
 
-export const releaseSources = [...new Set(sources.map(([, source]) => source))];
+const sourceOf = new Map<Source, NonNullable<Release["source"]>>([
+  [Source.BLURAY, "bluray"],
+  [Source.WEBDL, "web-dl"],
+  [Source.WEBRIP, "webrip"],
+  [Source.TV, "hdtv"],
+  [Source.DVD, "dvdrip"],
+]);
+
+export const releaseSources = [...new Set(sourceOf.values())];
+
+const resolutionOf = new Map<Resolution, NonNullable<Release["resolution"]>>([
+  [Resolution.R2160P, "2160p"],
+  [Resolution.R1080P, "1080p"],
+  [Resolution.R720P, "720p"],
+  [Resolution.R576P, "480p"],
+  [Resolution.R540P, "480p"],
+  [Resolution.R480P, "480p"],
+]);
+
+const codecOf = new Map<VideoCodec, string>([
+  [VideoCodec.X265, "h265"],
+  [VideoCodec.H265, "h265"],
+  [VideoCodec.X264, "h264"],
+  [VideoCodec.H264, "h264"],
+  [VideoCodec.AV1, "av1"],
+]);
 
 const resolutions: [RegExp, NonNullable<Release["resolution"]>][] = [
   [/^(2160p|4k|uhd)$/i, "2160p"],
@@ -28,11 +63,6 @@ const withoutGroup = (token: string) => token.replace(/-[A-Za-z0-9]+$/, "");
 
 const matches = (pattern: RegExp, token: string) =>
   pattern.test(token) || pattern.test(withoutGroup(token));
-
-const findLabel = <T>(tokens: string[], table: [RegExp, T][]) =>
-  tokens
-    .flatMap((token) => table.filter(([pattern]) => matches(pattern, token)).slice(0, 1))
-    .at(-1)?.[1];
 
 const isAlias = (token: string) =>
   [...sources, ...resolutions].some(([pattern]) => matches(pattern, token));
@@ -84,17 +114,22 @@ export const parseRelease = (name: string): Release => {
   const tagged = stem.replace(noiseAfterTag, "");
   const tag = tokenize(tagged.match(trailingTag)?.[1] ?? "");
   const releaseTag = tag.some(isAlias);
-  const tokens = tokenize(releaseTag ? tagged : stem.replace(trailingTag, ""));
+  const tokens = tokenize(releaseTag ? tagged : tagged.replace(trailingTag, ""));
+  const named = tokens.join(".");
+  const { extended, unrated, directors } = parseEdition(named);
+  const resolution = parseResolution(named).resolution;
 
   return {
-    source: findLabel(tokens, sources),
-    resolution: findLabel(tokens, resolutions),
+    source: parseSource(named)
+      .map((source) => sourceOf.get(source))
+      .find((source) => source !== undefined),
+    resolution: resolution === undefined ? undefined : resolutionOf.get(resolution),
     group: releaseTag ? (dashGroup(tag) ?? tagGroup(tag)) : dashGroup(tokens),
-    extended: tokens.some(
-      (token, index) =>
-        /^(extended|uncut|unrated)$/i.test(token) ||
-        (/^directors$/i.test(token) && /^cut$/i.test(tokens[index + 1] ?? "")),
-    ),
+    extended:
+      extended === true ||
+      unrated === true ||
+      directors === true ||
+      tokens.some((token) => /^uncut$/i.test(token)),
   };
 };
 
@@ -117,18 +152,16 @@ export const releaseSimilarity = (a: Release, b: Release) =>
 
 export type ReleaseFamily = { source?: Release["source"]; group: string };
 
-const codecs: [RegExp, string][] = [
-  [/(^|[^a-z0-9])([xh]\.?265|hevc)([^a-z0-9]|$)/i, "h265"],
-  [/(^|[^a-z0-9])([xh]\.?264|avc)([^a-z0-9]|$)/i, "h264"],
-  [/(^|[^a-z0-9])av1([^a-z0-9]|$)/i, "av1"],
-];
+const videoCodecOf = (filename: string) => {
+  const { codec } = parseVideoCodec(filename);
 
-const codecOf = (filename: string) => codecs.find(([pattern]) => pattern.test(filename))?.[1];
+  return codec === undefined ? undefined : codecOf.get(codec);
+};
 
 export const releaseSignatureOf = (filename: string) => {
   const { group, resolution } = parseRelease(filename);
 
-  const codec = codecOf(filename);
+  const codec = videoCodecOf(filename);
 
   return group === undefined
     ? undefined
@@ -149,7 +182,7 @@ export const isDiscOrWeb = ({ source }: Release) => discOrWebSources.has(source)
 export const looksLikeRip = (filename: string) => {
   const { source, resolution, group } = parseRelease(filename);
 
-  const codec = codecOf(filename);
+  const codec = videoCodecOf(filename);
 
   return (
     source === undefined &&

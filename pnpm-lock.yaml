@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@ctrl/video-filename-parser':
+        specifier: 5.12.0
+        version: 5.12.0
       '@hono/node-server':
         specifier: 2.1.8
         version: 2.1.8(hono@4.13.18)
@@ -89,6 +92,10 @@ packages:
 
   '@cacheable/utils@2.5.0':
     resolution: {integrity: sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==}
+
+  '@ctrl/video-filename-parser@5.12.0':
+    resolution: {integrity: sha512-PnN/2X/RD2x/sy2dSZvnxw0l9M17laDdci/3/eHKXGdYP/GmmEDa48gQma+9PhylRdZcxgD8RJjjIbtITg29Dw==}
+    engines: {node: '>=20'}
 
   '@emnapi/core@2.0.0-beta.2':
     resolution: {integrity: sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A==}
@@ -1594,6 +1601,8 @@ snapshots:
     dependencies:
       hashery: 1.5.1
       keyv: 5.6.0
+
+  '@ctrl/video-filename-parser@5.12.0': {}
 
   '@emnapi/core@2.0.0-beta.2':
     dependencies:

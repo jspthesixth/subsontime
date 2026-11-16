@@ -53,6 +53,47 @@ describe("parseRelease", () => {
     expect(parseRelease("Movie.Directors.Cut.1080p.BluRay-AAA").extended).toBe(true);
   });
 
+  it.each([
+    ["Show.S01E01.SDTV.x264-GRP", "hdtv"],
+    ["Show.S01E01.DSR.XviD-GRP", "hdtv"],
+    ["Movie.2001.DVDR-GRP", "dvdrip"],
+    ["Movie.2001.1080p.BRRip.x264-GRP", "bluray"],
+  ])("reads the source of %s", (name, source) => {
+    expect(parseRelease(name).source).toBe(source);
+  });
+
+  it("reads the resolution from a Sonarr quality tag", () => {
+    expect(
+      parseRelease("Modern Family - S01E24 - Family Portrait Bluray-1080p [Tvdb-95011]"),
+    ).toEqual({
+      source: "bluray",
+      resolution: "1080p",
+      group: undefined,
+      extended: false,
+    });
+  });
+
+  it("ignores a bracketed tag before a language suffix", () => {
+    expect(
+      parseRelease("Modern Family - S01E23 - Hawaii Bluray-1080p [Tvdb-95011].en.srt").group,
+    ).toBeUndefined();
+  });
+
+  it.each(["Movie.2010.UNRATED.1080p.BluRay-GRP", "Movie.2010.Uncut.1080p.BluRay-GRP"])(
+    "flags %s as a longer cut",
+    (name) => {
+      expect(parseRelease(name).extended).toBe(true);
+    },
+  );
+
+  it("reads AVC as the H.264 codec in a signature", () => {
+    expect(
+      releaseSignatureOf(
+        "Modern.Family.S01E24.Family.Portrait.REPACK.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-EPSiLON.mkv",
+      ),
+    ).toBe("epsilon|1080p|h264");
+  });
+
   it("reads a release kept in trailing parentheses", () => {
     expect(parseRelease("Modern Family S01E23 Hawaii  (1080p x265 10bit Joy).mkv")).toEqual({
       source: undefined,
