@@ -214,10 +214,29 @@ export const servedCues = ({ track, result }: Attempt, config: Config): Cue[] | 
   return config.extras.hideMismatches ? undefined : track.cues;
 };
 
+const timedAsIs = (candidate: CandidateRef, config: Config) =>
+  config.timing === "off" || candidate.h === 1 || candidate.e === 1;
+
+export const canBeTimed = (
+  candidates: CandidateRef[],
+  { x, a }: Pick<SubtitleRef, "x" | "a">,
+  config: Config,
+) =>
+  candidates.some(
+    (candidate) =>
+      timedAsIs(candidate, config) ||
+      a !== undefined ||
+      x.some(
+        (reference) =>
+          candidateKey(reference.n, reference.r) !== candidateKey(candidate.n, candidate.r),
+      ),
+  );
+
 const timedCues = (attempt: Attempt, config: Config): Cue[] | undefined => {
   const { candidate, result } = attempt;
 
-  const unfit = result?.kind === "not-retimed" && result.noFit === true && candidate.e !== 1;
+  const unfit =
+    result?.kind === "not-retimed" && result.noFit === true && !timedAsIs(candidate, config);
 
   return result?.kind === "mismatch" || unfit ? undefined : servedCues(attempt, config);
 };

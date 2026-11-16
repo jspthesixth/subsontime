@@ -23,7 +23,7 @@ import { anchorWithGuardsOf, asGoodAsAnchor } from "../timing/anchor.ts";
 import { freeFirst, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
-import { downloader, warmAnchor } from "./file-route.ts";
+import { canBeTimed, downloader, warmAnchor } from "./file-route.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 import {
   recalledReleaseFamily,
@@ -271,48 +271,43 @@ export const subtitlesRoute =
         ...unflagged(toCandidateRef(candidate)),
         e: found.asGoodAsAnchor(candidate) ? (1 as const) : undefined,
       }));
-    const subURL = (
+    const refOf = (
       candidates: Candidate[],
       { t, second }: { t?: SubtitleRef["t"]; second?: Candidate[] } = {},
-    ) => {
-      const ref = encodeRef(
-        {
-          v: 1,
-          q,
-          c: candidateRefsOf(candidates),
-          x: found.referencesFor(candidates).map(toCandidateRef).map(unflagged),
-          a: anchors.length === 0 ? undefined : anchors,
-          w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
-          k: listed === undefined ? fileKey : undefined,
-          d: hiddenKey,
-          t,
-          s: second === undefined ? undefined : candidateRefsOf(second),
-        },
-        refKey,
-      );
-
-      return `${baseURL(context, publicURL)}/${context.req.param("config")}/sub/${ref}.srt`;
-    };
+    ): SubtitleRef => ({
+      v: 1,
+      q,
+      c: candidateRefsOf(candidates),
+      x: ([candidates, second ?? []].map(found.referencesFor).find((each) => each.length > 0) ?? [])
+        .map(toCandidateRef)
+        .map(unflagged),
+      a: anchors.length === 0 ? undefined : anchors,
+      w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
+      k: listed === undefined ? fileKey : undefined,
+      d: hiddenKey,
+      t,
+      s: second === undefined ? undefined : candidateRefsOf(second),
+    });
+    const urlOf = (ref: SubtitleRef) =>
+      `${baseURL(context, publicURL)}/${context.req.param("config")}/sub/${encodeRef(ref, refKey)}.srt`;
+    const subURL = (...args: Parameters<typeof refOf>) => urlOf(refOf(...args));
     const dualEntriesOf = (lang: string, best: Candidate[]) => {
       if (dualLanguage === undefined) {
         return [];
       }
 
       const second = found.passing(found.ranked(dualLanguage)).slice(0, bestSlotSize);
-      const timeable =
-        config.timing === "off" ||
-        anchors.length > 0 ||
-        found.referencesFor(best).length > 0 ||
-        [...best, ...second].some(({ hashMatch }) => hashMatch);
+      const ref = refOf(best, { second });
 
-      return second.length === 0 || !timeable
+      return second.length === 0 ||
+        ![ref.c, ref.s ?? []].every((group) => canBeTimed(group, ref, config))
         ? []
         : [
             {
               id: `${lang}+${dualLanguage}-dual`,
               lang,
               label: labelOf(best, `with ${englishNameOf(dualLanguage)}`),
-              url: subURL(best, { second }),
+              url: urlOf(ref),
             },
           ];
     };

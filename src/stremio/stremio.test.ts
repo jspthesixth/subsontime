@@ -875,7 +875,7 @@ describe("release families", () => {
     ]);
   });
 
-  it("gives a dual entry the references of the best entry it follows", async () => {
+  it("times the second language of a dual entry against the release family", async () => {
     const app = appWith(byQuery(familyEntries({ discLang: "eng" })));
     const token = sealed({
       languages: ["eng"],
@@ -886,11 +886,26 @@ describe("release families", () => {
 
     const { body } = await list(app, token, namedEpisode(1));
 
+    const dual = body.subtitles.find(({ id }) => id === "eng+hrv-dual")?.url ?? "";
+    const response = await app.request(dual);
+    const text = await response.text();
+
     expect(
-      body.subtitles.map(({ id, url }) => [id, refOf(url).c.map(({ r }) => r), refOf(url).x]),
+      body.subtitles.map(({ id, url }) => [
+        id,
+        refOf(url).c.map(({ r }) => r),
+        refOf(url).x.map(({ r }) => r),
+      ]),
     ).toEqual([
       ["eng-best", ["e24-dvd"], []],
-      ["eng+hrv-dual", ["e24-dvd"], []],
+      ["eng+hrv-dual", ["e24-dvd"], ["e24-dvd"]],
+    ]);
+    expect(response.status).toBe(200);
+    expect(text).toMatch(/^1\n00:00:04,500 --> 00:00:06,600\nLine 0\n<i>Line 0<\/i>\n/);
+    expect(parseSubtitle(text).slice(0, 3)).toEqual([
+      { start: 4500, end: 6600, text: "Line 0\nLine 0" },
+      { start: 7500, end: 9100, text: "Line 1\nLine 1" },
+      { start: 9200, end: 12369, text: "Line 2\nLine 2" },
     ]);
   });
 

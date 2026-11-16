@@ -588,6 +588,20 @@ describe("dual subtitles", () => {
     });
   });
 
+  it("lists and serves a dual entry with nothing to time it when timing is off", async () => {
+    const { listed } = dualSources();
+
+    const { app, subtitles } = await listedFor(
+      { listed, references: [] },
+      { extras: dual, timing: "off" },
+    );
+
+    expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+      status: 200,
+      text: writeSRT(dualOf(shifted)),
+    });
+  });
+
   it("answers 404 when the second language is made for another video", async () => {
     const unrelated = syntheticTrack(2, 200).map((cue) => ({ ...cue, text: `Krivo ${cue.text}` }));
     const { app, subtitles } = await listedFor(dualSources({ cues: unrelated }), {
