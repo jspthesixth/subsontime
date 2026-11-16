@@ -296,8 +296,13 @@ export const subtitlesRoute =
       }
 
       const second = found.passing(found.ranked(dualLanguage)).slice(0, bestSlotSize);
+      const timeable =
+        config.timing === "off" ||
+        anchors.length > 0 ||
+        found.referencesFor(best).length > 0 ||
+        [...best, ...second].some(({ hashMatch }) => hashMatch);
 
-      return second.length === 0
+      return second.length === 0 || !timeable
         ? []
         : [
             {

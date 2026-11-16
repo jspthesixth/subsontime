@@ -142,7 +142,7 @@ describe("dialogue only", () => {
               { ref: "hc", lang: "hrv" },
             ]),
           ],
-          references: [],
+          references: [fakeSource("Reference", [{ ref: "r", hashMatch: true }])],
         },
         {
           bestOnly,
@@ -370,7 +370,7 @@ describe("dual subtitles", () => {
     ]);
 
     const { subtitles } = await listedFor(
-      { listed: [source], references: [] },
+      { listed: [source], references: [fakeSource("Reference", [{ ref: "r", hashMatch: true }])] },
       { languages: ["eng", "fra"], extras: { ...dual, dialogueOnly: true } },
     );
 
@@ -432,10 +432,19 @@ describe("dual subtitles", () => {
     expect(subtitles.map((entry) => entry.id)).toEqual(["hrv-best"]);
   });
 
+  it("lists no dual entry when nothing can time the best entry to the file", async () => {
+    const { listed } = dualSources();
+
+    const { subtitles } = await listedFor({ listed, references: [] }, { extras: dual });
+
+    expect(subtitles.map((entry) => entry.id)).toEqual(["eng-best"]);
+  });
+
   it("serves both languages retimed to the same reference, the second below the first", async () => {
     const sources = dualSources();
     const { app, subtitles } = await listedFor(sources, { extras: dual });
 
+    expect(subtitles.map((entry) => entry.id)).toEqual(["eng-best", "eng+hrv-dual"]);
     expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
       status: 200,
       text: writeSRT(dualOf(track)),
@@ -456,7 +465,7 @@ describe("dual subtitles", () => {
 
   it("serves the second language made for the file from a listing that came before the hash", async () => {
     const fake = fakeSource("Fake", [
-      { ref: "a", cues: track },
+      { ref: "a", releaseName: webRelease, cues: track },
       {
         ref: "other",
         lang: "hrv",
@@ -481,7 +490,7 @@ describe("dual subtitles", () => {
 
     const listing = async (more: string) => {
       const response = await app.request(
-        `/${token}/subtitles/movie/tt0111161/filename=Movie.mkv${more}.json`,
+        `/${token}/subtitles/movie/tt0111161/filename=${webRelease}.mkv${more}.json`,
       );
 
       return ((await response.json()) as Listing).subtitles;

@@ -1022,6 +1022,18 @@ describe("a file that looks like a disc or web rip", () => {
     expect(close.length / (disc.length - 1)).toBeGreaterThan(0.95);
   });
 
+  it("lists no dual entry when the best entry is the guessed release of a rip", async () => {
+    const { body } = await list(
+      appWith(byQuery(familyEntries({ discLang: "eng" }))),
+      sealed({ extras: { ...defaultConfig(["eng"]).extras, dualLanguage: "hrv" } }),
+      `series/tt1442437:1:24/${joy(24, "Family Portrait")}${withHashOf(24)}.json`,
+    );
+
+    expect(body.subtitles.map(({ id, url }) => [id, refOf(url).x, refOf(url).a])).toEqual([
+      ["eng-best", [], undefined],
+    ]);
+  });
+
   it("keeps the exact-release ranking for a file that names its source", async () => {
     const { ref } = await firstRefAt(
       appWith(byQuery(familyEntries())),
