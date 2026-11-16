@@ -28,7 +28,7 @@ export type RetimeResult =
       references: Track[];
     }
   | { kind: "shared-fix"; cues: Cue[]; agreeing: number; fromAudio: boolean }
-  | { kind: "not-retimed"; cues: Cue[] }
+  | { kind: "not-retimed"; cues: Cue[]; noFit?: true }
   | { kind: "mismatch" };
 
 export const retimedMinimumScore = 0.6;
@@ -190,5 +190,5 @@ export const retime = async (subtitle: Track, references: Track[]): Promise<Reti
     return { kind: "mismatch" };
   }
 
-  return { kind: "not-retimed", cues: subtitle.cues };
+  return { kind: "not-retimed", cues: subtitle.cues, noFit: true };
 };

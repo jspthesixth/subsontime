@@ -207,6 +207,14 @@ export const servedCues = ({ track, result }: Attempt, config: Config): Cue[] | 
   return config.extras.hideMismatches ? undefined : track.cues;
 };
 
+const timedCues = (attempt: Attempt, config: Config): Cue[] | undefined => {
+  const { result } = attempt;
+
+  return result?.kind === "mismatch" || (result?.kind === "not-retimed" && result.noFit === true)
+    ? undefined
+    : servedCues(attempt, config);
+};
+
 export async function* resolveAttempts(
   ref: Pick<SubtitleRef, "c" | "x" | "a">,
   config: Config,
@@ -216,7 +224,12 @@ export async function* resolveAttempts(
   {
     lazyReferences = false,
     anchorOf,
-  }: { lazyReferences?: boolean; anchorOf?: () => Promise<Anchor | undefined> } = {},
+    cuesOf = servedCues,
+  }: {
+    lazyReferences?: boolean;
+    anchorOf?: () => Promise<Anchor | undefined>;
+    cuesOf?: typeof servedCues;
+  } = {},
 ): AsyncGenerator<Attempt> {
   let downloaded: Promise<Track[]> | undefined;
   let anchoring: Promise<Anchor | undefined> | undefined;
@@ -260,7 +273,7 @@ export async function* resolveAttempts(
 
     yield attempt;
 
-    if (servedCues(attempt, config) !== undefined) {
+    if (cuesOf(attempt, config) !== undefined) {
       return;
     }
   }
@@ -357,8 +370,8 @@ const shareAfterResponse = (
     })
     .catch(logWrite);
 
-const firstServed = (attempts: Attempt[], config: Config) =>
-  attempts.map((attempt) => servedCues(attempt, config)).find((each) => each !== undefined);
+const firstServed = (attempts: Attempt[], config: Config, cuesOf = servedCues) =>
+  attempts.map((attempt) => cuesOf(attempt, config)).find((each) => each !== undefined);
 
 const servedOf = (attempts: Attempt[], config: Config, dialogueOnly: boolean): Served => {
   const cues = firstServed(attempts, config);
@@ -378,7 +391,9 @@ const servedOf = (attempts: Attempt[], config: Config, dialogueOnly: boolean): S
 };
 
 const dualServedOf = (attempts: Attempt[][], config: Config): Served => {
-  const [primary = [], secondary = []] = attempts.map((each) => firstServed(each, config) ?? []);
+  const [primary = [], secondary = []] = attempts.map(
+    (each) => firstServed(each, config, timedCues) ?? [],
+  );
 
   return primary.length === 0 || secondary.length === 0
     ? { found: false, srt: "" }
@@ -454,21 +469,21 @@ export const fileRoute =
 
         return anchoring;
       };
-      const resolving =
-        ref.s === undefined
-          ? config
-          : { ...config, extras: { ...config.extras, hideMismatches: true } };
+      const cuesOf = ref.s === undefined ? servedCues : timedCues;
       const attempts = await Promise.all(
         [ref.c, ...(ref.s === undefined ? [] : [ref.s])].map((c) =>
           recordAttempts(
-            resolveAttempts({ ...ref, c }, resolving, download, undefined, shared, { anchorOf }),
+            resolveAttempts({ ...ref, c }, config, download, undefined, shared, {
+              anchorOf,
+              cuesOf,
+            }),
           ),
         ),
       );
       const fresh =
         ref.s === undefined
           ? servedOf(attempts.flat(), config, ref.t === "dialogue")
-          : dualServedOf(attempts, resolving);
+          : dualServedOf(attempts, config);
 
       if (config.share && video !== undefined) {
         shares.push(...sharesOf(attempts.flat(), video));

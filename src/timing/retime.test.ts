@@ -7,7 +7,7 @@ import { alignCues, alignOffset } from "./alass.ts";
 import { pickReferences } from "./references.ts";
 import { mismatchMaximumScore, retime, retimedMinimumScore } from "./retime.ts";
 import { byHash, candidate, fileRelease, subtitleOf } from "./test-candidates.ts";
-import { resegment, syntheticTrack, transform } from "./test-tracks.ts";
+import { partlyUnrelated, resegment, syntheticTrack, transform } from "./test-tracks.ts";
 
 const byReleaseName = (cues: Cue[], fps?: number) => ({
   candidate: candidate({ ref: "reference", fps }),
@@ -59,17 +59,6 @@ const shareWithin = (cues: Cue[], expected: Cue[], ms: number) =>
 
 const largestStartError = (cues: Cue[]) =>
   Math.max(...cues.map((cue, index) => Math.abs(cue.start - (track[index]?.start ?? Infinity))));
-
-const partlyUnrelated = (() => {
-  const kept = Math.round(track.length / 2);
-  const head = resegment(resegment(track.slice(0, kept), 7), 8);
-  const tail = transform(
-    syntheticTrack(9, track.length - kept),
-    (time) => time + (head.at(-1)?.end ?? 0),
-  );
-
-  return transform([...head, ...tail], (time) => time + 2000);
-})();
 
 describe("retime", () => {
   it("returns a hash-matched subtitle untouched as made for the file", async () => {
@@ -156,6 +145,7 @@ describe("retime", () => {
     expect(await retime(subtitleOf(shifted), [self("test")])).toEqual({
       kind: "not-retimed",
       cues: shifted,
+      noFit: true,
     });
     expect(await retime(subtitleOf(shifted), [self("other")])).toMatchObject({
       kind: "retimed",
@@ -211,6 +201,7 @@ describe("retime", () => {
     expect(await retime(subtitleOf(unrelated, 25), [byReleaseName(track, 25)])).toEqual({
       kind: "not-retimed",
       cues: unrelated,
+      noFit: true,
     });
   });
 
@@ -223,6 +214,7 @@ describe("retime", () => {
     expect(await retime(subtitleOf(partlyUnrelated, 25), [byHash(track, 25)])).toEqual({
       kind: "not-retimed",
       cues: partlyUnrelated,
+      noFit: true,
     });
   });
 
@@ -247,7 +239,11 @@ describe("retime", () => {
   });
 
   it("does not retime without references", async () => {
-    expect(await retime(subtitleOf(shifted), [])).toEqual({ kind: "not-retimed", cues: shifted });
+    expect(await retime(subtitleOf(shifted), [])).toEqual({
+      kind: "not-retimed",
+      cues: shifted,
+      noFit: true,
+    });
   });
 });
 

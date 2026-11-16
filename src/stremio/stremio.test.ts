@@ -832,6 +832,25 @@ describe("release families", () => {
     ]);
   });
 
+  it("gives a dual entry the references of the best entry it follows", async () => {
+    const app = appWith(byQuery(familyEntries({ discLang: "eng" })));
+    const token = sealed({
+      languages: ["eng"],
+      extras: { ...defaultConfig(["eng"]).extras, dualLanguage: "hrv" },
+    });
+
+    await list(app, token, episode23);
+
+    const { body } = await list(app, token, namedEpisode(1));
+
+    expect(
+      body.subtitles.map(({ id, url }) => [id, refOf(url).c.map(({ r }) => r), refOf(url).x]),
+    ).toEqual([
+      ["eng-best", ["e24-dvd"], []],
+      ["eng+hrv-dual", ["e24-dvd"], []],
+    ]);
+  });
+
   it("serves the release family an earlier episode of the same release matched", async () => {
     const app = appWith(byQuery(familyEntries()));
     const token = sealed({ languages: ["hrv"] });

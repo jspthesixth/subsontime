@@ -5,7 +5,7 @@ import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource, type Entry } from "../sources/test-sources.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { retime } from "../timing/retime.ts";
-import { syntheticTrack } from "../timing/test-tracks.ts";
+import { partlyUnrelated, syntheticTrack } from "../timing/test-tracks.ts";
 import { decodeRef, refKey } from "./refs.ts";
 import {
   appWith,
@@ -441,6 +441,30 @@ describe("dual subtitles", () => {
       text: writeSRT(track.map((cue) => ({ ...cue, text: `${cue.text}\n<i>Hrv ${cue.text}</i>` }))),
     });
     expect(retimeSpy).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 when nothing times the second language to the file", async () => {
+    const { app, subtitles } = await listedFor(dualSources({ cues: croatian(partlyUnrelated) }), {
+      extras: dual,
+    });
+
+    expect((await fetched(app, urlOf(subtitles, "eng-best"))).status).toBe(200);
+    expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+      status: 404,
+      text: "No subtitle fits this file",
+    });
+  });
+
+  it("serves a second language that shares the anchor's timing as it is", async () => {
+    const { app, subtitles } = await listedFor(dualSources({ cues: croatian(track) }), {
+      extras: dual,
+    });
+
+    expect(await fetched(app, urlOf(subtitles, "eng+hrv-dual"))).toEqual({
+      status: 200,
+      text: writeSRT(track.map((cue) => ({ ...cue, text: `${cue.text}\n<i>Hrv ${cue.text}</i>` }))),
+    });
+    expect(retimeSpy.mock.calls.map(([subtitle]) => subtitle.candidate.lang)).toEqual([]);
   });
 
   it("answers 404 when the second language is made for another video", async () => {

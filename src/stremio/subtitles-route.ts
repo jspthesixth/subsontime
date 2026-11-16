@@ -270,10 +270,7 @@ export const subtitlesRoute =
           v: 1,
           q,
           c: candidateRefsOf(candidates),
-          x: found
-            .referencesFor([...candidates, ...(second ?? [])])
-            .map(toCandidateRef)
-            .map(unflagged),
+          x: found.referencesFor(candidates).map(toCandidateRef).map(unflagged),
           a: anchors.length === 0 ? undefined : anchors,
           w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
           k: listed === undefined ? fileKey : undefined,

@@ -84,6 +84,18 @@ const timed = async (run: () => unknown) => {
   return performance.now() - started;
 };
 
+export const partlyUnrelated = (() => {
+  const track = syntheticTrack(1, 200);
+  const kept = Math.round(track.length / 2);
+  const head = resegment(resegment(track.slice(0, kept), 7), 8);
+  const tail = transform(
+    syntheticTrack(9, track.length - kept),
+    (time) => time + (head.at(-1)?.end ?? 0),
+  );
+
+  return transform([...head, ...tail], (time) => time + 2000);
+})();
+
 export const fastestOfThree = async (run: () => unknown) =>
   Math.min(await timed(run), await timed(run), await timed(run));
 
