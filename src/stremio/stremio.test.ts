@@ -1222,6 +1222,19 @@ const hashAnchored = () =>
   ]);
 
 describe("timing anchor", () => {
+  it("builds the sources once for a listing that warms the anchor", async () => {
+    const sources = { listed: [hashAnchored()], references: [] };
+    const sourcesFor = vi.fn<NonNullable<AppDeps["sourcesFor"]>>(() => sources);
+
+    await list(
+      appWith(sources, { sourcesFor }),
+      sealed({ languages: ["hrv"] }),
+      anchored(fileName),
+    );
+
+    expect(sourcesFor).toHaveBeenCalledTimes(1);
+  });
+
   it("retimes the requested language to a hash match in another language", async () => {
     const app = appWith({ listed: [hashAnchored()], references: [] });
 

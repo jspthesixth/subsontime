@@ -105,8 +105,9 @@ export const subtitlesRoute =
           ? config.languages
           : [...new Set([...config.languages, dualLanguage])],
     };
+    const sources = sourcesFor(config, context.get("tokens"));
     const [found, hiddenKey] = await Promise.all([
-      searchVideo(sourcesFor(config, context.get("tokens")), query, family),
+      searchVideo(sources, query, family),
       openTimings === undefined || listed === undefined || !config.useShared
         ? undefined
         : hiddenKeyFor(openTimings, state, listed, viewerOf(config, openTimings.installSalt)),
@@ -150,7 +151,7 @@ export const subtitlesRoute =
               { state, singleFlight, openTimings },
               config,
               { q, a: anchors, x: references, w: { h: listed.hash, z: listed.size }, d: hiddenKey },
-              downloader(sourcesFor(config, context.get("tokens"))),
+              downloader(sources),
             ).catch((error: unknown) =>
               console.error(`Anchor warm-up failed: ${errorName(error)}`),
             ),
