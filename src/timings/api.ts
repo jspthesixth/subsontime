@@ -1,7 +1,6 @@
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SingleFlight } from "../jobs/single-flight.ts";
-import { parseJSON } from "../json.ts";
 import {
   digest,
   present,
@@ -230,7 +229,7 @@ const storedSchema = v.array(
 );
 
 const decodeDigest = (text: string): Digest | undefined => {
-  const parsed = v.safeParse(storedSchema, parseJSON(text));
+  const parsed = v.safeParse(v.pipe(v.string(), v.parseJson(), storedSchema), text);
 
   return parsed.success
     ? (parsed.output as StoredSection[]).map(({ mismatchers, hiddenMismatch, ...section }) => ({
@@ -359,7 +358,7 @@ const statsSchema = v.object({
 });
 
 const statsOf = (text: string | undefined) => {
-  const parsed = v.safeParse(statsSchema, text === undefined ? undefined : parseJSON(text));
+  const parsed = v.safeParse(v.pipe(v.string(), v.parseJson(), statsSchema), text ?? "");
 
   return parsed.success ? parsed.output : undefined;
 };

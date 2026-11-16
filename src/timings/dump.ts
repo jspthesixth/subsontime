@@ -5,7 +5,6 @@ import { del, get, put } from "@vercel/blob";
 import type { Context } from "hono";
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
-import { parseJSON } from "../json.ts";
 import { lookUp, type Summaries } from "./api.ts";
 import type { TimingsStore, VideoKey } from "./db.ts";
 
@@ -28,7 +27,7 @@ const pointerSchema = v.object({
 type Pointer = v.InferOutput<typeof pointerSchema>;
 
 const pointerOf = (text: string | undefined) => {
-  const parsed = v.safeParse(pointerSchema, text === undefined ? undefined : parseJSON(text));
+  const parsed = v.safeParse(v.pipe(v.string(), v.parseJson(), pointerSchema), text ?? "");
 
   return parsed.success ? parsed.output : undefined;
 };

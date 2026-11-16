@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
-import { parseJSON } from "../json.ts";
 import { rateLimit } from "../web/rate-limit.ts";
 import {
   RefusedDownload,
@@ -110,8 +109,8 @@ const cachedFor =
     fresh: () => Promise<T | undefined>,
   ): Promise<T | undefined> => {
     const stored = v.safeParse(
-      schema,
-      parseJSON((await orMiss(() => state.get(key), undefined)) ?? ""),
+      v.pipe(v.string(), v.parseJson(), schema),
+      (await orMiss(() => state.get(key), undefined)) ?? "",
     );
 
     if (stored.success) {

@@ -1,6 +1,5 @@
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
-import { parseJSON } from "../json.ts";
 import { releaseSignatureOf, releaseSources, type ReleaseFamily } from "../subtitles/release.ts";
 
 const familySeconds = 90 * 24 * 60 * 60;
@@ -24,8 +23,8 @@ export const recalledReleaseFamily = async (
   key: string,
 ): Promise<ReleaseFamily | undefined> => {
   const parsed = v.safeParse(
-    familySchema,
-    parseJSON((await orMiss(() => state.get(key), undefined)) ?? ""),
+    v.pipe(v.string(), v.parseJson(), familySchema),
+    (await orMiss(() => state.get(key), undefined)) ?? "",
   );
 
   return parsed.success ? parsed.output : undefined;

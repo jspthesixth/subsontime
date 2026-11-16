@@ -6,7 +6,6 @@ import * as v from "valibot";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
-import { parseJSON } from "../json.ts";
 import { isCapitals, isMostlyCapitals, recase } from "../subtitles/capitals.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { mergeDual } from "../subtitles/dual.ts";
@@ -105,7 +104,7 @@ const encodeServed = ({ found, srt }: Served) =>
 const servedSchema = v.object({ found: v.boolean(), srt: v.string() });
 
 const decodeServed = (text: string): Served | undefined => {
-  const parsed = v.safeParse(servedSchema, parseJSON(text));
+  const parsed = v.safeParse(v.pipe(v.string(), v.parseJson(), servedSchema), text);
 
   return parsed.success
     ? { found: parsed.output.found, srt: Buffer.from(parsed.output.srt, "base64").toString("utf8") }

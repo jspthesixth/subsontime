@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { fetchWithTimeout } from "../http.ts";
-import { parseJSON } from "../json.ts";
 import { verdictOf } from "./check.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import {
@@ -184,7 +183,10 @@ export const titloviSource = (credentials: Credentials, tokens: TokenCache): Sou
   };
 
   const cachedSession = async (signal: AbortSignal): Promise<Session> => {
-    const cached = v.safeParse(sessionSchema, parseJSON((await tokens.get(key)) ?? ""));
+    const cached = v.safeParse(
+      v.pipe(v.string(), v.parseJson(), sessionSchema),
+      (await tokens.get(key)) ?? "",
+    );
 
     return cached.success ? cached.output : login(signal);
   };

@@ -232,14 +232,6 @@ export const loaderOf = (root: string, labelled: Map<string, string[]>): Loader 
   };
 };
 
-const parsedJSON = (line: string): unknown => {
-  try {
-    return JSON.parse(line);
-  } catch {
-    return undefined;
-  }
-};
-
 const cacheLinesOf = async function* (path: string) {
   const handle = await openIfPresent(path);
 
@@ -255,7 +247,7 @@ const cacheLinesOf = async function* (path: string) {
         throw new Error(`Unreadable line in ${path}: ${unread.slice(0, 80)}`);
       }
 
-      const parsed = v.safeParse(CacheLineSchema, parsedJSON(line));
+      const parsed = v.safeParse(v.pipe(v.string(), v.parseJson(), CacheLineSchema), line);
 
       if (parsed.success) {
         yield parsed.output;

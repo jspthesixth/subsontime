@@ -171,8 +171,8 @@ export const openSubtitlesSource = (
   const login = async (user: Credentials, signal: AbortSignal, fresh = false): Promise<Session> => {
     const key = createHash("sha256").update(user.username).digest("hex");
     const cached = v.safeParse(
-      sessionSchema,
-      JSON.parse((await tokens.get(key)) ?? "null") as unknown,
+      v.pipe(v.string(), v.parseJson(), sessionSchema),
+      (await tokens.get(key)) ?? "",
     );
 
     if (cached.success && !fresh) {

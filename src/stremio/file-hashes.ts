@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
-import { parseJSON } from "../json.ts";
 import { candidateKey, candidateRefSchema, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 const recordSeconds = 4 * 60 * 60;
@@ -26,8 +25,8 @@ export const recordFileHash = (state: SharedState, key: string, fileHash: FileHa
 
 export const recalledFileHash = async (state: SharedState, key: string) => {
   const parsed = v.safeParse(
-    fileHashSchema,
-    parseJSON((await orMiss(() => state.get(`fh:${key}`), undefined)) ?? ""),
+    v.pipe(v.string(), v.parseJson(), fileHashSchema),
+    (await orMiss(() => state.get(`fh:${key}`), undefined)) ?? "",
   );
 
   return parsed.success ? parsed.output : undefined;

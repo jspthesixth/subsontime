@@ -3,7 +3,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 import * as v from "valibot";
 import type { Config } from "../config/config.ts";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
-import { parseJSON } from "../json.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import type { RetimeResult } from "../timing/retime.ts";
 import { lookUp, type Summaries } from "../timings/api.ts";
@@ -123,7 +122,7 @@ export const fileShared = async (
     hiddenKey === undefined
       ? undefined
       : await withinBudget(orMiss(() => state.get(hiddenKey), undefined));
-  const sketches = v.safeParse(sketchesSchema, parseJSON(stored ?? "[]"));
+  const sketches = v.safeParse(v.pipe(v.string(), v.parseJson(), sketchesSchema), stored ?? "[]");
   let confirmed: Promise<FixWithCues[]> | undefined;
 
   return {

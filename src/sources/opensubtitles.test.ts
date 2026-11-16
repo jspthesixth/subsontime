@@ -325,6 +325,18 @@ describe("openSubtitlesSource download", () => {
     expect(fetchMock.mock.calls[2]?.[0]).toBe(downloadFixture.link);
   });
 
+  it("logs in again when the cached session is not JSON", async () => {
+    const tokens = memoryTokenCache();
+    const fetchMock = stubFetch(json(loginFixture), json(downloadFixture), new Response(fileBytes));
+
+    await tokens.set(createHash("sha256").update("alice").digest("hex"), "not json", 600);
+
+    expect(
+      await openSubtitlesSource(credentials, appKey, tokens).download("501", signal()),
+    ).toEqual(fileBytes);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${baseURL}/login`);
+  });
+
   it("downloads without credentials and without authorization", async () => {
     const fetchMock = stubFetch(json(downloadFixture), new Response(fileBytes));
 
