@@ -346,3 +346,36 @@ class DownloadTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourceInLanguageTest(unittest.TestCase):
+    def setUp(self):
+        entries = lambda origin: [
+            {"id": "eng-best", "lang": "English - OpenSubtitles", "label": "OpenSubtitles", "url": f"{origin}/{sealed}/sub/best.srt"},
+            {"id": "eng+hrv-dual", "lang": "English - OpenSubtitles (with Croatian)", "label": "OpenSubtitles (with Croatian)", "url": f"{origin}/{sealed}/sub/dual.srt"},
+            {"id": "eng-best-2", "lang": "English - SubDL", "label": "SubDL", "url": f"{origin}/{sealed}/sub/second.srt"},
+            {"id": "eng-forced", "lang": "English - SubDL (foreign parts only)", "label": "SubDL (foreign parts only)", "url": f"{origin}/{sealed}/sub/forced.srt"},
+            {"id": "pob-best", "lang": "Português (Brasil) - SubDL", "label": "SubDL", "url": f"{origin}/{sealed}/sub/pob.srt"},
+            {"id": "hrv-best", "lang": "Hrvatski - Titlovi.com", "label": "Titlovi.com", "url": f"{origin}/{sealed}/sub/hrv.srt"},
+        ]
+        self.server = AddonServer(lambda origin: {f"/{sealed}/subtitles/": (200, json.dumps({"subtitles": entries(origin)}).encode())})
+        self.config = {"install_link": f"{self.server.origin}/{sealed}/manifest.json"}
+
+    def tearDown(self):
+        self.server.close()
+
+    def test_reads_the_language_from_the_entry_id(self):
+        movie = {"kind": "movie", "name": "/missing/Movie.2020.mkv", "imdb_id": "tt0000001", "hashes": {}, "size": None}
+
+        candidates = provider.SubsOnTimeProvider().search(movie, [english, brazilian], self.config)
+
+        self.assertEqual(
+            [(path_of(each), each["language"]["alpha3"], each["language"]["forced"], each["score"]) for each in candidates],
+            [
+                ("/sub/best.srt", "eng", False, 179),
+                ("/sub/dual.srt", "eng", False, 178),
+                ("/sub/second.srt", "eng", False, 177),
+                ("/sub/forced.srt", "eng", True, 130),
+                ("/sub/pob.srt", "por", False, 179),
+            ],
+        )

@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -13,7 +14,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SubsOnTime;
 
-public class SubsOnTimeProvider : ISubtitleProvider
+public partial class SubsOnTimeProvider : ISubtitleProvider
 {
     private readonly TimeSpan hashTimeout;
     private readonly Func<HttpClient> createClient;
@@ -80,7 +81,7 @@ public class SubsOnTimeProvider : ISubtitleProvider
         var accepted = (culture?.ThreeLetterISOLanguageNames ?? []).Append(request.Language).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var languageName = culture?.DisplayName ?? request.Language;
         var basePath = new Uri(addonBase).AbsolutePath;
-        var wanted = (listing?.Subtitles ?? []).Where(subtitle => accepted.Contains(subtitle.Lang)).ToList();
+        var wanted = (listing?.Subtitles ?? []).Where(subtitle => accepted.Contains(LanguageOf(subtitle))).ToList();
         var placed = wanted
             .Select(subtitle => (Subtitle: subtitle, Path: PathUnder(basePath, subtitle.Url)))
             .Where(entry => entry.Path is not null)
@@ -177,6 +178,16 @@ public class SubsOnTimeProvider : ISubtitleProvider
             return null;
         }
     }
+
+    private static string LanguageOf(AddonSubtitle subtitle)
+    {
+        var code = LanguageCode().Match(subtitle.Id);
+
+        return code.Success ? code.Groups[1].Value : subtitle.Lang;
+    }
+
+    [GeneratedRegex("^([a-z]{3})[-+]")]
+    private static partial Regex LanguageCode();
 
     private static string? PathUnder(string basePath, string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.AbsolutePath.StartsWith(basePath + "/", StringComparison.Ordinal)

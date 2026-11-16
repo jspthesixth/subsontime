@@ -3,6 +3,7 @@ import hashlib
 import itertools
 import json
 import os
+import re
 import struct
 import urllib.parse
 import urllib.request
@@ -142,16 +143,22 @@ def is_complete(entry):
     return isinstance(entry, dict) and all(isinstance(entry.get(key), str) for key in ("id", "lang", "label", "url"))
 
 
+def lang_of(entry):
+    code = re.match(r"([a-z]{3})[-+]", entry["id"])
+
+    return code.group(1) if code else entry["lang"]
+
+
 def is_forced(entry):
     return entry["id"].endswith("-forced")
 
 
 def ranked(placed):
-    ordered = sorted(placed, key=lambda pair: (pair[0]["lang"], is_forced(pair[0]), made_for_this_file not in notes_of(pair[0]["label"])))
+    ordered = sorted(placed, key=lambda pair: (lang_of(pair[0]), is_forced(pair[0]), made_for_this_file not in notes_of(pair[0]["label"])))
 
     return [
         (entry, path, position)
-        for _, group in itertools.groupby(ordered, key=lambda pair: pair[0]["lang"])
+        for _, group in itertools.groupby(ordered, key=lambda pair: lang_of(pair[0]))
         for position, (entry, path) in enumerate(group)
     ]
 
@@ -191,10 +198,10 @@ class SubsOnTimeProvider:
         placed = [
             (entry, path)
             for entry in listing.get("subtitles", [])
-            if is_complete(entry) and entry["lang"] in wanted and (path := path_under(base_path, entry["url"])) is not None
+            if is_complete(entry) and lang_of(entry) in wanted and (path := path_under(base_path, entry["url"])) is not None
         ]
 
-        return [candidate_of(entry, path, position, wanted[entry["lang"]], video["kind"]) for entry, path, position in ranked(placed)]
+        return [candidate_of(entry, path, position, wanted[lang_of(entry)], video["kind"]) for entry, path, position in ranked(placed)]
 
     def download(self, provider_payload, language, config):
         addon_base = addon_base_of(config.get("install_link"))

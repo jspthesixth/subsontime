@@ -137,6 +137,26 @@ public sealed class SubsOnTimeProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadsTheLanguageFromTheEntryId()
+    {
+        server.Listing = """
+            {"subtitles":[
+              {"id":"eng-best","lang":"English - OpenSubtitles","label":"OpenSubtitles","url":"https://subsontime.example/SEALED/sub/REF1.srt"},
+              {"id":"eng+hrv-dual","lang":"English - OpenSubtitles (with Croatian)","label":"OpenSubtitles (with Croatian)","url":"https://subsontime.example/SEALED/sub/REF2.srt"},
+              {"id":"eng-forced","lang":"English - SubDL (foreign parts only)","label":"SubDL (foreign parts only)","url":"https://subsontime.example/SEALED/sub/REF3.srt"},
+              {"id":"hrv-best","lang":"Hrvatski - Titlovi.com","label":"Titlovi.com","url":"https://subsontime.example/SEALED/sub/REF4.srt"}
+            ]}
+            """;
+
+        var results = (await Provider().Search(MovieRequest(), CancellationToken.None)).ToList();
+
+        Assert.Equal(
+            ["English - OpenSubtitles", "English - OpenSubtitles (with Croatian)", "English - SubDL (foreign parts only)"],
+            results.Select(result => result.Name));
+        Assert.Equal([false, false, true], results.Select(result => result.Forced));
+    }
+
+    [Fact]
     public async Task MarksForeignPartsOnlySubtitlesForced()
     {
         server.Listing = """

@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import { baseURL } from "../base-url.ts";
-import { englishNameOf } from "../languages.ts";
+import { englishNameOf, nativeNameOf } from "../languages.ts";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import { searchAll } from "../sources/search-all.ts";
 import {
@@ -371,7 +371,7 @@ export const subtitlesRoute =
     const named = config.extras.sourceInLanguage
       ? subtitles.map((entry) => ({
           ...entry,
-          lang: `${englishNameOf(entry.lang)} - ${entry.label}`,
+          lang: `${nativeNameOf(entry.lang)} - ${entry.label}`,
         }))
       : subtitles;
 

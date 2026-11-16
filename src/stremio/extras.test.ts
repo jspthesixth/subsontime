@@ -627,9 +627,9 @@ describe("source in the language name", () => {
     );
 
     expect(subtitles.map(({ id, lang, label }) => [id, lang, label])).toEqual([
-      ["hrv-best", "Croatian - OpenSubtitles", "OpenSubtitles"],
-      ["hrv-dialogue", "Croatian - OpenSubtitles (dialogue only)", "OpenSubtitles (dialogue only)"],
-      ["hrv-best-2", "Croatian - Titlovi.com", "Titlovi.com"],
+      ["hrv-best", "Hrvatski - OpenSubtitles", "OpenSubtitles"],
+      ["hrv-dialogue", "Hrvatski - OpenSubtitles (dialogue only)", "OpenSubtitles (dialogue only)"],
+      ["hrv-best-2", "Hrvatski - Titlovi.com", "Titlovi.com"],
       ["eng-best", "English - OpenSubtitles", "OpenSubtitles"],
       ["eng-dialogue", "English - OpenSubtitles (dialogue only)", "OpenSubtitles (dialogue only)"],
     ]);
