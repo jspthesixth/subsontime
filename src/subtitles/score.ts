@@ -1,4 +1,4 @@
-import { parseAudioCodec, parseSeason } from "@ctrl/video-filename-parser";
+import { parseAudioCodec, parseSeason, type Season } from "@ctrl/video-filename-parser";
 import type { Candidate, VideoQuery } from "../sources/source.ts";
 import {
   inReleaseFamily,
@@ -69,8 +69,25 @@ export type ScoreContext = {
   ripGuess?: boolean;
 };
 
+const episodeTagPattern = /s\d+\s*e\d+|\d+x\d+/i;
+
+const isYearRead = (name: string, { seasons, episodeNumbers }: Season) => {
+  const [season] = seasons;
+
+  const [episode] = episodeNumbers;
+
+  return (
+    seasons.length === 1 &&
+    episodeNumbers.length === 1 &&
+    (season === 19 || season === 20) &&
+    new RegExp(`(?<!\\d)${season}${String(episode).padStart(2, "0")}(?!\\d)`).test(name) &&
+    !episodeTagPattern.test(name)
+  );
+};
+
 const sameEpisode = (name: string, { season, episode }: Video) => {
-  const parsed = parseSeason(name);
+  const read = parseSeason(name);
+  const parsed = read !== null && isYearRead(name, read) ? null : read;
 
   return {
     season: parsed === null || parsed.seasons.length === 0 || parsed.seasons.includes(season ?? -1),

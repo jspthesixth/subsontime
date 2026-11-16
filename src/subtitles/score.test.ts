@@ -23,6 +23,30 @@ const episode = (filename: string) => ({
 const film = (filename: string) => ({ type: "movie" as const, filename });
 
 describe("scoreOf", () => {
+  it("reads a year in a series name as a year, not a season and episode", () => {
+    expect(
+      scoreOf(named("Doctor.Who.2005.720p.WEB-DL"), {
+        video: {
+          type: "series",
+          season: 1,
+          episode: 1,
+          filename: "Doctor.Who.2005.S01E01.720p.WEB-DL.x264-GRP.mkv",
+        },
+      }),
+    ).toBe(923);
+  });
+
+  it.each([
+    ["Gilmore.Girls.517.HDTV", 5, 17],
+    ["Show.S20E05.HDTV", 20, 5],
+    ["Show.2005.S20E05.HDTV", 20, 5],
+  ])("still reads %s as season %i episode %i", (name, season, number) => {
+    const video = { type: "series" as const, filename: "Show.mkv" };
+
+    expect(scoreOf(named(name), { video: { ...video, season, episode: number } })).toBe(918);
+    expect(scoreOf(named(name), { video: { ...video, season: 1, episode: 1 } })).toBe(810);
+  });
+
   it("scores an episode hash match alone at the episode maximum", () => {
     expect(
       scoreOf(named("Other.Show.S09E09.HDTV-X", { hashMatch: true }), {
