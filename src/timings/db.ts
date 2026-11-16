@@ -161,23 +161,45 @@ type MismatchColumns = VideoColumns & {
 
 type ReportColumns = MismatchColumns & { reason: NewReport["reason"] };
 
+const slotColumns = [
+  "video_hash",
+  "video_size",
+  "subtitle_hashes",
+  "submitter",
+  "origin",
+  "created_at",
+];
+
 export const postgresStore = (url: string): TimingsStore => {
   const sql = postgres(url, { max: 1, prepare: false, idle_timeout: 20, connect_timeout: 5 });
 
+  const latestPerSlot = <Row extends postgres.Row>(
+    table: string,
+    columns: string[],
+    video: VideoKey,
+    limit: number,
+  ) =>
+    sql<Row[]>`
+      select ${sql([...slotColumns, ...columns])}
+      from (
+        select *, row_number() over (
+          partition by coalesce(origin, submitter) order by created_at desc, id desc
+        ) as slot_rank
+        from ${sql(table)}
+        where video_hash = ${video.hash} and video_size = ${video.size}
+      ) ranked
+      where slot_rank <= ${rowsPerSlot}
+      order by created_at desc, id desc
+      limit ${limit}`;
+
   return {
     fixesFor: async (video, limit = readLimit) => {
-      const rows = await sql<FixColumns[]>`
-        select video_hash, video_size, subtitle_hashes, cues, method, reference_key, submitter, origin, created_at
-        from (
-          select *, row_number() over (
-            partition by coalesce(origin, submitter) order by created_at desc, id desc
-          ) as slot_rank
-          from fixes
-          where video_hash = ${video.hash} and video_size = ${video.size}
-        ) ranked
-        where slot_rank <= ${rowsPerSlot}
-        order by created_at desc, id desc
-        limit ${limit}`;
+      const rows = await latestPerSlot<FixColumns>(
+        "fixes",
+        ["cues", "method", "reference_key"],
+        video,
+        limit,
+      );
 
       return rows.toReversed().map((row) => ({
         video: videoOf(row),
@@ -191,18 +213,7 @@ export const postgresStore = (url: string): TimingsStore => {
       }));
     },
     mismatchesFor: async (video, limit = readLimit) => {
-      const rows = await sql<MismatchColumns[]>`
-        select video_hash, video_size, subtitle_hashes, submitter, origin, created_at
-        from (
-          select *, row_number() over (
-            partition by coalesce(origin, submitter) order by created_at desc, id desc
-          ) as slot_rank
-          from mismatches
-          where video_hash = ${video.hash} and video_size = ${video.size}
-        ) ranked
-        where slot_rank <= ${rowsPerSlot}
-        order by created_at desc, id desc
-        limit ${limit}`;
+      const rows = await latestPerSlot<MismatchColumns>("mismatches", [], video, limit);
 
       return rows.toReversed().map((row) => ({
         video: videoOf(row),
@@ -213,18 +224,7 @@ export const postgresStore = (url: string): TimingsStore => {
       }));
     },
     reportsFor: async (video, limit = readLimit) => {
-      const rows = await sql<ReportColumns[]>`
-        select video_hash, video_size, subtitle_hashes, reason, submitter, origin, created_at
-        from (
-          select *, row_number() over (
-            partition by coalesce(origin, submitter) order by created_at desc, id desc
-          ) as slot_rank
-          from reports
-          where video_hash = ${video.hash} and video_size = ${video.size}
-        ) ranked
-        where slot_rank <= ${rowsPerSlot}
-        order by created_at desc, id desc
-        limit ${limit}`;
+      const rows = await latestPerSlot<ReportColumns>("reports", ["reason"], video, limit);
 
       return rows.toReversed().map((row) => ({
         video: videoOf(row),
