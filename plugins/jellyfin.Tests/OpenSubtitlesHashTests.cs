@@ -49,6 +49,36 @@ public class OpenSubtitlesHashTests
     }
 
     [Fact]
+    public async Task GivesUpOnASizeThatNeverArrives()
+    {
+        var fingerprint = await OpenSubtitlesHash.ComputeAsync(
+            () => new HungLengthStream(),
+            TimeSpan.FromMilliseconds(200),
+            CancellationToken.None);
+
+        Assert.Null(fingerprint);
+    }
+
+    [Fact]
+    public async Task ClosesAFileThatOpensAfterTheTimeout()
+    {
+        var late = new DisposalStream();
+
+        var fingerprint = await OpenSubtitlesHash.ComputeAsync(
+            () =>
+            {
+                Thread.Sleep(500);
+
+                return late;
+            },
+            TimeSpan.FromMilliseconds(100),
+            CancellationToken.None);
+
+        Assert.Null(fingerprint);
+        await late.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public async Task StopsWhenTheCallerCancels()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
@@ -91,6 +121,30 @@ public class OpenSubtitlesHashTests
         }
 
         public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+    }
+
+    private sealed class HungLengthStream : MemoryStream
+    {
+        public override long Length
+        {
+            get
+            {
+                Thread.Sleep(Timeout.Infinite);
+
+                return 0;
+            }
+        }
+    }
+
+    private sealed class DisposalStream : MemoryStream
+    {
+        public TaskCompletionSource Disposed { get; } = new();
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed.TrySetResult();
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class CountingStream(byte[] bytes) : MemoryStream(bytes)

@@ -11,28 +11,57 @@ public static class OpenSubtitlesHash
     public static async Task<VideoFingerprint?> ComputeAsync(Func<Stream> open, TimeSpan timeout, CancellationToken cancellationToken)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var opening = Task.Run(() => Opened(open), CancellationToken.None);
+        var owned = false;
 
         deadline.CancelAfter(timeout);
 
         try
         {
-            await using var stream = await Task.Run(open, CancellationToken.None).WaitAsync(deadline.Token);
-            var size = stream.Length;
-            var head = await ReadAsync(stream, 0, deadline.Token);
-            var tail = await ReadAsync(stream, Math.Max(0, size - ChunkBytes), deadline.Token);
-            var sum = unchecked(WordSum(head) + WordSum(tail) + (ulong)size);
+            var (stream, size) = await opening.WaitAsync(deadline.Token);
 
-            return new VideoFingerprint(sum.ToString("x16"), size);
+            owned = true;
+
+            await using (stream)
+            {
+                var head = await ReadAsync(stream, 0, size, deadline.Token);
+                var tail = await ReadAsync(stream, Math.Max(0, size - ChunkBytes), size, deadline.Token);
+                var sum = unchecked(WordSum(head) + WordSum(tail) + (ulong)size);
+
+                return new VideoFingerprint(sum.ToString("x16"), size);
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return null;
         }
+        finally
+        {
+            if (!owned)
+            {
+                _ = opening.ContinueWith(task => task.Result.Stream.Dispose(), TaskContinuationOptions.OnlyOnRanToCompletion);
+            }
+        }
     }
 
-    private static async Task<byte[]> ReadAsync(Stream stream, long start, CancellationToken cancellationToken)
+    private static (Stream Stream, long Size) Opened(Func<Stream> open)
     {
-        var chunk = new byte[Math.Min(ChunkBytes, stream.Length - start)];
+        var stream = open();
+
+        try
+        {
+            return (stream, stream.Length);
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+    }
+
+    private static async Task<byte[]> ReadAsync(Stream stream, long start, long size, CancellationToken cancellationToken)
+    {
+        var chunk = new byte[Math.Min(ChunkBytes, size - start)];
 
         stream.Seek(start, SeekOrigin.Begin);
         await stream.ReadExactlyAsync(chunk, cancellationToken).AsTask().WaitAsync(cancellationToken);

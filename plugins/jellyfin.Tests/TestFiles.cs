@@ -16,9 +16,8 @@ public static class TestFiles
             .ToArray();
     }
 
-    public static string Write(string name, int size)
+    public static string Write(DirectoryInfo directory, string name, int size)
     {
-        var directory = Directory.CreateTempSubdirectory("subsontime-");
         var path = Path.Combine(directory.FullName, name);
 
         File.WriteAllBytes(path, Generated(size));
