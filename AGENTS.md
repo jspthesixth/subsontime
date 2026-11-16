@@ -37,11 +37,10 @@ Tests that need `ffmpeg` skip when neither `SUBSONTIME_FFMPEG` nor the `PATH` ha
 
 ## Conventions
 
-`pnpm check` enforces formatting and lint (oxfmt, oxlint with `lint/plugin.ts`). Beyond that:
+`pnpm check` enforces formatting and lint (oxfmt, oxlint with `lint/plugin.ts`): blank lines after destructuring, around `if` blocks and before `return`, `===` only, no nested ternaries. Beyond that:
 
-- Blank line after every destructuring statement, around every `if` block and before every `return`; group related statements, one blank line between groups.
+- Group related statements, one blank line between groups.
 - No comments by default, in code, types and tests. No JSDoc. A rare one is a few words on one `//` line. No commented-out code.
-- `===` and `!==` only. No nested ternaries.
 - Build collections with `map`, `filter`, `flatMap`, `Object.fromEntries`, not loops.
 - No duplicated logic. KISS: no abstraction with one caller, no option nobody passes.
 - Descriptive names. camelCase constants, never SCREAMING_SNAKE_CASE. Acronyms stay uppercase: `publicURL`, `toURL`, `CLIDeps`.
