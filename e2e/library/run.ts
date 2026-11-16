@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { access, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { bazarrCommand } from "../../src/cli/bazarr-command.ts";
 import { fileFingerprint } from "../../src/cli/video-hash.ts";
 
 type Film = { imdbId: string; folder: string; url: string; mustSync?: boolean };
@@ -25,7 +26,7 @@ if (mediaDir === undefined || mediaDir === "") {
 const radarrURL = "http://127.0.0.1:57878/api/v3";
 const bazarrURL = "http://127.0.0.1:56767/api";
 const openTimingsInBazarr = "http://127.0.0.1:7000";
-const postProcessing = `subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}} --api ${openTimingsInBazarr}`;
+const postProcessing = `${bazarrCommand} --api ${openTimingsInBazarr}`;
 const openSubtitlesUser = process.env["OPENSUBTITLES_USERNAME"];
 const openSubtitlesPassword = process.env["OPENSUBTITLES_PASSWORD"];
 const hasOpenSubtitles = Boolean(openSubtitlesUser) && Boolean(openSubtitlesPassword);
