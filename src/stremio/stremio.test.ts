@@ -1309,6 +1309,24 @@ describe("timing anchor", () => {
     expect(startsOf(await servedAt(app, url))).toEqual(startsOf(shifted));
   });
 
+  it("downloads no reference under a trusted anchor", async () => {
+    const references = fakeSource("OpenSubtitles API", [
+      { ref: "hrv-hash", lang: "hrv", hashMatch: true, metered: true, cues: track },
+    ]);
+    const listed = fakeSource("OpenSubtitles", [
+      { ref: "hrv-shifted", lang: "hrv", cues: shifted },
+      { ref: "fre-hash", lang: "fre", hashMatch: true, cues: track },
+      { ref: "fre-again", lang: "fre", cues: transform(track, (time) => time + 40) },
+    ]);
+    const app = appWith({ listed: [listed], references: [references] });
+
+    const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    expect(ref.x.map(({ r }) => r)).toEqual(["hrv-hash"]);
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(track));
+    expect(references.download).not.toHaveBeenCalled();
+  });
+
   it("serves Gilmore Girls S05E17 in Croatian retimed to its DVD timing", async () => {
     const hrvBroadcast = gilmoreSpans("hrvBroadcast");
     const source = fakeSource("OpenSubtitles", [

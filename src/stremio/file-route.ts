@@ -172,7 +172,7 @@ export const servedCues = ({ track, result }: Attempt, config: Config): Cue[] | 
 };
 
 export async function* resolveAttempts(
-  ref: Pick<SubtitleRef, "c" | "x">,
+  ref: Pick<SubtitleRef, "c" | "x" | "a">,
   config: Config,
   download: Download,
   signal?: AbortSignal,
@@ -199,7 +199,7 @@ export async function* resolveAttempts(
     },
   };
 
-  if (!lazyReferences && ref.c[0]?.h !== 1) {
+  if (!lazyReferences && ref.c[0]?.h !== 1 && ref.a === undefined) {
     timing.references();
   }
 
