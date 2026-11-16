@@ -182,7 +182,7 @@ class SearchTest(unittest.TestCase):
         )
         self.assertEqual(
             [(path_of(each), each["score"], each["score_out_of"]) for each in candidates],
-            [("/sub/second.srt", 359, 360), ("/sub/third.srt?t=d", 358, 360), ("/sub/first.srt", 357, 360), ("/sub/moved.srt", 356, 360), ("/sub/forced.srt", 295, 360)],
+            [("/sub/second.srt", 359, 360), ("/sub/first.srt", 358, 360), ("/sub/moved.srt", 357, 360), ("/sub/third.srt?t=d", 356, 360), ("/sub/forced.srt", 295, 360)],
         )
         self.assertEqual(
             sorted(candidates[0]["matches"]),
@@ -197,16 +197,16 @@ class SearchTest(unittest.TestCase):
 
         self.assertEqual(self.server.requested, [f"/{sealed}/subtitles/movie/tt0000001/filename=Movie.2020.mkv.json"])
 
-    def test_scores_every_subtitle_as_a_full_match_made_for_this_file_first_and_forced_last(self):
+    def test_scores_every_subtitle_as_a_full_match_made_for_this_file_first_dialogue_after_full_and_forced_last(self):
         candidates = provider.SubsOnTimeProvider().search(self.movie(), [english], self.config)
 
         self.assertEqual(
             [(path_of(each), each["score"], each["score_without_hash"], each["score_out_of"]) for each in candidates],
             [
                 ("/sub/second.srt", 179, 179, 180),
-                ("/sub/third.srt?t=d", 178, 178, 180),
-                ("/sub/first.srt", 177, 177, 180),
-                ("/sub/moved.srt", 176, 176, 180),
+                ("/sub/first.srt", 178, 178, 180),
+                ("/sub/moved.srt", 177, 177, 180),
+                ("/sub/third.srt?t=d", 176, 176, 180),
                 ("/sub/forced.srt", 130, 130, 180),
             ],
         )
@@ -232,9 +232,9 @@ class SearchTest(unittest.TestCase):
             [each["provider_payload"] for each in candidates],
             [
                 {"provider": "subsontime", "path": "/sub/second.srt"},
-                {"provider": "subsontime", "path": "/sub/third.srt?t=d"},
                 {"provider": "subsontime", "path": "/sub/first.srt"},
                 {"provider": "subsontime", "path": "/sub/moved.srt"},
+                {"provider": "subsontime", "path": "/sub/third.srt?t=d"},
                 {"provider": "subsontime", "path": "/sub/forced.srt"},
             ],
         )
@@ -344,9 +344,6 @@ class DownloadTest(unittest.TestCase):
             provider.SubsOnTimeProvider().download({"provider": "subsontime", "path": "/sub/first.srt"}, english, {})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class SourceInLanguageTest(unittest.TestCase):
     def setUp(self):
@@ -364,7 +361,7 @@ class SourceInLanguageTest(unittest.TestCase):
     def tearDown(self):
         self.server.close()
 
-    def test_reads_the_language_from_the_entry_id(self):
+    def test_reads_the_language_from_the_entry_id_and_drops_dual_subtitles(self):
         movie = {"kind": "movie", "name": "/missing/Movie.2020.mkv", "imdb_id": "tt0000001", "hashes": {}, "size": None}
 
         candidates = provider.SubsOnTimeProvider().search(movie, [english, brazilian], self.config)
@@ -373,9 +370,12 @@ class SourceInLanguageTest(unittest.TestCase):
             [(path_of(each), each["language"]["alpha3"], each["language"]["forced"], each["score"]) for each in candidates],
             [
                 ("/sub/best.srt", "eng", False, 179),
-                ("/sub/dual.srt", "eng", False, 178),
-                ("/sub/second.srt", "eng", False, 177),
+                ("/sub/second.srt", "eng", False, 178),
                 ("/sub/forced.srt", "eng", True, 130),
                 ("/sub/pob.srt", "por", False, 179),
             ],
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

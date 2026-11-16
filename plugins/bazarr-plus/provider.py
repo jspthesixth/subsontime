@@ -153,8 +153,12 @@ def is_forced(entry):
     return entry["id"].endswith("-forced")
 
 
+def is_dialogue(entry):
+    return entry["id"].endswith("-dialogue")
+
+
 def ranked(placed):
-    ordered = sorted(placed, key=lambda pair: (lang_of(pair[0]), is_forced(pair[0]), made_for_this_file not in notes_of(pair[0]["label"])))
+    ordered = sorted(placed, key=lambda pair: (lang_of(pair[0]), is_forced(pair[0]), is_dialogue(pair[0]), made_for_this_file not in notes_of(pair[0]["label"])))
 
     return [
         (entry, path, position)
@@ -198,7 +202,7 @@ class SubsOnTimeProvider:
         placed = [
             (entry, path)
             for entry in listing.get("subtitles", [])
-            if is_complete(entry) and lang_of(entry) in wanted and (path := path_under(base_path, entry["url"])) is not None
+            if is_complete(entry) and not entry["id"].endswith("-dual") and lang_of(entry) in wanted and (path := path_under(base_path, entry["url"])) is not None
         ]
 
         return [candidate_of(entry, path, position, wanted[lang_of(entry)], video["kind"]) for entry, path, position in ranked(placed)]
