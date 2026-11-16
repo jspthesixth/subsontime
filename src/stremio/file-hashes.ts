@@ -44,7 +44,7 @@ export const withFileHash = (ref: SubtitleRef, { w, x, m, d }: FileHash): Subtit
           : { ...candidate, h: undefined },
       )
       .toSorted((a, b) => Number(b.h === 1) - Number(a.h === 1)),
-    x: m.length > 0 ? x : ref.x,
+    x,
     w,
     d,
     k: undefined,

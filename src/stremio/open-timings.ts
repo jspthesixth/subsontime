@@ -80,10 +80,17 @@ const timingsOf = (
   viewer: string | undefined,
 ) => withinBudget(lookUp(store, video, { groupingKey, viewer, summaries, withCues: true }));
 
-const confirmedOf = <View extends { status: string }>(timings: VideoTimings<View> | undefined) =>
+const confirmedOf = (timings: VideoTimings<FixWithCues> | undefined) =>
   (timings?.fixes ?? []).filter((view) => view.status === "confirmed");
 
-const storeHidden = async (state: SharedState, video: VideoKey, hidden: HiddenView[]) => {
+const storeHidden = async (
+  { store, groupingKey, summaries }: OpenTimings,
+  state: SharedState,
+  video: VideoKey,
+  viewer: string | undefined,
+) => {
+  const { hidden } = await lookUp(store, video, { groupingKey, viewer, summaries });
+
   const sketches = hidden.slice(0, maximumHidden).map((entry) => entry.subtitleSketch);
 
   if (sketches.length === 0) {
@@ -98,22 +105,12 @@ const storeHidden = async (state: SharedState, video: VideoKey, hidden: HiddenVi
   return key;
 };
 
-export const listingTimingsFor = async (
-  { store, groupingKey, summaries }: OpenTimings,
+export const hiddenKeyFor = (
+  openTimings: OpenTimings,
   state: SharedState,
   video: VideoKey,
   viewer: string | undefined,
-) =>
-  withinBudget(
-    (async () => {
-      const timings = await lookUp(store, video, { groupingKey, viewer, summaries });
-
-      return {
-        hiddenKey: await storeHidden(state, video, timings.hidden),
-        fixed: confirmedOf(timings).length > 0,
-      };
-    })(),
-  );
+) => withinBudget(storeHidden(openTimings, state, video, viewer));
 
 export const fileShared = async (
   openTimings: OpenTimings,

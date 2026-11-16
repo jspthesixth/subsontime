@@ -215,7 +215,7 @@ export const looksLikeRip = (filename: string) => {
   );
 };
 
-export type SourceKind = "disc" | "web" | "tv";
+type SourceKind = "disc" | "web" | "tv";
 
 const sourceKinds: Record<NonNullable<Release["source"]>, SourceKind> = {
   bluray: "disc",

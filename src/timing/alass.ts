@@ -1,6 +1,5 @@
 import { align, align_offset, score } from "../../wasm/alass_wasm.js";
 import type { Cue } from "../subtitles/cue.ts";
-import { inWorker } from "./alass-worker.ts";
 
 type AlignOptions = { speedRatio?: number; withinReference?: boolean };
 
@@ -43,52 +42,15 @@ export const alignCues = async (
   const referenceSpans = flatten(reference);
   const deltas = align(referenceSpans, flatten(subtitle), splitPenalty, speedRatio);
 
-  return scored(referenceSpans, shiftedCues(subtitle, deltas, speedRatio), options);
-};
-
-const shiftedCues = (subtitle: Cue[], deltas: BigInt64Array, speedRatio: number) =>
-  subtitle.map((cue, index) => {
-    const start = Math.round(cue.start + Number(deltas[index] ?? 0n));
-
-    return { ...cue, start, end: Math.round(start + (cue.end - cue.start) / speedRatio) };
-  });
-
-const scoredInWorker = async (reference: BigInt64Array, cues: Cue[]): Promise<Alignment> => ({
-  cues,
-  score: await inWorker<number>("score", reference, flatten(cues), false),
-});
-
-export const alignCuesInWorker = async (
-  reference: Cue[],
-  subtitle: Cue[],
-  speedRatio: number,
-): Promise<Alignment> => {
-  const referenceSpans = flatten(reference);
-  const deltas = await inWorker<BigInt64Array>(
-    "align",
+  return scored(
     referenceSpans,
-    flatten(subtitle),
-    splitPenalty,
-    speedRatio,
+    subtitle.map((cue, index) => {
+      const start = Math.round(cue.start + Number(deltas[index] ?? 0n));
+
+      return { ...cue, start, end: Math.round(start + (cue.end - cue.start) / speedRatio) };
+    }),
+    options,
   );
-
-  return scoredInWorker(referenceSpans, shiftedCues(subtitle, deltas, speedRatio));
-};
-
-export const alignOffsetInWorker = async (
-  reference: Cue[],
-  subtitle: Cue[],
-  speedRatio: number,
-) => {
-  const referenceSpans = flatten(reference);
-  const offsetMs = Number(
-    await inWorker<bigint>("align_offset", referenceSpans, flatten(subtitle), speedRatio),
-  );
-
-  return {
-    ...(await scoredInWorker(referenceSpans, offsetCues(subtitle, speedRatio, offsetMs))),
-    offsetMs,
-  };
 };
 
 export const offsetCues = (subtitle: Cue[], speedRatio: number, offsetMs: number) =>
