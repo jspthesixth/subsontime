@@ -8,7 +8,7 @@ import {
   audioAcceptContrast,
   audioMismatchContrast,
   decisionOf,
-  minimumWindowCues,
+  minimumCues,
   shortClipMs,
   windowCount,
   type AudioAlignment,
@@ -55,7 +55,8 @@ const aligned = (cues: Cue[], contrast: number, speedRatio = 1): AudioAlignment 
     contrast,
     windowMs: shortClipMs,
     offsetMs: 0,
-    windows: Array.from({ length: windowCount }, () => ({ cues: minimumWindowCues, offsetMs: 0 })),
+    cues: minimumCues,
+    windowOffsetsMs: Array.from({ length: windowCount }, () => 0),
   }),
 });
 

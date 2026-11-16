@@ -51,7 +51,7 @@ export const primitiveSchemas = {
     fits: v.array(FitSchema),
   }),
   shifts: v.object({ scores: v.array(v.number()) }),
-  windows: v.array(v.object({ cues: v.number(), offsetMs: v.nullable(v.number()) })),
+  windows: v.object({ cues: v.number(), windowOffsetsMs: v.array(v.nullable(v.number())) }),
   mislisting: v.object({ by: v.nullable(v.string()) }),
   timing: v.object({ diffsMs: v.array(v.number()) }),
 };
@@ -59,7 +59,7 @@ export const primitiveSchemas = {
 export const primitiveVersions = {
   rigid: 1,
   shifts: 1,
-  windows: 1,
+  windows: 2,
   mislisting: 1,
   timing: 1,
 } satisfies Record<keyof typeof primitiveSchemas, number>;

@@ -6,7 +6,7 @@ import nightOfTheLivingDead from "../../test/fixtures/audio/night-of-the-living-
 import type { Cue } from "../subtitles/cue.ts";
 import { alignCues, scoreOf, speedRatioFromFPS } from "../timing/alass.ts";
 import { cutsOf, deltasOf, median, splitWorthScore } from "../timing/retime.ts";
-import { resegment, syntheticTrack, transform } from "../timing/test-tracks.ts";
+import { resegment, seededRandom, syntheticTrack, transform } from "../timing/test-tracks.ts";
 import {
   alignToAudio,
   alignToSpeech,
@@ -17,8 +17,7 @@ import {
   decisionOf,
   plausibleSpeechShare,
   shortClipMs,
-  minimumWindowCues,
-  minimumWindows,
+  minimumCues,
   windowAgreementMs,
   windowCount,
 } from "./align-audio.ts";
@@ -294,62 +293,35 @@ describe("alignToSpeech", () => {
   );
 });
 
-const fitsAt = (offsetsMs: (number | null)[]) =>
-  offsetsMs.map((offsetMs) => ({ cues: minimumWindowCues, offsetMs }));
-
 const agreeing = {
   contrast: audioAcceptContrast,
   windowMs: shortClipMs,
+  cues: minimumCues,
   offsetMs: 1000,
-  windows: fitsAt(
-    Array.from({ length: windowCount }, (_, index) => 1000 + (index % 2) * windowAgreementMs),
+  windowOffsetsMs: Array.from(
+    { length: windowCount },
+    (_, index) => 1000 + (index % 2) * windowAgreementMs,
   ),
 };
 
-const withWindow = (index: number, fit: { cues: number; offsetMs: number | null }) => ({
+const withWindow = (index: number, offsetMs: number | null) => ({
   ...agreeing,
-  windows: agreeing.windows.map((window, at) => (at === index ? fit : window)),
+  windowOffsetsMs: agreeing.windowOffsetsMs.map((window, at) => (at === index ? offsetMs : window)),
 });
 
 describe("decisionOf", () => {
   it.each([
-    ["a full subtitle whose windows agree", agreeing, "accept"],
+    ["a subtitle whose windows agree", agreeing, "accept"],
     [
       "a contrast just under the bar",
       { ...agreeing, contrast: audioAcceptContrast - 0.01 },
       "not-clear",
     ],
     ["a subtitle under 300 s", { ...agreeing, windowMs: shortClipMs - 1 }, "not-clear"],
-    [
-      "one window 1 ms too far",
-      withWindow(9, { cues: minimumWindowCues, offsetMs: 1000 + windowAgreementMs + 1 }),
-      "not-clear",
-    ],
-    [
-      "one window 1 ms too far below",
-      withWindow(0, { cues: minimumWindowCues, offsetMs: 1000 - windowAgreementMs - 1 }),
-      "not-clear",
-    ],
-    [
-      "a far window with too few cues to count",
-      withWindow(9, { cues: minimumWindowCues - 1, offsetMs: 60_000 }),
-      "accept",
-    ],
-    [
-      "a counted window without speech nearby",
-      withWindow(4, { cues: minimumWindowCues, offsetMs: null }),
-      "not-clear",
-    ],
-    [
-      "fewer counted windows than the minimum",
-      {
-        ...agreeing,
-        windows: agreeing.windows.map((window, index) =>
-          index < windowCount - minimumWindows + 1 ? { ...window, cues: 0 } : window,
-        ),
-      },
-      "not-clear",
-    ],
+    ["a subtitle with one cue too few", { ...agreeing, cues: minimumCues - 1 }, "not-clear"],
+    ["one window 1 ms too late", withWindow(9, 1000 + windowAgreementMs + 1), "not-clear"],
+    ["one window 1 ms too early", withWindow(0, 1000 - windowAgreementMs - 1), "not-clear"],
+    ["a window without speech nearby", withWindow(4, null), "not-clear"],
     ["the mismatch bar", { ...agreeing, contrast: audioMismatchContrast }, "not-clear"],
     [
       "a contrast just under the mismatch bar",
@@ -359,6 +331,82 @@ describe("decisionOf", () => {
     ["no contrast", undefined, "not-clear"],
   ])("decides %s", (_, evidence, decision) => {
     expect(decisionOf(evidence)).toBe(decision);
+  });
+});
+
+const sparseTrack = (seed: number, count: number, fromMs: number, gapMs: [number, number]) => {
+  const random = seededRandom(seed);
+  const between = ([min, max]: [number, number]) => Math.round(min + random() * (max - min));
+
+  return Array.from({ length: count }).reduce<Cue[]>((cues, _, index) => {
+    const start = (cues.at(-1)?.end ?? fromMs) + between(gapMs);
+
+    return [...cues, { start, end: start + between([1000, 4000]), text: `Sparse ${index}` }];
+  }, []);
+};
+
+const after = (cues: Cue[], fromMs: number) => transform(cues, (time) => time + fromMs);
+
+const endOf = (cues: Cue[]) => cues.at(-1)?.end ?? 0;
+
+const denseThenSparse = (dense: number, sparse: number) => {
+  const head = syntheticTrack(5, dense);
+
+  return [...head, ...sparseTrack(7, sparse, endOf(head), [4000, 7000])];
+};
+
+const sparseThenDense = (sparse: number, dense: number) => {
+  const lead = sparseTrack(9, sparse, 0, [4000, 7000]);
+
+  return [...lead, ...after(syntheticTrack(5, dense), endOf(lead))];
+};
+
+const withDenseBurst = () => {
+  const before = syntheticTrack(11, 120);
+  const burst = sparseTrack(13, 70, endOf(before), [100, 300]).map((cue) => ({
+    ...cue,
+    end: cue.start + 300 + (cue.end - cue.start) / 10,
+  }));
+
+  return [...before, ...burst, ...after(syntheticTrack(17, 30), endOf(burst))];
+};
+
+const decisionFor = async (speech: Cue[], isMoved: (index: number) => boolean) => {
+  const subtitle = speech.map((cue, index) => {
+    const shift = isMoved(index) ? 3500 : 2000;
+
+    return { ...cue, start: cue.start + shift, end: cue.end + shift };
+  });
+  const result = await alignToSpeech({ spans: speech, audioMs: endOf(speech) + 2000 }, subtitle);
+
+  return result.kind === "aligned" ? result.decision : result.kind;
+};
+
+describe("alignToSpeech with a block of cues 1.5 s later", () => {
+  it.each([
+    [
+      "the last 16 of 140 cues, spread thin",
+      denseThenSparse(124, 16),
+      (index: number) => index >= 124,
+    ],
+    [
+      "the last 17 of 167 cues, spread thin",
+      denseThenSparse(150, 17),
+      (index: number) => index >= 150,
+    ],
+    [
+      "the first 16 of 140 cues, spread thin",
+      sparseThenDense(16, 124),
+      (index: number) => index < 16,
+    ],
+    [
+      "28 of 220 cues inside a dense stretch",
+      withDenseBurst(),
+      (index: number) => index >= 162 && index < 190,
+    ],
+  ])("does not accept %s", async (_, speech, isMoved) => {
+    expect(await decisionFor(speech, () => false)).toBe("accept");
+    expect(await decisionFor(speech, isMoved)).toBe("not-clear");
   });
 });
 

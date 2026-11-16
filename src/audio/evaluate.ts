@@ -205,7 +205,7 @@ export const evidenceOf = (features: RuleFeatures): AudioEvidence | undefined =>
         contrast,
         windowMs: window.end - window.start,
         offsetMs,
-        windows,
+        ...windows,
       };
 };
 
