@@ -229,8 +229,8 @@ describe("titloviSource search", () => {
     });
   });
 
-  it("stores the token until ten minutes before it expires", async () => {
-    vi.useFakeTimers({ now: new Date("2026-11-23T17:34:29.350Z"), toFake: ["Date"] });
+  it("reads the expiry as Zagreb time and stores the token until ten minutes before it", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-23T16:34:29.350Z"), toFake: ["Date"] });
 
     const set = vi.fn<TokenCache["set"]>(async () => {});
     const fetchMock = stubFetch(json(loginFixture), json(searchFixture));
