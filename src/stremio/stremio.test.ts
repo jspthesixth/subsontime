@@ -1329,6 +1329,92 @@ describe("timing anchor", () => {
     expect(startsOf(await servedAt(app, url))).toEqual(startsOf(santaSpans("hrvDisc")));
   }, 60_000);
 
+  it("speeds up a subtitle made for 25 fps when the untrusted anchor and most others run at 23.976", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "hrv-pal",
+        lang: "hrv",
+        releaseName: "Movie.2024.DVDRip.XviD-PAL",
+        fps: 25,
+        cues: transform(track, (time) => Math.round((time * 23.976) / 25)),
+      },
+      {
+        ref: "eng-release",
+        lang: "eng",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: transform(track, (time) => time + 300),
+      },
+      {
+        ref: "eng-web",
+        lang: "eng",
+        releaseName: "Movie.2024.720p.WEB-DL-ANY",
+        cues: transform(track, (time) => time - 300),
+      },
+      {
+        ref: "fre-web",
+        lang: "fre",
+        releaseName: "Movie.2024.720p.WEB-DL-ANY",
+        cues: transform(track, (time) => time + 900),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    const served = await servedAt(app, url);
+    const expected = transform(track, (time) => time + 300);
+
+    expect(ref.a?.[0]?.r).toBe("eng-release");
+    expect(ref.x).toEqual([]);
+    expect(
+      Math.max(
+        ...served.map(({ start }, index) => Math.abs(start - (expected[index]?.start ?? 0))),
+      ),
+    ).toBeLessThanOrEqual(2);
+  });
+
+  it("speeds up a subtitle made for 25 fps to the timing two others share at 23.976", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "hrv-pal",
+        lang: "hrv",
+        releaseName: "Movie.2024.DVDRip.XviD-PAL",
+        fps: 25,
+        cues: transform(track, (time) => Math.round((time * 23.976) / 25)),
+      },
+      {
+        ref: "eng-release",
+        lang: "eng",
+        releaseName: "Movie.2024.1080p.BluRay.x264-GROUP",
+        cues: transform(track, (time) => time + 300),
+      },
+      {
+        ref: "eng-web",
+        lang: "eng",
+        releaseName: "Movie.2024.720p.WEB-DL-ANY",
+        cues: transform(track, (time) => time - 100),
+      },
+      {
+        ref: "fre-web",
+        lang: "fre",
+        releaseName: "Movie.2024.720p.WEB-DL-ANY",
+        cues: transform(track, (time) => time - 100),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url } = await firstRefAt(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+
+    const served = await servedAt(app, url);
+    const expected = transform(track, (time) => time - 100);
+
+    expect(
+      Math.max(
+        ...served.map(({ start }, index) => Math.abs(start - (expected[index]?.start ?? 0))),
+      ),
+    ).toBeLessThanOrEqual(2);
+  });
+
   it("keeps today's entry when nothing names a timing anchor", async () => {
     const source = fakeSource("OpenSubtitles", [
       { ref: "hrv-shifted", lang: "hrv", cues: shifted },

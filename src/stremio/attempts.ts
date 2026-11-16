@@ -6,8 +6,8 @@ import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
-import { agreeingWith, retimeToAnchor } from "../timing/anchor.ts";
-import { retime, type RetimeResult, type Track } from "../timing/retime.ts";
+import { agreeingWith, atSpeedOfMost, retimeToAnchor } from "../timing/anchor.ts";
+import { retime, sameSpeed, type RetimeResult, type Track } from "../timing/retime.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { toFixCues } from "../timings/fingerprint.ts";
 import type { Anchor } from "./anchors.ts";
@@ -77,6 +77,16 @@ type Timing = {
   references: () => Promise<Track[]>;
   anchor: () => Promise<Anchor | undefined>;
   othersThan: (track: Track, start: number, end?: number) => Promise<Track[]>;
+  releaseAnchor: () => Promise<Track | undefined>;
+};
+
+const atReleaseAnchorSpeed = async (track: Track, { releaseAnchor, othersThan }: Timing) => {
+  const anchor = await releaseAnchor();
+  const anchored = anchor === undefined ? undefined : retimeToAnchor(track, anchor);
+
+  return anchored?.kind !== "retimed" || sameSpeed(anchored.speedRatio, 1)
+    ? undefined
+    : atSpeedOfMost(track, anchored, await othersThan(track, 0));
 };
 
 const agreeingFirst = 3;
@@ -98,7 +108,7 @@ const agreesWithFew = async (track: Track, othersThan: Timing["othersThan"]) => 
 
 const timeTrack = async (
   track: Track,
-  { references, anchor: anchorOf, othersThan }: Timing,
+  timing: Timing,
   config: Config,
   signal: AbortSignal | undefined,
   shared: Shared | undefined,
@@ -118,7 +128,7 @@ const timeTrack = async (
     return fixed;
   }
 
-  const anchor = anchorable ? await anchorOf() : undefined;
+  const anchor = anchorable ? await timing.anchor() : undefined;
 
   if (anchor?.sharing.has(candidateKey(track.candidate.sourceName, track.candidate.ref))) {
     return { kind: "not-retimed", cues: track.cues };
@@ -130,14 +140,25 @@ const timeTrack = async (
     return anchored;
   }
 
-  const ready = await references();
+  const ready = await timing.references();
 
   signal?.throwIfAborted();
 
   const retimed = await retime(track, ready);
-  const alone = retimed.kind === "not-retimed" && (await agreesWithFew(track, othersThan));
 
-  return alone ? { kind: "mismatch", alone } : retimed;
+  if (retimed.kind !== "not-retimed") {
+    return retimed;
+  }
+
+  const sped = await atReleaseAnchorSpeed(track, timing);
+
+  if (sped !== undefined) {
+    return sped;
+  }
+
+  return (await agreesWithFew(track, timing.othersThan))
+    ? { kind: "mismatch", alone: true }
+    : retimed;
 };
 
 export type Downloader = Download & { has: (candidate: CandidateRef) => boolean };
@@ -243,6 +264,11 @@ export async function* resolveAttempts(
           .slice(start, end)
           .map((candidate) => inTime(download(candidate))),
       ),
+    releaseAnchor: async () => {
+      const [first] = ref.a ?? [];
+
+      return first === undefined ? undefined : download(first).catch(() => undefined);
+    },
   };
 
   if (!lazyReferences && ref.c[0]?.h !== 1 && ref.a === undefined) {

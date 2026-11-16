@@ -105,7 +105,9 @@ const alignAt = async (subtitle: Track, reference: Track, speedRatio: number) =>
   ...(await bestAlignment(subtitle, reference, speedRatio)),
 });
 
-const nearOne = (speedRatio: number) => Math.abs(speedRatio - 1) < 0.002;
+export const sameSpeed = (a: number, b: number) => Math.abs(a - b) < 0.002;
+
+const nearOne = (speedRatio: number) => sameSpeed(speedRatio, 1);
 
 const alignTo = async (subtitle: Track, reference: Track): Promise<Aligned> => {
   const searched = await alignAt(subtitle, reference, speedRatioFor(subtitle, reference));

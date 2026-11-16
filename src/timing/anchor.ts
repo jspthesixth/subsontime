@@ -7,7 +7,9 @@ import {
   agreementMs,
   deltasOf,
   median,
+  mismatchMaximumScore,
   retimedMinimumScore,
+  sameSpeed,
   type RetimeResult,
   type Track,
 } from "./retime.ts";
@@ -148,3 +150,40 @@ export const sameVideoMinimumScore = 0.3;
 
 export const agreeingWith = (subtitle: Cue[], others: Track[]) =>
   others.filter(({ cues }) => rigidlyAligned(cues, subtitle).score >= sameVideoMinimumScore).length;
+
+const sharedTimingOf = (tracks: Track[]) =>
+  tracks.reduce<Promise<Track | undefined>>(
+    async (found, track) =>
+      (await found) ??
+      ((
+        await firstAgreeing(
+          track.cues,
+          tracks.filter((other) => other !== track).map(({ cues }) => Promise.resolve(cues)),
+        )
+      ).partner === undefined
+        ? undefined
+        : track),
+    Promise.resolve(undefined),
+  );
+
+export const atSpeedOfMost = async (
+  subtitle: Track,
+  anchored: Extract<RetimeResult, { kind: "retimed" }>,
+  others: Track[],
+) => {
+  const fitting = others
+    .map((track) => ({ track, aligned: rigidlyAligned(track.cues, subtitle.cues) }))
+    .filter(({ aligned }) => aligned.score >= mismatchMaximumScore);
+  const atSpeed = fitting
+    .filter(({ aligned }) => sameSpeed(aligned.speedRatio, anchored.speedRatio))
+    .map(({ track }) => track);
+  const atOwn = fitting.filter(({ aligned }) => sameSpeed(aligned.speedRatio, 1)).length;
+
+  if (atSpeed.length <= atOwn) {
+    return undefined;
+  }
+
+  const shared = await sharedTimingOf(atSpeed);
+
+  return (shared === undefined ? undefined : retimeToAnchor(subtitle, shared)) ?? anchored;
+};
