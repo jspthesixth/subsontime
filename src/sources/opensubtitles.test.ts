@@ -337,6 +337,18 @@ describe("openSubtitlesSource download", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(`${baseURL}/login`);
   });
 
+  it("downloads from the default address when the login names a host outside OpenSubtitles", async () => {
+    const fetchMock = stubFetch(
+      json({ ...loginFixture, base_url: "evil.example" }),
+      json(downloadFixture),
+      new Response(fileBytes),
+    );
+
+    await openSubtitlesSource(credentials, appKey, memoryTokenCache()).download("501", signal());
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://api.opensubtitles.com/api/v1/download");
+  });
+
   it("downloads without credentials and without authorization", async () => {
     const fetchMock = stubFetch(json(downloadFixture), new Response(fileBytes));
 

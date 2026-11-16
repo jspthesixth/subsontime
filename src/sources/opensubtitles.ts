@@ -34,6 +34,7 @@ export const restEntrySchema = v.object({
 
 const searchSchema = v.object({ data: v.array(v.unknown()) });
 const loginSchema = v.object({ token: v.string(), base_url: v.optional(v.string()) });
+const openSubtitlesHostPattern = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.opensubtitles\.com$/;
 const sessionSchema = v.object({ token: v.string(), baseURL: v.string() });
 const downloadSchema = v.object({ link: v.string() });
 const usedUpSchema = v.object({
@@ -188,10 +189,9 @@ export const openSubtitlesSource = (
 
     const session = {
       token: parsed.output.token,
-      baseURL:
-        parsed.output.base_url === undefined
-          ? defaultBaseURL
-          : `https://${parsed.output.base_url}/api/v1`,
+      baseURL: openSubtitlesHostPattern.test(parsed.output.base_url ?? "")
+        ? `https://${parsed.output.base_url}/api/v1`
+        : defaultBaseURL,
     };
 
     await tokens.set(key, JSON.stringify(session), tokenTtlSeconds);
