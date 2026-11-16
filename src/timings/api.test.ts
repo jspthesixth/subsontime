@@ -10,6 +10,7 @@ import { groupingKeyOf, submitterOf } from "./submitter.ts";
 const secret = "a-test-secret-that-is-long-enough-1234";
 const installSalt = "an-install-salt-that-is-long-enough-12";
 const video = { hash: "0123456789abcdef", size: 7_345_678_901 };
+const videoAt = (index: number) => ({ ...video, size: video.size + index });
 const videoParam = `${video.hash}:${video.size}`;
 const subtitleMessage =
   "Send subtitle as 1 to 5000 cues, each a 16-character hex hash with start and end times in order";
@@ -607,6 +608,28 @@ describe("in-process handlers", () => {
 
     expect(counted.fixesFor).toHaveBeenCalledTimes(4);
     vi.useRealTimers();
+  });
+
+  it("drop the least recently read video once a thousand are cached", async () => {
+    const store = memoryStore();
+    const counted = { ...store, fixesFor: vi.fn<TimingsStore["fixesFor"]>(store.fixesFor) };
+
+    for (const index of Array.from({ length: 1000 }, (_, each) => each)) {
+      await lookUp(counted, videoAt(index), { groupingKey });
+    }
+
+    await lookUp(counted, videoAt(0), { groupingKey });
+    await lookUp(counted, videoAt(1000), { groupingKey });
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(1001);
+
+    await lookUp(counted, videoAt(0), { groupingKey });
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(1001);
+
+    await lookUp(counted, videoAt(1), { groupingKey });
+
+    expect(counted.fixesFor).toHaveBeenCalledTimes(1002);
   });
 });
 

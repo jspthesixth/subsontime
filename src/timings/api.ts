@@ -1,3 +1,4 @@
+import { LRUCache } from "lru-cache";
 import * as v from "valibot";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SingleFlight } from "../jobs/single-flight.ts";
@@ -92,7 +93,7 @@ const maxCachedVideos = 1000;
 const maxCachedCues = 2_000_000;
 const sharedReadMs = 300;
 
-type CacheEntry = { at: number; digest: Digest; cues: number };
+type CacheEntry = { digest: Digest; cues: number };
 type StoredSection = Omit<Digest[number], "mismatchers"> & {
   mismatchers: string[];
   hiddenMismatch: number;
@@ -102,21 +103,6 @@ const cacheKey = (video: VideoKey) => `${video.hash}:${video.size}`;
 
 const cuesIn = (sections: Digest) =>
   sections.reduce((total, section) => total + (section.fixView?.view.cues.length ?? 0), 0);
-
-const dropExpired = (cache: Map<string, CacheEntry>, now: number) =>
-  [...cache].filter(([, entry]) => now - entry.at >= cacheMs).forEach(([key]) => cache.delete(key));
-
-const keepWithinBudget = (cache: Map<string, CacheEntry>) => {
-  let held = 0;
-
-  [...cache].toReversed().forEach(([key, entry], index) => {
-    held += entry.cues;
-
-    if (index >= maxCachedVideos || held > maxCachedCues) {
-      cache.delete(key);
-    }
-  });
-};
 
 const mergedReads = (summaries: Summaries): Summaries => {
   const reading = new Map<string, Promise<Digest>>();
@@ -152,17 +138,20 @@ const mergedReads = (summaries: Summaries): Summaries => {
 };
 
 const memorySummaries = (): Summaries => {
-  const cache = new Map<string, CacheEntry>();
+  const cache = new LRUCache<string, CacheEntry>({
+    max: maxCachedVideos,
+    maxSize: maxCachedCues,
+    sizeCalculation: (entry) => Math.max(1, entry.cues),
+    ttl: cacheMs,
+    ttlResolution: 0,
+    perf: Date,
+  });
   const loads = new Map<string, symbol>();
 
   return {
     async read(video, load) {
       const key = cacheKey(video);
-      const now = Date.now();
       const token = Symbol(key);
-
-      dropExpired(cache, now);
-
       const cached = cache.get(key);
 
       if (cached !== undefined) {
@@ -175,8 +164,7 @@ const memorySummaries = (): Summaries => {
         const sections = await load();
 
         if (loads.get(key) === token) {
-          cache.set(key, { at: now, digest: sections, cues: cuesIn(sections) });
-          keepWithinBudget(cache);
+          cache.set(key, { digest: sections, cues: cuesIn(sections) });
         }
 
         return sections;
