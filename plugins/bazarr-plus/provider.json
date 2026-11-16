@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "provider_id": "subsontime",
+  "name": "Subs On Time",
+  "version": "0.1.0",
+  "description": "Subtitles found for the exact video file and retimed to it by Subs On Time. Sends only the file's hash, size and name.",
+  "api_version": "bazarr.provider-hub.v1",
+  "entry_module": "provider",
+  "entry_class": "SubsOnTimeProvider",
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "install_link": {
+        "type": "string",
+        "title": "Install link",
+        "description": "The install link from the Subs On Time setup page.",
+        "minLength": 1,
+        "secret": true
+      }
+    },
+    "required": ["install_link"]
+  },
+  "secret_fields": ["install_link"],
+  "supported_media": ["movie", "episode"],
+  "languages": [
+    "hrv",
+    "srp",
+    "bos",
+    "slv",
+    "mkd",
+    "eng",
+    "deu",
+    "fra",
+    "spa",
+    "ita",
+    "por",
+    "pt-BR",
+    "nld",
+    "pol",
+    "ces",
+    "slk",
+    "hun",
+    "ron",
+    "bul",
+    "rus",
+    "ukr",
+    "ell",
+    "tur",
+    "ara",
+    "heb",
+    "fas",
+    "zho",
+    "zh-TW",
+    "jpn",
+    "kor",
+    "swe",
+    "nor",
+    "dan",
+    "fin"
+  ],
+  "files": {
+    "provider.py": "5f485793e5fe92182f20ce668dedc7ba6e037b68051165f7c56cb5579daad45b"
+  },
+  "bundle_sha256": "7634a516c033c2f1921aeee5869163bec3429474eadfe4d90ecd87f6dfa558bb",
+  "source": {
+    "type": "github",
+    "repo": "jspthesixth/subsontime",
+    "ref": "main",
+    "commit": "0000000000000000000000000000000000000000",
+    "path": "plugins/bazarr-plus"
+  }
+}
