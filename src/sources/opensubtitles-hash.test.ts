@@ -164,7 +164,7 @@ describe("openSubtitlesListing search", () => {
     ]);
   });
 
-  it("asks REST for page 1 by downloads, the hash on its own, and v3 without the file", async () => {
+  it("asks REST for page 1 by downloads, the hash on its own, and v3 for the file", async () => {
     const { calls } = stubAPIs();
 
     await sourceWith().search(peterPan, signal());
@@ -172,7 +172,7 @@ describe("openSubtitlesListing search", () => {
     expect(calls().toSorted()).toEqual([
       `${restSearchURL}?imdb_id=46183&languages=en,hr&moviehash=466d8f728dbe2142`,
       `${restSearchURL}?imdb_id=46183&languages=en,hr&order_by=download_count&order_direction=desc`,
-      "https://opensubtitles-v3.strem.io/subtitles/movie/tt0046183.json",
+      "https://opensubtitles-v3.strem.io/subtitles/movie/tt0046183/videoHash=466d8f728dbe2142&videoSize=1394609539.json",
     ]);
   });
 

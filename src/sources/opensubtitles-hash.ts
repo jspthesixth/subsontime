@@ -165,13 +165,11 @@ export const openSubtitlesListing = ({
   };
 
   const v3Listing = async (query: VideoQuery, signal: AbortSignal) => {
-    const { type, imdbId, season, episode } = query;
-
-    const video = { type, imdbId, season, episode, languages: [] };
+    const file = { ...query, languages: [] };
 
     return (
-      (await cached(cacheKeyOf("os:v3", JSON.stringify(video)), cachedAddonSchema, () =>
-        fetchAddonEntries(manifestURL, video, signal).catch(() => undefined),
+      (await cached(cacheKeyOf("os:v3", JSON.stringify(file)), cachedAddonSchema, () =>
+        fetchAddonEntries(manifestURL, file, signal).catch(() => undefined),
       )) ?? []
     );
   };
