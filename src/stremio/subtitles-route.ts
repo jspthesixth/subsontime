@@ -35,10 +35,16 @@ export const bestSlotSize = 4;
 const perLanguageLimit = 10;
 const displayNames = new Map([["OpenSubtitles API", "OpenSubtitles"]]);
 
+const displayNameOf = ({ sourceName }: Candidate) => displayNames.get(sourceName) ?? sourceName;
+
+const bySource = (candidates: Candidate[]) =>
+  [...Map.groupBy(candidates, displayNameOf).values()].map((group) => group.slice(0, bestSlotSize));
+
+const bestIdOf = (lang: string, index: number) =>
+  index === 0 ? `${lang}-best` : `${lang}-best-${index + 1}`;
+
 export const labelOf = (candidates: Candidate[], note?: string) => {
-  const sources = new Set(
-    candidates.map(({ sourceName }) => displayNames.get(sourceName) ?? sourceName),
-  );
+  const sources = new Set(candidates.map(displayNameOf));
   const notes = [
     candidates.every(({ hashMatch }) => hashMatch) ? ["made for this file"] : [],
     note === undefined ? [] : [note],
@@ -308,9 +314,16 @@ export const subtitlesRoute =
         return [];
       }
 
-      const best = found.passing(candidates).slice(0, bestSlotSize);
+      const groups = bySource(found.passing(candidates));
+      const [best = []] = groups;
+
       const entries = config.bestOnly
-        ? [{ id: `${lang}-best`, lang, label: labelOf(best), url: subURL(best) }]
+        ? groups.map((group, index) => ({
+            id: bestIdOf(lang, index),
+            lang,
+            label: labelOf(group),
+            url: subURL(group),
+          }))
         : candidates.slice(0, perLanguageLimit).map((candidate, index) => ({
             id: `${lang}-${index + 1}`,
             lang,
@@ -336,7 +349,7 @@ export const subtitlesRoute =
     };
     const foreignPartsEntriesOf = (lang: string) => {
       const flagged = config.extras.foreignParts ? found.foreignPartsOnly(lang) : [];
-      const best = found.passing(flagged).slice(0, bestSlotSize);
+      const [best = []] = bySource(found.passing(flagged));
 
       return best.length === 0
         ? []

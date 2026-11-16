@@ -245,21 +245,64 @@ describe("subtitle list", () => {
     ]);
   });
 
-  it.each([
-    [[{ ref: "a", hashMatch: true }], [{ ref: "b" }], "OpenSubtitles, SubDL"],
-    [[{ ref: "a", hashMatch: true }], [], "OpenSubtitles (made for this file)"],
-    [[{ ref: "a" }, { ref: "b" }], [], "OpenSubtitles"],
-  ])("labels a best entry with every source it can fall back to", async (open, subdl, label) => {
+  it("lists one best entry per source, each serving only that source", async () => {
     const { body } = await list(
       appWith({
-        listed: [fakeSource("OpenSubtitles", open), fakeSource("SubDL", subdl)],
+        listed: [
+          fakeSource("OpenSubtitles", [{ ref: "a", hashMatch: true }, { ref: "b" }]),
+          fakeSource("SubDL", [{ ref: "c" }]),
+        ],
         references: [],
       }),
       sealed(),
       "movie/tt0111161.json",
     );
 
-    expect(body.subtitles.map((entry) => entry.label)).toEqual([label]);
+    expect(
+      body.subtitles.map(({ id, label, url }) => [id, label, refOf(url).c.map(({ r }) => r)]),
+    ).toEqual([
+      ["eng-best", "OpenSubtitles", ["a", "b"]],
+      ["eng-best-2", "SubDL", ["c"]],
+    ]);
+  });
+
+  it("orders the best entries by each source's best candidate", async () => {
+    const { body } = await list(
+      appWith({
+        listed: [
+          fakeSource("OpenSubtitles", [{ ref: "a" }]),
+          fakeSource("SubDL", [{ ref: "b", hashMatch: true }]),
+          fakeSource("Titlovi.com", [{ ref: "c" }]),
+        ],
+        references: [],
+      }),
+      sealed(),
+      "movie/tt0111161.json",
+    );
+
+    expect(body.subtitles.map(({ id, label }) => [id, label])).toEqual([
+      ["eng-best", "SubDL (made for this file)"],
+      ["eng-best-2", "OpenSubtitles"],
+      ["eng-best-3", "Titlovi.com"],
+    ]);
+  });
+
+  it("lists the OpenSubtitles API and addon under one OpenSubtitles entry", async () => {
+    const { body } = await list(
+      appWith({
+        listed: [
+          fakeSource("OpenSubtitles API", [{ ref: "1", hashMatch: true }]),
+          fakeSource("OpenSubtitles", [{ ref: "a" }]),
+        ],
+        references: [],
+      }),
+      sealed(),
+      "movie/tt0111161.json",
+    );
+
+    expect(
+      body.subtitles.map(({ id, label, url }) => [id, label, refOf(url).c.map(({ r }) => r)]),
+    ).toEqual([["eng-best", "OpenSubtitles", ["1", "a"]]]);
   });
 
   it("lists at most ten candidates per language", async () => {

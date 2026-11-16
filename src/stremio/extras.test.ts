@@ -119,6 +119,54 @@ describe("dialogue only", () => {
     ]);
   });
 
+  it.each([
+    [true, ["eng-best", "OpenSubtitles", ["a", "b"]], ["eng-best-2", "SubDL", ["c"]]],
+    [false, ["eng-1", "OpenSubtitles", ["a"]], ["eng-2", "OpenSubtitles", ["b"]]],
+  ])(
+    "gives the extras the first source's candidates when best-only is %s",
+    async (bestOnly, first, second) => {
+      const { subtitles } = await listedFor(
+        {
+          listed: [
+            fakeSource("OpenSubtitles", [
+              { ref: "a" },
+              { ref: "b" },
+              { ref: "fa", foreignPartsOnly: true },
+              { ref: "ha", lang: "hrv" },
+            ]),
+            fakeSource("SubDL", [
+              { ref: "c" },
+              { ref: "fc", foreignPartsOnly: true },
+              { ref: "hc", lang: "hrv" },
+            ]),
+          ],
+          references: [],
+        },
+        {
+          bestOnly,
+          extras: { ...dialogueOnly, foreignParts: true, dualLanguage: "hrv" },
+        },
+      );
+
+      expect(
+        subtitles
+          .filter(({ id }) => id !== "eng-forced")
+          .map(({ id, label, url }) => [id, label, refOf(url).c.map(({ r }) => r)]),
+      ).toEqual([
+        first,
+        ["eng-dialogue", "OpenSubtitles (dialogue only)", ["a", "b"]],
+        ["eng+hrv-dual", "OpenSubtitles (with Croatian)", ["a", "b"]],
+        second,
+        ...(bestOnly ? [] : [["eng-3", "SubDL", ["c"]]]),
+      ]);
+      expect(
+        subtitles
+          .filter(({ id }) => id === "eng-forced")
+          .map(({ label, url }) => [label, refOf(url).c.map(({ r }) => r)]),
+      ).toEqual([["OpenSubtitles (foreign parts only)", ["fa"]]]);
+    },
+  );
+
   it("serves the best subtitle without its hearing-impaired tags", async () => {
     const { app, subtitles } = await listedFor(
       madeForFile(["[DOOR SLAMS]\nHello.", "(sighs)", "JOHN: Over here.", "♪ la la ♪"]),
