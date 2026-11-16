@@ -141,6 +141,31 @@ describe("POST /api/check", () => {
     ]);
   });
 
+  it("marks the subtitle the best entry plays when its source's first one is left out", async () => {
+    const web = "Movie.2024.1080p.WEB-DL";
+
+    const { result } = await checked(
+      {
+        listed: [
+          fakeSource("OpenSubtitles", [
+            { ref: "a", cues: unrelated, releaseName: web },
+            { ref: "c", cues: shifted, releaseName: "Movie.2024.720p.HDTV" },
+          ]),
+          fakeSource("Titlovi", [{ ref: "b", cues: shifted, releaseName: web }]),
+        ],
+        references: [hashReference()],
+      },
+      { ...movie, filename: `${web}.mkv` },
+    );
+
+    expect(
+      result.shown.map(({ source, release, playsFirst }) => [source, release, playsFirst]),
+    ).toEqual([
+      ["Titlovi", web, undefined],
+      ["OpenSubtitles", "Movie.2024.720p.HDTV", true],
+    ]);
+  });
+
   it("shows a served mismatch with its reason and marks nothing to play first", async () => {
     const installURL = `https://subs.example.com/${seal(
       {

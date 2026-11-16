@@ -137,6 +137,9 @@ export const searchVideo = async (
   };
 };
 
+export const bestGroupsOf = (found: Awaited<ReturnType<typeof searchVideo>>, lang: string) =>
+  bySource(found.passing(found.ranked(lang)));
+
 const readExtras = (context: Context<AppEnv>) => {
   const extra = context.req.param("extra");
   const raw = new URL(context.req.url).pathname.split("/").at(-1) ?? "";
@@ -320,7 +323,7 @@ export const subtitlesRoute =
         return [];
       }
 
-      const groups = bySource(found.passing(candidates));
+      const groups = bestGroupsOf(found, lang);
       const [best = []] = groups;
 
       const entries = config.bestOnly

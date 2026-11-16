@@ -28,7 +28,12 @@ import {
   type Shared,
 } from "../stremio/open-timings.ts";
 import { decodeRef, encodeRef } from "../stremio/refs.ts";
-import { bestSlotSize, searchVideo, toCandidateRef } from "../stremio/subtitles-route.ts";
+import {
+  bestGroupsOf,
+  bestSlotSize,
+  searchVideo,
+  toCandidateRef,
+} from "../stremio/subtitles-route.ts";
 import type { RetimeResult } from "../timing/retime.ts";
 import { reportReasons, submitReport, TimingsInputError } from "../timings/api.ts";
 import type { VideoKey } from "../timings/db.ts";
@@ -235,10 +240,13 @@ const runCheck = async (
   const timer = setTimeout(() => controller.abort(), budgetMs - searchedMs);
   const download = downloader(sources, controller.signal);
   const references = found.references.map(toCandidateRef);
+  const bestOf = new Map(
+    config.languages.map((lang) => [lang, bestGroupsOf(found, lang)[0] ?? []] as const),
+  );
   const entries = config.languages.flatMap((lang) =>
     found
       .ranked(lang)
-      .slice(0, bestSlotSize)
+      .filter((candidate, index) => index < bestSlotSize || bestOf.get(lang)?.includes(candidate))
       .map((candidate) => {
         const attempts: Attempt[] = [];
 
@@ -269,7 +277,9 @@ const runCheck = async (
   const playsFirst = new Set(
     config.bestOnly
       ? config.languages.flatMap((lang) =>
-          served.filter(({ candidate }) => candidate.lang === lang).slice(0, 1),
+          served
+            .filter(({ candidate }) => bestOf.get(lang)?.includes(candidate) === true)
+            .slice(0, 1),
         )
       : [],
   );
