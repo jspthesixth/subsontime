@@ -2,6 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { Source, VideoQuery } from "../sources/source.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { retimedSources, shifted, track } from "../stremio/test-app.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
@@ -75,6 +76,42 @@ describe("benchFile", () => {
       downloads: 4,
       truth: { method: "text", medianMs: 0 },
     });
+  });
+
+  it("leaves out the hash, then the filename, as the request mode asks", async () => {
+    const asked = await Promise.all(
+      (["hash", "filename", "bare"] as const).map(async (mode) => {
+        const queries: VideoQuery[] = [];
+        const { listed, references } = retimedSources();
+
+        const spy = (source: Source): Source => ({
+          ...source,
+          search: (query, signal) => {
+            queries.push(query);
+
+            return source.search(query, signal);
+          },
+        });
+
+        await benchFile({
+          file: { sha256: "f", kind: "film", imdbId: "tt0111161", path: "/x/Film.mkv", verified },
+          filename: "Film.mkv",
+          fingerprint: { hash: "0123456789abcdef", size: 1_234_567 },
+          languages: ["eng"],
+          sourcesFor: () => ({ listed: listed.map(spy), references: references.map(spy) }),
+          settled: true,
+          mode,
+        });
+
+        return queries.at(-1);
+      }),
+    );
+
+    expect(asked.map((query) => [query?.videoHash, query?.filename])).toEqual([
+      ["0123456789abcdef", "Film.mkv"],
+      [undefined, "Film.mkv"],
+      [undefined, undefined],
+    ]);
   });
 
   it("records nothing served when no source lists the language", async () => {

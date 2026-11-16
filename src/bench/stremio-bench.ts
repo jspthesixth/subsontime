@@ -34,6 +34,7 @@ export type Tier = "hash" | "exact-release" | "disc-web-default" | "other" | "no
 
 export type Run = {
   lang: string;
+  mode?: RequestMode;
   outcome: Outcome | "nothing";
   tier?: Tier;
   truth?: Truth;
@@ -51,6 +52,10 @@ export type Listed = Pick<
 >;
 
 export type Fingerprint = { hash: string; size: number };
+
+export const requestModes = ["hash", "filename", "bare"] as const;
+
+export type RequestMode = (typeof requestModes)[number];
 
 export type SourcesFor = (config: Config, tokens: TokenCache, state: SharedState) => SourceSet;
 
@@ -399,6 +404,7 @@ export const benchFile = async ({
   languages,
   sourcesFor,
   settled = false,
+  mode = "hash",
 }: {
   file: BenchFile;
   filename: string;
@@ -406,10 +412,16 @@ export const benchFile = async ({
   languages: string[];
   sourcesFor: SourcesFor;
   settled?: boolean;
+  mode?: RequestMode;
 }): Promise<Run[]> => {
   const type = file.kind === "film" ? "movie" : "series";
   const name = encodeURIComponent(filename);
   const key = refKey(benchSecret);
+  const warmExtra = mode === "bare" ? "" : `/filename=${name}`;
+  const extra =
+    mode === "hash"
+      ? `/videoHash=${fingerprint.hash}&videoSize=${fingerprint.size}&filename=${name}`
+      : warmExtra;
 
   const runLanguage = async (lang: string): Promise<Run> => {
     const state = memorySharedState();
@@ -430,15 +442,13 @@ export const benchFile = async ({
     const cpu = process.cpuUsage();
     const base = `/${seal(defaultConfig([lang]), benchSecret)}/subtitles/${type}/${file.imdbId}`;
 
-    await app.request(`${base}/filename=${name}.json`);
+    await app.request(`${base}${warmExtra}.json`);
 
     if (settled) {
       await Promise.all(deferred);
     }
 
-    const listing = await app.request(
-      `${base}/videoHash=${fingerprint.hash}&videoSize=${fingerprint.size}&filename=${name}.json`,
-    );
+    const listing = await app.request(`${base}${extra}.json`);
     const { subtitles } = (await listing.json()) as Listing;
 
     const entry = subtitles.find((subtitle) => subtitle.lang === lang);
@@ -467,7 +477,7 @@ export const benchFile = async ({
     };
 
     if (path === undefined || served.length === 0) {
-      return { lang, outcome: "nothing", ...measured };
+      return { lang, mode, outcome: "nothing", ...measured };
     }
 
     const ref = decodeRef((path.split("/").at(-1) ?? "").replace(/\.srt$/, ""), key);
@@ -478,6 +488,7 @@ export const benchFile = async ({
 
     return {
       lang,
+      mode,
       outcome: judged.outcome,
       tier,
       truth: judged,

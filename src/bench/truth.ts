@@ -25,6 +25,7 @@ export type Truth = {
   score?: number;
   medianMs?: number;
   p90Ms?: number;
+  onTimeShare?: number;
   shape?: Shape;
 };
 
@@ -121,13 +122,18 @@ const timed = (points: Point[]) => {
   const errors = points.map(({ diff }) => diff);
   const { medianMs, p90Ms } = timingErrorOf(errors, 0);
 
+  const onTimeShare =
+    errors.filter((error) => Math.abs(error) <= correctTiming.medianMs).length /
+    Math.max(errors.length, 1);
+
   return fits(errors)
-    ? { outcome: "correct" as const, matched: points.length, medianMs, p90Ms }
+    ? { outcome: "correct" as const, matched: points.length, medianMs, p90Ms, onTimeShare }
     : {
         outcome: "wrong-timing" as const,
         matched: points.length,
         medianMs,
         p90Ms,
+        onTimeShare,
         shape: shapeOf(points),
       };
 };

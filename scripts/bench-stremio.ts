@@ -12,21 +12,25 @@ import {
   filenameOf,
   languagesOf,
   loadDataset,
+  requestModes,
   summaryTable,
   validateTruth,
+  type BenchFile,
   type FileResult,
+  type Run,
   type Listed,
 } from "../src/bench/stremio-bench.ts";
 import { openSubtitlesAddonURL } from "../src/config/default-config.ts";
 import { stremioAddonSource } from "../src/sources/stremio-addon.ts";
 import type { Truth } from "../src/bench/truth.ts";
+import { loadTVDataset, tvTables, type TVFile, type TVResult } from "../src/bench/tv-bench.ts";
 import { timingErrorOf } from "../src/audio/evaluate.ts";
 import { fileFingerprint } from "../src/cli/video-hash.ts";
 import { openSubtitlesBudgetSchema, readGroup, sourcesSchema } from "../src/config/env.ts";
 import { sourcesFromConfig } from "../src/sources/from-config.ts";
 
 const usage =
-  "usage: node scripts/bench-stremio.ts <run|validate|oracle|anchors> <train|test> [bench json for oracle] [--root dir] [--only text] [--rest-downloads n] [--settled]";
+  "usage: node scripts/bench-stremio.ts <run|validate|oracle|anchors> <train|test|tv> [bench json for oracle] [--root dir] [--only text] [--rest-downloads n] [--settled]";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -51,10 +55,14 @@ const revision = () => {
   return `${git("rev-parse", "--short", "HEAD")}${dirty}`;
 };
 
-const dataset = await loadDataset(root, split, process.env);
-const files = dataset.files.filter((file) => only === undefined || file.path.includes(only));
+const tv = split === "tv";
+const tvDataset = tv ? await loadTVDataset(root) : undefined;
+const dataset = tvDataset ?? (await loadDataset(root, split, process.env));
+const files: (BenchFile | TVFile)[] = dataset.files.filter(
+  (file) => only === undefined || file.path.includes(only),
+);
 const out = join(root, "bench");
-const cache = join(root, "bench-cache");
+const cache = tv ? join(root, "tv", "bench-cache") : join(root, "bench-cache");
 
 await mkdir(out, { recursive: true });
 await mkdir(cache, { recursive: true });
@@ -86,7 +94,7 @@ const cachedFetch = () =>
     seeds: dataset.seeds,
     restDownloadsLeft: dailyLedger(
       join(cache, "rest-downloads.json"),
-      Number(values["rest-downloads"]),
+      tv ? 0 : Number(values["rest-downloads"]),
     ),
     upstream: globalThis.fetch,
   });
@@ -273,7 +281,9 @@ const oracle = async () => {
 const run = async () => {
   const { openSubtitlesAppKey } = readGroup(
     sourcesSchema,
-    parseEnv(await readFile(join(import.meta.dirname, "..", ".env.local"), "utf8")),
+    tv
+      ? process.env
+      : parseEnv(await readFile(join(import.meta.dirname, "..", ".env.local"), "utf8")),
   );
 
   const { openSubtitlesDailyDownloads } = readGroup(openSubtitlesBudgetSchema, process.env);
@@ -289,20 +299,28 @@ const run = async () => {
     const before = { ...cached.counts };
     const started = performance.now();
     const filename = filenameOf(file);
-    const runs = await benchFile({
-      file,
-      filename,
-      fingerprint: await fingerprintOf(file.path),
-      languages: languagesOf(file),
-      settled: values.settled,
-      sourcesFor: (config, tokens, state) =>
-        sourcesFromConfig(config, {
-          tokens,
-          state,
-          openSubtitlesAppKey,
-          openSubtitlesDailyDownloads,
-        }),
-    });
+    const fingerprint = "fingerprint" in file ? file.fingerprint : await fingerprintOf(file.path);
+    const runs = await (tv ? requestModes : (["hash"] as const)).reduce<Promise<Run[]>>(
+      async (done, mode) => [
+        ...(await done),
+        ...(await benchFile({
+          file,
+          filename,
+          fingerprint,
+          languages: tv ? [...new Set(file.verified.map(({ lang }) => lang))] : languagesOf(file),
+          settled: values.settled,
+          mode,
+          sourcesFor: (config, tokens, state) =>
+            sourcesFromConfig(config, {
+              tokens,
+              state,
+              openSubtitlesAppKey,
+              openSubtitlesDailyDownloads,
+            }),
+        })),
+      ],
+      Promise.resolve([]),
+    );
     const result: FileResult = {
       file: file.sha256,
       imdbId: file.imdbId,
@@ -318,8 +336,34 @@ const run = async () => {
 
     results.push(result);
     console.log(
-      `${filename}: ${runs.map((each) => `${each.lang} ${each.outcome}`).join(", ")} (${Math.round(result.wallMs / 1000)} s)`,
+      `${filename}: ${runs.map((each) => `${tv ? `${each.mode} ` : ""}${each.lang} ${each.outcome}`).join(", ")} (${Math.round(result.wallMs / 1000)} s)`,
     );
+  }
+
+  if (tv) {
+    const tvResults = results.flatMap((result): TVResult[] => {
+      const file = files.find(({ sha256 }) => sha256 === result.file);
+      const [, season = 0, episode = 0] = result.imdbId.split(":").map(Number);
+
+      return file === undefined || !("show" in file)
+        ? []
+        : [{ ...result, show: file.show, source: file.source, season, episode }];
+    });
+    const excluded = tvDataset?.excluded ?? [];
+    const table = tvTables(tvResults, excluded);
+
+    await writeFile(
+      join(out, `${sha}-tv.json`),
+      JSON.stringify(
+        { revision: sha, totals: cached.counts, excluded, results: tvResults },
+        null,
+        1,
+      ),
+    );
+    await writeFile(join(out, `${sha}-tv.md`), `${table}\n`);
+    console.log(table);
+
+    return;
   }
 
   const table = summaryTable(results);
