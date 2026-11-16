@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, posix, win32 } from "node:path";
+import * as v from "valibot";
 import { cliSchema, readGroup } from "../config/env.ts";
+import { uuidSchema } from "../timings/submitter.ts";
 
 const fileName = "install-id";
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export const configDirOf = (
   platform: string,
@@ -62,7 +63,7 @@ export const installIdIn = async (directory: string): Promise<string> => {
 
   const installId = (await readFile(path, "utf8")).trim();
 
-  if (uuidPattern.test(installId)) {
+  if (v.is(uuidSchema, installId)) {
     return installId;
   }
 

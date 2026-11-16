@@ -3,8 +3,9 @@ import * as v from "valibot";
 import { installSaltMessage, minimumKeyLength } from "../config/env.ts";
 import { TimingsInputError } from "./api.ts";
 
+export const uuidSchema = v.pipe(v.string(), v.uuid());
+
 const installIdMessage = "Send installId as a UUID";
-const uuidSchema = v.pipe(v.string(), v.uuid());
 
 export const submitterOf = (installId: string, salt: string): string => {
   if (salt.length < minimumKeyLength) {
