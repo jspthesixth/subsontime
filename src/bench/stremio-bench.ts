@@ -39,6 +39,7 @@ export type Run = {
   served?: string;
   downloads: number;
   wallMs: number;
+  cpuMs: number;
 };
 
 export type Fingerprint = { hash: string; size: number };
@@ -412,6 +413,7 @@ export const benchFile = async ({
 
   const runLanguage = async (lang: string): Promise<Run> => {
     const started = performance.now();
+    const cpu = process.cpuUsage();
     const before = downloads.length;
     const base = `/${seal(defaultConfig([lang]), benchSecret)}/subtitles/${type}/${file.imdbId}`;
 
@@ -427,7 +429,11 @@ export const benchFile = async ({
     const response = path === undefined ? undefined : await app.request(path);
     const srt = response?.status === 200 ? await response.text() : "";
     const served = cuesOf(srt);
-    const measured = { downloads: downloads.length - before, wallMs: performance.now() - started };
+    const measured = {
+      downloads: downloads.length - before,
+      wallMs: performance.now() - started,
+      cpuMs: process.cpuUsage(cpu).user / 1000,
+    };
 
     if (path === undefined || served.length === 0) {
       return { lang, outcome: "nothing", ...measured };
@@ -519,9 +525,10 @@ export const summaryTable = (results: FileResult[]) => {
     return inTier.length === 0 ? [] : [outcomeRow(`tier ${tier}`, inTier)];
   });
   const fileRows = results.map((result) => {
-    const downloads = result.runs.reduce((sum, run) => sum + run.downloads, 0);
+    const total = (measure: (run: Run) => number) =>
+      result.runs.reduce((sum, run) => sum + measure(run), 0);
 
-    return `${outcomeRow(result.filename, result.runs)} ${downloads} | ${Math.round(result.wallMs / 1000)} s | ${result.fetches.restDownloads} |`;
+    return `${outcomeRow(result.filename, result.runs)} ${total((run) => run.downloads)} | ${Math.round(total((run) => run.wallMs) / 1000)} s | ${Math.round(total((run) => run.cpuMs) / 1000)} s | ${result.fetches.restDownloads} |`;
   });
 
   return [
@@ -533,8 +540,8 @@ export const summaryTable = (results: FileResult[]) => {
     ),
     ...tierRows,
     "",
-    `${row(["file", "runs", ...outcomes])} downloads | wall | REST downloads |`,
-    row(Array.from({ length: outcomes.length + 5 }, () => "---")),
+    `${row(["file", "runs", ...outcomes])} downloads | pipeline wall | pipeline CPU | REST downloads |`,
+    row(Array.from({ length: outcomes.length + 6 }, () => "---")),
     ...fileRows,
   ].join("\n");
 };
