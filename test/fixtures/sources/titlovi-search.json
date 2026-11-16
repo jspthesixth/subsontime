@@ -1,35 +1,52 @@
 {
-  "_note": "Hand-made from the Kodi addon source, not a recorded response.",
+  "ResultsFound": 3,
+  "PagesAvailable": 1,
+  "CurrentPage": 1,
   "SubtitleResults": [
     {
-      "Id": 1001,
+      "Id": 304729,
+      "Title": "Night of the Living Dead",
+      "Year": 1968,
       "Type": 1,
-      "Title": "The Shawshank Redemption",
-      "Release": "The.Shawshank.Redemption.1994.1080p.BluRay.x264-GRP",
-      "Lang": "Hrvatski",
+      "Link": "https://titlovi.com/download/?type=1&mediaid=304729",
       "Season": -1,
       "Episode": -1,
-      "Rating": 5
-    },
-    {
-      "Id": 1002,
-      "Type": 1,
-      "Title": "Shawshank Redemption",
-      "Release": "",
+      "Special": -1,
       "Lang": "Srpski",
-      "Season": -1,
-      "Episode": -1,
-      "Rating": 4
+      "Date": "2020-03-09T04:01:15.98",
+      "DownloadCount": 900,
+      "Rating": 0,
+      "Release": "REMASTERED.1080p.BluRay.H264.AAC-RARBG, REMASTERED.1080p.BluRay.x264-AMIABLE"
     },
     {
-      "Id": 1003,
+      "Id": 286652,
+      "Title": "Night of the Living Dead",
+      "Year": 1968,
       "Type": 1,
-      "Title": "Shawshank",
-      "Release": "x",
-      "Lang": "Klingon",
+      "Link": "https://titlovi.com/download/?type=1&mediaid=286652",
       "Season": -1,
       "Episode": -1,
-      "Rating": 1
+      "Special": -1,
+      "Lang": "Hrvatski",
+      "Date": "2019-01-29T02:08:02.143",
+      "DownloadCount": 1054,
+      "Rating": 0,
+      "Release": "REMASTERED.1080p.BluRay.x264-AMIABLE"
+    },
+    {
+      "Id": 36001,
+      "Title": "Night Of The Living Dead",
+      "Year": 1968,
+      "Type": 1,
+      "Link": "https://titlovi.com/download/?type=1&mediaid=36001",
+      "Season": -1,
+      "Episode": -1,
+      "Special": -1,
+      "Lang": "Srpski",
+      "Date": "2007-09-18T17:21:27.68",
+      "DownloadCount": 2556,
+      "Rating": 0,
+      "Release": ""
     }
   ]
 }

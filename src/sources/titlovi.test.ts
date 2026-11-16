@@ -59,42 +59,64 @@ describe("titloviSource search", () => {
     expect(urlOf(fetchMock, 0)).toBe(loginURL);
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
     expect(urlOf(fetchMock, 1)).toBe(
-      `${base}/search?imdbID=tt0111161&json=true&lang=English|Hrvatski|Srpski&token=tok-1&userid=42`,
+      `${base}/search?imdbID=tt0111161&json=true&lang=English|Hrvatski|Srpski&token=00000000-0000-4000-8000-000000000001&userid=100042`,
     );
     expect(candidates).toEqual([
       {
         sourceName: "Titlovi.com",
-        ref: "1:1001",
-        lang: "hrv",
-        release: parseRelease("The.Shawshank.Redemption.1994.1080p.BluRay.x264-GRP"),
-        releaseName: "The.Shawshank.Redemption.1994.1080p.BluRay.x264-GRP",
+        ref: "1:304729",
+        lang: "srp",
+        release: parseRelease(
+          "REMASTERED.1080p.BluRay.H264.AAC-RARBG, REMASTERED.1080p.BluRay.x264-AMIABLE",
+        ),
+        releaseName: "REMASTERED.1080p.BluRay.H264.AAC-RARBG, REMASTERED.1080p.BluRay.x264-AMIABLE",
         hashMatch: false,
         fps: undefined,
       },
       {
         sourceName: "Titlovi.com",
-        ref: "1:1002",
+        ref: "1:286652",
+        lang: "hrv",
+        release: parseRelease("REMASTERED.1080p.BluRay.x264-AMIABLE"),
+        releaseName: "REMASTERED.1080p.BluRay.x264-AMIABLE",
+        hashMatch: false,
+        fps: undefined,
+      },
+      {
+        sourceName: "Titlovi.com",
+        ref: "1:36001",
         lang: "srp",
-        release: parseRelease("Shawshank Redemption"),
-        releaseName: "Shawshank Redemption",
+        release: parseRelease("Night Of The Living Dead"),
+        releaseName: "Night Of The Living Dead",
         hashMatch: false,
         fps: undefined,
       },
     ]);
   });
 
+  it("drops a row in a language it does not know", async () => {
+    stubFetch(
+      json(loginFixture),
+      json({ SubtitleResults: [{ Id: 1, Type: 1, Title: "T", Release: "x", Lang: "Klingon" }] }),
+    );
+
+    const candidates = await titloviSource(credentials, memoryTokenCache()).search(movie, signal());
+
+    expect(candidates).toEqual([]);
+  });
+
   it("sends season and episode for a series and drops other episodes", async () => {
     const fetchMock = stubFetch(json(loginFixture), json(seriesFixture));
 
     const candidates = await titloviSource(credentials, memoryTokenCache()).search(
-      episode,
+      { type: "series", imdbId: "tt0238784", season: 5, episode: 17, languages: ["hrv"] },
       signal(),
     );
 
     expect(urlOf(fetchMock, 1)).toBe(
-      `${base}/search?episode=2&imdbID=tt0903747&json=true&lang=Hrvatski&season=1&token=tok-1&userid=42`,
+      `${base}/search?episode=17&imdbID=tt0238784&json=true&lang=Hrvatski&season=5&token=00000000-0000-4000-8000-000000000001&userid=100042`,
     );
-    expect(candidates.map((candidate) => candidate.ref)).toEqual(["3:2001:S01E02"]);
+    expect(candidates.map((candidate) => candidate.ref)).toEqual(["2:116680:S05E17"]);
   });
 
   it.each([
@@ -157,7 +179,7 @@ describe("titloviSource search", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(urlOf(fetchMock, 2)).toBe(loginURL);
     expect(urlOf(fetchMock, 3)).toContain("token=tok-2");
-    expect(candidates).toHaveLength(2);
+    expect(candidates).toHaveLength(3);
   });
 
   it("gives up after a second 401", async () => {
@@ -198,15 +220,17 @@ describe("titloviSource search", () => {
     await source.search(movie, signal());
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(urlOf(fetchMock, 2)).toContain("token=tok-1&userid=42");
+    expect(urlOf(fetchMock, 2)).toContain(
+      "token=00000000-0000-4000-8000-000000000001&userid=100042",
+    );
     expect(JSON.parse((await tokens.get(cacheKey)) ?? "null")).toEqual({
-      token: "tok-1",
-      userId: 42,
+      token: "00000000-0000-4000-8000-000000000001",
+      userId: 100042,
     });
   });
 
   it("stores the token until ten minutes before it expires", async () => {
-    vi.useFakeTimers({ now: new Date("2026-12-01T09:30:00Z"), toFake: ["Date"] });
+    vi.useFakeTimers({ now: new Date("2026-11-23T17:34:29.350Z"), toFake: ["Date"] });
 
     const set = vi.fn<TokenCache["set"]>(async () => {});
     const fetchMock = stubFetch(json(loginFixture), json(searchFixture));

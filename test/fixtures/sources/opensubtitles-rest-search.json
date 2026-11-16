@@ -1,61 +1,232 @@
 {
-  "_note": "Hand-made from the documented API shape; replace with a recorded response from scripts/probes/opensubtitles-rest.ts",
   "total_pages": 1,
-  "total_count": 4,
+  "total_count": 26,
+  "per_page": 50,
   "page": 1,
   "data": [
     {
-      "id": "7001",
+      "id": "4345730",
       "type": "subtitle",
       "attributes": {
-        "language": "hr",
-        "release": "The.Shawshank.Redemption.1994.1080p.BluRay.x264-GRP",
+        "subtitle_id": "4345730",
+        "language": "en",
+        "download_count": 25575,
+        "new_download_count": 5912,
+        "hearing_impaired": false,
+        "hd": true,
         "fps": 23.976,
-        "moviehash_match": true,
-        "hearing_impaired": false,
+        "votes": 4,
+        "ratings": 10,
+        "from_trusted": true,
         "foreign_parts_only": false,
-        "files": [{ "file_id": 501, "file_name": "shawshank.hr.srt" }]
-      }
-    },
-    {
-      "id": "7002",
-      "type": "subtitle",
-      "attributes": {
-        "language": "pt-BR",
-        "release": "Shawshank.Redemption.720p.WEB-DL",
-        "fps": 0,
-        "moviehash_match": false,
-        "hearing_impaired": false,
-        "foreign_parts_only": false,
+        "upload_date": "2018-02-14T13:40:42Z",
+        "ai_translated": false,
+        "nb_cd": 1,
+        "slug": "7257437-night-of-the-living-dead-1968-remastered-720p-bluray-x264-amiable",
+        "machine_translated": false,
+        "release": "Night.of.the.Living.Dead.1968.REMASTERED.720p.BluRay.X264-AMIABLE",
+        "comments": "",
+        "legacy_subtitle_id": 7257437,
+        "legacy_uploader_id": 100001,
+        "uploader": {
+          "uploader_id": 200001,
+          "name": "fixture-uploader",
+          "rank": "Trusted member"
+        },
+        "feature_details": {
+          "feature_id": 646153,
+          "feature_type": "Movie",
+          "year": 1968,
+          "title": "Night of the Living Dead",
+          "movie_name": "1968 - Night of the Living Dead",
+          "imdb_id": 63350,
+          "tmdb_id": 10331
+        },
+        "url": "https://www.opensubtitles.com/en/subtitles/7257437-night-of-the-living-dead-1968-remastered-720p-bluray-x264-amiable",
+        "related_links": [
+          {
+            "label": "All subtitles for night of the living dead",
+            "url": "https://www.opensubtitles.com/en/movies/7257437-night-of-the-living-dead-1968-remastered-720p-bluray-x264-amiable",
+            "img_url": "https://s9.opensubtitles.com/features/3/5/1/646153.jpg"
+          }
+        ],
         "files": [
-          { "file_id": 502, "file_name": "shawshank.pob.srt" },
-          { "file_id": 503, "file_name": "shawshank.pob.cd2.srt" }
+          {
+            "file_id": 4440067,
+            "cd_number": 1,
+            "file_name": "Night.of.the.Living.Dead.1968.REMASTERED.720p.BluRay.X264-AMIABLE"
+          }
         ]
       }
     },
     {
-      "id": "7003",
+      "id": "11019844",
       "type": "subtitle",
       "attributes": {
-        "language": "en",
-        "release": "Shawshank.Redemption.DVDRip",
-        "fps": 25,
-        "hearing_impaired": true,
+        "subtitle_id": "11019844",
+        "language": "hr",
+        "download_count": 16,
+        "new_download_count": 9,
+        "hearing_impaired": false,
+        "hd": false,
+        "fps": 23.976,
+        "votes": 0,
+        "ratings": 0,
+        "from_trusted": false,
         "foreign_parts_only": false,
-        "files": []
+        "upload_date": "2026-01-26T23:52:47Z",
+        "ai_translated": false,
+        "nb_cd": 1,
+        "slug": "night-of-the-living-dead-1968-horror-thriller-7-8",
+        "machine_translated": false,
+        "release": "Night Of The Living Dead {1968} - Horror, Thriller 7,8",
+        "comments": "",
+        "legacy_subtitle_id": 13531331,
+        "legacy_uploader_id": 100001,
+        "uploader": {
+          "uploader_id": 200001,
+          "name": "fixture-uploader",
+          "rank": "anonymous"
+        },
+        "feature_details": {
+          "feature_id": 646153,
+          "feature_type": "Movie",
+          "year": 1968,
+          "title": "Night of the Living Dead",
+          "movie_name": "1968 - Night of the Living Dead",
+          "imdb_id": 63350,
+          "tmdb_id": 10331
+        },
+        "url": "https://www.opensubtitles.com/hr/subtitles/night-of-the-living-dead-1968-horror-thriller-7-8",
+        "related_links": [
+          {
+            "label": "All subtitles for night of the living dead",
+            "url": "https://www.opensubtitles.com/hr/movies/night-of-the-living-dead-1968-horror-thriller-7-8",
+            "img_url": "https://s3.opensubtitles.com/features/3/5/1/646153.jpg"
+          }
+        ],
+        "files": [
+          {
+            "file_id": 11916325,
+            "cd_number": 1,
+            "file_name": "Night Of The Living Dead {1968} - Horror_ Thriller 7_8"
+          }
+        ]
       }
     },
     {
-      "id": "7004",
+      "id": "4345164",
       "type": "subtitle",
       "attributes": {
-        "language": "xx",
-        "release": "Unknown.language",
-        "fps": 25,
-        "moviehash_match": false,
+        "subtitle_id": "4345164",
+        "language": "hr",
+        "download_count": 202,
+        "new_download_count": 11,
         "hearing_impaired": false,
+        "hd": false,
+        "fps": 0,
+        "votes": 0,
+        "ratings": 0,
+        "from_trusted": false,
         "foreign_parts_only": false,
-        "files": [{ "file_id": 504, "file_name": "x.srt" }]
+        "upload_date": "2013-12-07T19:53:29Z",
+        "ai_translated": false,
+        "nb_cd": 2,
+        "slug": "dvdrip-divx5-ac3-wrist",
+        "machine_translated": false,
+        "release": "DVDRIP DIVX5 AC3-WRIST",
+        "comments": "Night of the Living Dead (1968)",
+        "legacy_subtitle_id": 5400080,
+        "legacy_uploader_id": 100001,
+        "uploader": {
+          "uploader_id": 200001,
+          "name": "fixture-uploader",
+          "rank": "Bot Uploads"
+        },
+        "feature_details": {
+          "feature_id": 646153,
+          "feature_type": "Movie",
+          "year": 1968,
+          "title": "Night of the Living Dead",
+          "movie_name": "1968 - Night of the Living Dead",
+          "imdb_id": 63350,
+          "tmdb_id": 10331
+        },
+        "url": "https://www.opensubtitles.com/hr/subtitles/dvdrip-divx5-ac3-wrist",
+        "related_links": [
+          {
+            "label": "All subtitles for night of the living dead",
+            "url": "https://www.opensubtitles.com/hr/movies/dvdrip-divx5-ac3-wrist",
+            "img_url": "https://s1.opensubtitles.com/features/3/5/1/646153.jpg"
+          }
+        ],
+        "files": [
+          {
+            "file_id": 4439353,
+            "cd_number": 1,
+            "file_name": "Night.Of.The.Living.Dead.1968.DVDrip.DivX5.AC3-Wrist.CD2"
+          },
+          {
+            "file_id": 4439359,
+            "cd_number": 2,
+            "file_name": "Night.Of.The.Living.Dead.1968.DVDrip.DivX5.AC3-Wrist.CD1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "4345199",
+      "type": "subtitle",
+      "attributes": {
+        "subtitle_id": "4345199",
+        "language": "sr",
+        "download_count": 251,
+        "new_download_count": 20,
+        "hearing_impaired": false,
+        "hd": true,
+        "fps": 23.976,
+        "votes": 0,
+        "ratings": 0,
+        "from_trusted": false,
+        "foreign_parts_only": false,
+        "upload_date": "2013-12-07T19:53:38Z",
+        "ai_translated": false,
+        "nb_cd": 1,
+        "slug": "bw-fs-brrip-ac3-xvid-shirk",
+        "machine_translated": false,
+        "release": "BW.FS.BRRip.AC3.XviD-SHiRK",
+        "comments": "Night of the Living Dead (1968)",
+        "legacy_subtitle_id": 5400083,
+        "legacy_uploader_id": 100001,
+        "uploader": {
+          "uploader_id": 200001,
+          "name": "fixture-uploader",
+          "rank": ""
+        },
+        "feature_details": {
+          "feature_id": 646153,
+          "feature_type": "Movie",
+          "year": 1968,
+          "title": "Night of the Living Dead",
+          "movie_name": "1968 - Night of the Living Dead",
+          "imdb_id": 63350,
+          "tmdb_id": 10331
+        },
+        "url": "https://www.opensubtitles.com/sr/subtitles/bw-fs-brrip-ac3-xvid-shirk",
+        "related_links": [
+          {
+            "label": "All subtitles for night of the living dead",
+            "url": "https://www.opensubtitles.com/sr/movies/bw-fs-brrip-ac3-xvid-shirk",
+            "img_url": "https://s6.opensubtitles.com/features/3/5/1/646153.jpg"
+          }
+        ],
+        "files": [
+          {
+            "file_id": 4439397,
+            "cd_number": 1,
+            "file_name": "Night.Of.The.Living.Dead.1968.BW.FS.BRRip.AC3.XviD-SHiRK"
+          }
+        ]
       }
     }
   ]

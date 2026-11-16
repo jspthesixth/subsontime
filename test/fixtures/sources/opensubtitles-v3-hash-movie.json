@@ -43,5 +43,8 @@
       "season": 0,
       "episode": 0
     }
-  ]
+  ],
+  "cacheMaxAge": 172800,
+  "staleRevalidate": 518400,
+  "staleError": 1036800
 }

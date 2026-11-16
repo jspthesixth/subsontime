@@ -64,17 +64,24 @@ describe("stremioAddonSource", () => {
 
     const candidates = await openSubtitlesV3.search(movie, AbortSignal.timeout(1000));
 
-    expect(candidates).toHaveLength(8);
     expect(candidates[0]).toEqual({
       sourceName: "OpenSubtitles",
-      ref: "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/36919",
+      ref: "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/1952699953",
       lang: "eng",
-      release: parseRelease("sawshank_redemption_engl.srt"),
-      releaseName: "sawshank_redemption_engl.srt",
+      release: parseRelease("night.of.the.living.dead.1968.720p.bluray.x264-hv.srt"),
+      releaseName: "night.of.the.living.dead.1968.720p.bluray.x264-hv.srt",
       hashMatch: false,
-      fps: 23.98,
+      fps: 23.976,
     });
-    expect(candidates.map((candidate) => candidate.lang)).toContain("hrv");
+    expect(candidates.map(({ lang, fps }) => [lang, fps])).toEqual([
+      ["eng", 23.976],
+      ["eng", 23.976],
+      ["srp", 23.976],
+      ["pob", 29.97],
+      ["cze", undefined],
+      ["fre", undefined],
+      ["slo", 29.97],
+    ]);
   });
 
   it("marks hash matches", async () => {

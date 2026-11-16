@@ -1,7 +1,6 @@
 {
-  "_note": "Hand-made from the Kodi addon source, not a recorded response.",
-  "ExpirationDate": "2026-12-01T10:00:00.000",
-  "Token": "tok-1",
-  "UserId": 42,
-  "UserName": "alice"
+  "ExpirationDate": "2026-11-23T18:04:29.35",
+  "Token": "00000000-0000-4000-8000-000000000001",
+  "UserId": 100042,
+  "UserName": "fixtureuser"
 }

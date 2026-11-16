@@ -71,23 +71,60 @@ describe("openSubtitlesSource search", () => {
     expect(candidates).toEqual([
       {
         sourceName: "OpenSubtitles",
-        ref: "501",
-        lang: "hrv",
-        release: parseRelease("The.Shawshank.Redemption.1994.1080p.BluRay.x264-GRP"),
-        releaseName: "The.Shawshank.Redemption.1994.1080p.BluRay.x264-GRP",
-        hashMatch: true,
+        ref: "4440067",
+        lang: "eng",
+        release: parseRelease("Night.of.the.Living.Dead.1968.REMASTERED.720p.BluRay.X264-AMIABLE"),
+        releaseName: "Night.of.the.Living.Dead.1968.REMASTERED.720p.BluRay.X264-AMIABLE",
+        hashMatch: false,
         fps: 23.976,
       },
       {
         sourceName: "OpenSubtitles",
-        ref: "502",
-        lang: "pob",
-        release: parseRelease("Shawshank.Redemption.720p.WEB-DL"),
-        releaseName: "Shawshank.Redemption.720p.WEB-DL",
+        ref: "11916325",
+        lang: "hrv",
+        release: parseRelease("Night Of The Living Dead {1968} - Horror, Thriller 7,8"),
+        releaseName: "Night Of The Living Dead {1968} - Horror, Thriller 7,8",
+        hashMatch: false,
+        fps: 23.976,
+      },
+      {
+        sourceName: "OpenSubtitles",
+        ref: "4439353",
+        lang: "hrv",
+        release: parseRelease("DVDRIP DIVX5 AC3-WRIST"),
+        releaseName: "DVDRIP DIVX5 AC3-WRIST",
         hashMatch: false,
         fps: undefined,
       },
+      {
+        sourceName: "OpenSubtitles",
+        ref: "4439397",
+        lang: "srp",
+        release: parseRelease("BW.FS.BRRip.AC3.XviD-SHiRK"),
+        releaseName: "BW.FS.BRRip.AC3.XviD-SHiRK",
+        hashMatch: false,
+        fps: 23.976,
+      },
     ]);
+  });
+
+  it("maps a regional language and drops entries without a file or a known language", async () => {
+    stubFetch(
+      json({
+        data: [
+          { attributes: { language: "pt-BR", files: [{ file_id: 502 }, { file_id: 503 }] } },
+          { attributes: { language: "en", files: [] } },
+          { attributes: { language: "xx", files: [{ file_id: 504 }] } },
+        ],
+      }),
+    );
+
+    const candidates = await openSubtitlesSource(undefined, appKey, memoryTokenCache()).search(
+      movie,
+      signal(),
+    );
+
+    expect(candidates.map(({ ref, lang }) => [ref, lang])).toEqual([["502", "pob"]]);
   });
 
   it("marks the subtitles flagged as foreign parts only", async () => {

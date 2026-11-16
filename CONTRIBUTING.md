@@ -42,6 +42,8 @@ SubDL is a good example to follow.
 - `src/config/env.ts` and `src/cli/main.ts` - its credential for the command line, also listed in `.env.example` and the README.
 - `scripts/probes/<name>.ts` - a script that runs the source against the live API.
 
+`node --experimental-strip-types scripts/live-probes/sources.ts [--record <dir>] [--download]` sends the requests OpenSubtitles (REST and v3) and Titlovi.com make to the live APIs and prints only statuses, row counts and field names. It reads `OPENSUBTITLES_APP_KEY`, `TITLOVI_USERNAME` and `TITLOVI_PASSWORD` from the environment. `--record` saves the raw responses, tokens included, to a directory outside the repository to scrub into `test/fixtures/sources/`. `--download` spends one OpenSubtitles download.
+
 ## Plugins
 
 `plugins/jellyfin/` is the Jellyfin plugin and `plugins/jellyfin.Tests/` its tests. They need the .NET 10 SDK; the same container image the release uses works without installing it:

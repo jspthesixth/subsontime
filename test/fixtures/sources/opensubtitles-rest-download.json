@@ -1,8 +1,12 @@
 {
-  "_note": "Hand-made from the documented API shape; replace with a recorded response from scripts/probes/opensubtitles-rest.ts",
-  "link": "https://dl.opensubtitles.com/fixture/shawshank.hr.srt",
-  "file_name": "shawshank.hr.srt",
-  "requests": 1,
-  "remaining": 19,
-  "message": "Your quota will be renewed in 23 hours"
+  "link": "https://www.opensubtitles.com/download/0FIXTURE0SIGNED0DOWNLOAD0TOKEN0/subfile/Night%20of%20the%20Living%20Dead%20(1968)%20%7Bimdb-tt0063350%7D%20%7Bedition-Remastered%7D%20%5BBluray-1080p%5D%5BFLAC.srt",
+  "file_name": "Night of the Living Dead (1968) {imdb-tt0063350} {edition-Remastered} [Bluray-1080p][FLAC.srt",
+  "requests": 7,
+  "remaining": 93,
+  "message": "Your quota will be renewed in 06 hours and 55 minutes (2026-11-16 23:59:59 UTC) ts=1794848668 ",
+  "reset_time": "06 hours and 55 minutes",
+  "reset_time_utc": "2026-11-16T23:59:59.000Z",
+  "uk": "app_xx_000000",
+  "uid": 1,
+  "ts": 1794848668
 }

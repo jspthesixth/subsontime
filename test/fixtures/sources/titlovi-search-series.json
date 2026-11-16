@@ -1,25 +1,52 @@
 {
-  "_note": "Hand-made from the Kodi addon source, not a recorded response.",
+  "ResultsFound": 3,
+  "PagesAvailable": 1,
+  "CurrentPage": 1,
   "SubtitleResults": [
     {
-      "Id": 2001,
-      "Type": 3,
-      "Title": "Breaking Bad",
-      "Release": "Breaking.Bad.S01E02.720p.WEB-DL",
+      "Id": 116680,
+      "Title": "Gilmore Girls",
+      "Year": 2000,
+      "Type": 2,
+      "Link": "https://titlovi.com/download/?type=1&mediaid=116680",
+      "Season": 5,
+      "Episode": 17,
+      "Special": -1,
       "Lang": "Hrvatski",
-      "Season": 1,
-      "Episode": 2,
-      "Rating": 5
+      "Date": "2011-01-14T15:27:22.347",
+      "DownloadCount": 1459,
+      "Rating": 0,
+      "Release": ""
     },
     {
-      "Id": 2002,
-      "Type": 3,
-      "Title": "Breaking Bad",
-      "Release": "Breaking.Bad.S01E03.720p.WEB-DL",
+      "Id": 150414,
+      "Title": "Gilmore Girls",
+      "Year": 2000,
+      "Type": 2,
+      "Link": "https://titlovi.com/download/?type=1&mediaid=150414",
+      "Season": 5,
+      "Episode": 1,
+      "Special": -1,
       "Lang": "Hrvatski",
-      "Season": 1,
-      "Episode": 3,
-      "Rating": 5
+      "Date": "2012-08-23T21:35:27.947",
+      "DownloadCount": 1166,
+      "Rating": 0,
+      "Release": "HDTV.XviD-LOL"
+    },
+    {
+      "Id": 35132,
+      "Title": "Gilmore Girls",
+      "Year": 2000,
+      "Type": 2,
+      "Link": "https://titlovi.com/download/?type=1&mediaid=35132",
+      "Season": 5,
+      "Episode": 0,
+      "Special": -1,
+      "Lang": "English",
+      "Date": "2007-09-08T10:55:37.447",
+      "DownloadCount": 4587,
+      "Rating": 0,
+      "Release": ""
     }
   ]
 }
