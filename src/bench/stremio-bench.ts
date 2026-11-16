@@ -393,28 +393,27 @@ export const benchFile = async ({
   languages: string[];
   sourcesFor: SourcesFor;
 }): Promise<Run[]> => {
-  const state = memorySharedState();
-  const deferred: Promise<unknown>[] = [];
-  const seen = new Map<string, Candidate>();
-  const downloads: string[] = [];
-  const app = createApp({
-    secret: benchSecret,
-    installSalt: benchSalt,
-    state,
-    sourcesFor: (config, tokens) =>
-      instrumented(sourcesFor(config, tokens, state), seen, downloads),
-    defer: (work) => {
-      deferred.push(work.catch(() => undefined));
-    },
-  });
   const type = file.kind === "film" ? "movie" : "series";
   const name = encodeURIComponent(filename);
   const key = refKey(benchSecret);
 
   const runLanguage = async (lang: string): Promise<Run> => {
+    const state = memorySharedState();
+    const deferred: Promise<unknown>[] = [];
+    const seen = new Map<string, Candidate>();
+    const downloads: string[] = [];
+    const app = createApp({
+      secret: benchSecret,
+      installSalt: benchSalt,
+      state,
+      sourcesFor: (config, tokens) =>
+        instrumented(sourcesFor(config, tokens, state), seen, downloads),
+      defer: (work) => {
+        deferred.push(work.catch(() => undefined));
+      },
+    });
     const started = performance.now();
     const cpu = process.cpuUsage();
-    const before = downloads.length;
     const base = `/${seal(defaultConfig([lang]), benchSecret)}/subtitles/${type}/${file.imdbId}`;
 
     await app.request(`${base}/filename=${name}.json`);
@@ -429,9 +428,13 @@ export const benchFile = async ({
     const response = path === undefined ? undefined : await app.request(path);
     const srt = response?.status === 200 ? await response.text() : "";
     const served = cuesOf(srt);
+    const wallMs = performance.now() - started;
+
+    await Promise.all(deferred);
+
     const measured = {
-      downloads: downloads.length - before,
-      wallMs: performance.now() - started,
+      downloads: downloads.length,
+      wallMs,
       cpuMs: process.cpuUsage(cpu).user / 1000,
     };
 
@@ -456,14 +459,10 @@ export const benchFile = async ({
     };
   };
 
-  const runs = await languages.reduce<Promise<Run[]>>(
+  return languages.reduce<Promise<Run[]>>(
     async (done, lang) => [...(await done), await runLanguage(lang)],
     Promise.resolve([]),
   );
-
-  await Promise.all(deferred);
-
-  return runs;
 };
 
 export const filenameOf = (file: Pick<BenchFile, "path">) => basename(file.path);
