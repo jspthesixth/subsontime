@@ -63,16 +63,16 @@ install_subsontime() {
   chmod +x "$temp/$name"
   mv "$temp/$name" "$bin_dir/subsontime"
 
+  if [ "$os" = linux-musl ] && [ ! -e /usr/lib/libstdc++.so.6 ] && [ ! -e /lib/libstdc++.so.6 ]; then
+    echo "subsontime needs libstdc++: apk add libstdc++"
+  fi
+
   echo "Installed subsontime to $bin_dir/subsontime"
 
   case :$PATH: in
     *:"$bin_dir":*) ;;
     *) echo "Add $bin_dir to your PATH" ;;
   esac
-
-  if [ "$os" = linux-musl ] && [ ! -e /usr/lib/libstdc++.so.6 ] && [ ! -e /lib/libstdc++.so.6 ]; then
-    echo "subsontime needs libstdc++: apk add libstdc++"
-  fi
 
   echo
   echo "As Bazarr's post-processing command:"
