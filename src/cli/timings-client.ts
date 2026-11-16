@@ -5,7 +5,7 @@ import type { Share } from "../stremio/file-route.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { timingsOf } from "../web/client/lib/fix-rows.ts";
 
-export const defaultAPIURL = "https://subsontime.vercel.app";
+export const defaultAPIURL = "https://subsontime.com";
 
 export type TimingsClient = ReturnType<typeof timingsClient>;
 

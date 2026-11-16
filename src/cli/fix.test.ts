@@ -335,6 +335,15 @@ describe("identify", () => {
 });
 
 describe("Open Timings", () => {
+  it("names subsontime.com as the default address", async () => {
+    const { code, output } = await run(["--help"]);
+
+    expect(code).toBe(0);
+    expect(output).toContain(
+      "--api <url>         Open Timings address (default: https://subsontime.com)",
+    );
+  });
+
   it("shares a retimed fix and reuses one install id created with mode 0600", async () => {
     const { url, requests } = await startTimings();
 
