@@ -79,6 +79,8 @@ export const loadTVDataset = async (root: string) => {
   };
 };
 
+export const tvTextShareMinimum = 0.1;
+
 const minimumCuesPerMinute = 2;
 const maximumCuesPerMinute = 40;
 const minimumCoverage = 0.75;
@@ -206,7 +208,7 @@ const servedOf = ({ servedRef, candidates }: Pick<Run, "servedRef" | "candidates
 const describeServed = (served: Listed | undefined) =>
   served === undefined
     ? "-"
-    : `${served.sourceName} ${served.releaseName ?? served.ref}${served.hashMatch === true ? " (hash match)" : ""}`;
+    : `${served.sourceName} ${served.releaseName ?? served.ref}${served.fps === undefined ? "" : ` (${served.fps} fps)`}${served.hashMatch === true ? " (hash match)" : ""}`;
 
 const severity = (run: Run) => (classOf(run) === "correct" ? 1 : (run.truth?.onTimeShare ?? 0) - 1);
 
@@ -256,6 +258,11 @@ const modeSection = (mode: RequestMode, runs: TVRun[]) => {
       return inTier.length === 0 ? [] : [classRow(`tier ${tier}`, inTier)];
     }),
     ...groups("method", ({ truth }) => truth?.method, headline),
+    ...groups(
+      "timing shape",
+      ({ truth }) => truth?.shape?.kind,
+      headline.filter(({ outcome }) => outcome === "wrong-timing"),
+    ),
     "",
     "Worst runs:",
     "",

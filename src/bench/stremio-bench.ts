@@ -405,6 +405,7 @@ export const benchFile = async ({
   sourcesFor,
   settled = false,
   mode = "hash",
+  textShare,
 }: {
   file: BenchFile;
   filename: string;
@@ -413,6 +414,7 @@ export const benchFile = async ({
   sourcesFor: SourcesFor;
   settled?: boolean;
   mode?: RequestMode;
+  textShare?: number;
 }): Promise<Run[]> => {
   const type = file.kind === "film" ? "movie" : "series";
   const name = encodeURIComponent(filename);
@@ -484,7 +486,7 @@ export const benchFile = async ({
     const tier = tierOf(ref, seen, filename);
     const [first] = ref.c;
 
-    const judged = await truthOf(served, lang, file.verified);
+    const judged = await truthOf(served, lang, file.verified, textShare);
 
     return {
       lang,

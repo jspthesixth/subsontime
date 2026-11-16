@@ -142,6 +142,7 @@ export const truthOf = async (
   served: Cue[],
   lang: string,
   verified: Verified[],
+  textShare = textShareMinimum,
 ): Promise<Truth> => {
   const text = verified
     .filter((each) => each.lang === lang)
@@ -151,11 +152,7 @@ export const truthOf = async (
       undefined,
     );
 
-  if (
-    text !== undefined &&
-    text.share >= textShareMinimum &&
-    text.points.length >= textMatchesMinimum
-  ) {
+  if (text !== undefined && text.share >= textShare && text.points.length >= textMatchesMinimum) {
     return { method: "text", against: text.verified.id, ...timed(text.points) };
   }
 

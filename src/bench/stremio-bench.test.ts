@@ -54,6 +54,20 @@ describe("truthOf", () => {
     ).toMatchObject({ method: "alass", outcome: "wrong-timing", medianMs: 3000 });
   });
 
+  it("measures a partial text copy by its lines under a lower text share", async () => {
+    const partial = shifted.map((cue, index) =>
+      index % 5 < 2 ? cue : { ...cue, text: `Reworded line number ${index}` },
+    );
+
+    expect(await truthOf(partial, "eng", verified, 0.1)).toMatchObject({
+      method: "text",
+      outcome: "wrong-timing",
+      matched: 40,
+      medianMs: 2000,
+    });
+    expect(await truthOf(partial, "eng", verified)).not.toMatchObject({ method: "text" });
+  });
+
   it("calls a subtitle of another title wrong", async () => {
     expect(await truthOf(unrelated, "eng", verified)).toMatchObject({ outcome: "wrong-title" });
   });

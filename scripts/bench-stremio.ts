@@ -23,7 +23,13 @@ import {
 import { openSubtitlesAddonURL } from "../src/config/default-config.ts";
 import { stremioAddonSource } from "../src/sources/stremio-addon.ts";
 import type { Truth } from "../src/bench/truth.ts";
-import { loadTVDataset, tvTables, type TVFile, type TVResult } from "../src/bench/tv-bench.ts";
+import {
+  loadTVDataset,
+  tvTables,
+  tvTextShareMinimum,
+  type TVFile,
+  type TVResult,
+} from "../src/bench/tv-bench.ts";
 import { timingErrorOf } from "../src/audio/evaluate.ts";
 import { fileFingerprint } from "../src/cli/video-hash.ts";
 import { openSubtitlesBudgetSchema, readGroup, sourcesSchema } from "../src/config/env.ts";
@@ -310,6 +316,7 @@ const run = async () => {
           languages: tv ? [...new Set(file.verified.map(({ lang }) => lang))] : languagesOf(file),
           settled: values.settled,
           mode,
+          textShare: tv ? tvTextShareMinimum : undefined,
           sourcesFor: (config, tokens, state) =>
             sourcesFromConfig(config, {
               tokens,
