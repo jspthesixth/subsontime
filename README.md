@@ -80,10 +80,10 @@ With the app key, a file without a hash takes its timing references from the Ope
 
 ### Data dumps
 
-| Variable                | Required | Purpose                                                                                                     |
-| ----------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
-| `BLOB_READ_WRITE_TOKEN` | no       | Vercel Blob token. With it, the daily cron writes the Open Timings dump and `/api/v1/dump` redirects to it. |
-| `CRON_SECRET`           | no       | Bearer secret the daily cron sends to `/api/cron/dump`. Without it the route refuses every call.            |
+| Variable                | Required | Purpose                                                                                                                   |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `BLOB_READ_WRITE_TOKEN` | no       | Vercel Blob token. With it, the daily cron writes the Open Timings dump and `/api/v1/dump` redirects to it.               |
+| `CRON_SECRET`           | no       | Bearer secret the daily cron sends to `/api/cron/dump`, letters and digits only. Without it the route refuses every call. |
 
 ### CLI
 

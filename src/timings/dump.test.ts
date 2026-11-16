@@ -1,7 +1,7 @@
 import { buffer } from "node:stream/consumers";
 import { createGunzip, gunzipSync } from "node:zlib";
 import type { Readable } from "node:stream";
-import { get, put, type PutBlobResult } from "@vercel/blob";
+import { del, get, put, type PutBlobResult } from "@vercel/blob";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { memoryStore, type TimingsStore } from "./db.ts";
@@ -9,7 +9,11 @@ import { writeDump } from "./dump.ts";
 import { groupingKeyOf } from "./submitter.ts";
 import { fix, subtitle, submitterAt, video } from "./test-fixes.ts";
 
-vi.mock("@vercel/blob", () => ({ put: vi.fn<typeof put>(), get: vi.fn<typeof get>() }));
+vi.mock("@vercel/blob", () => ({
+  put: vi.fn<typeof put>(),
+  get: vi.fn<typeof get>(),
+  del: vi.fn<typeof del>(),
+}));
 
 const secret = "a-test-secret-that-is-long-enough-1234";
 const installSalt = "an-install-salt-that-is-long-enough-12";
@@ -19,6 +23,8 @@ const cronSecret = "a-cron-secret-that-is-long-enough-123";
 const otherVideo = { hash: "fedcba9876543210", size: 1_000 };
 const lonelyVideo = { hash: "ffffffffffffffff", size: 1 };
 const dumpURL = "https://store.public.blob.vercel-storage.com/open-timings-2026-11-16.jsonl.gz";
+const yesterdayURL =
+  "https://store.public.blob.vercel-storage.com/open-timings-2026-11-15.jsonl.gz";
 
 type Uploaded = { pathname: string; body: Buffer; options: unknown };
 
@@ -96,6 +102,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.mocked(put).mockReset();
   vi.mocked(get).mockReset();
+  vi.mocked(del).mockReset();
 });
 
 describe("writeDump", () => {
@@ -135,6 +142,7 @@ describe("writeDump", () => {
           access: "public",
           addRandomSuffix: false,
           allowOverwrite: true,
+          cacheControlMaxAge: 3600,
           contentType: "application/gzip",
           multipart: true,
           token: "vercel_blob_rw_store_secret",
@@ -156,6 +164,28 @@ describe("writeDump", () => {
       date: "2026-11-16",
       videos: 2,
     });
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it("deletes the dump the pointer replaced", async () => {
+    pointer(JSON.stringify({ url: yesterdayURL, date: "2026-11-15", videos: 1 }));
+
+    await writeDump(await seeded(), { groupingKey, blobToken }, new Date());
+
+    expect(vi.mocked(del).mock.calls).toEqual([
+      [yesterdayURL, { token: "vercel_blob_rw_store_secret" }],
+    ]);
+    expect(vi.mocked(del).mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(put).mock.invocationCallOrder[1] ?? Infinity,
+    );
+  });
+
+  it("keeps the dump a same-day rerun points to again", async () => {
+    pointer(JSON.stringify({ url: dumpURL, date: "2026-11-16", videos: 2 }));
+
+    await writeDump(await seeded(), { groupingKey, blobToken }, new Date());
+
+    expect(del).not.toHaveBeenCalled();
   });
 
   it("leaves the pointer alone when the store fails partway", async () => {
@@ -184,7 +214,7 @@ describe("writeDump", () => {
   });
 
   it(
-    "streams a million videos while holding at most a few pages of them",
+    "streams a million videos, eight lookups at a time, holding at most a page and a batch of them",
     { timeout: 120_000 },
     async () => {
       const total = 1_000_000;
@@ -193,6 +223,8 @@ describe("writeDump", () => {
       const pageLimits: number[] = [];
       let fetched = 0;
       let lookedUp = 0;
+      let inFlight = 0;
+      let mostInFlight = 0;
       let consumed = 0;
       let mostRowsHeld = 0;
       let mostLinesBuffered = 0;
@@ -200,8 +232,12 @@ describe("writeDump", () => {
       const store: TimingsStore = {
         ...empty,
         fixesFor: async (key) => {
+          inFlight += 1;
+          mostInFlight = Math.max(mostInFlight, inFlight);
+          mostRowsHeld = Math.max(mostRowsHeld, fetched - lookedUp);
+          await Promise.resolve();
+          inFlight -= 1;
           lookedUp += 1;
-          mostRowsHeld = Math.max(mostRowsHeld, fetched - lookedUp + 1);
 
           return [fix(cues, { video: key })];
         },
@@ -247,7 +283,8 @@ describe("writeDump", () => {
       expect(consumed).toBe(1_000_000);
       expect(new Set(pageLimits)).toEqual(new Set([500]));
       expect(pageLimits).toHaveLength(2001);
-      expect(mostRowsHeld).toBe(500);
+      expect(mostRowsHeld).toBeLessThanOrEqual(508);
+      expect(mostInFlight).toBe(8);
       expect(mostLinesBuffered).toBeLessThan(20_000);
     },
   );
@@ -292,7 +329,7 @@ describe("GET /api/cron/dump", () => {
 });
 
 const pointer = (text: string) =>
-  vi.mocked(get).mockResolvedValue({
+  vi.mocked(get).mockImplementation(async () => ({
     statusCode: 200,
     stream: new Response(text).body ?? new ReadableStream(),
     headers: new Headers(),
@@ -308,7 +345,7 @@ const pointer = (text: string) =>
       contentType: "application/json",
       size: text.length,
     },
-  });
+  }));
 
 describe("GET /api/v1/dump", () => {
   it("answers 404 when data dumps are not configured", async () => {
@@ -335,12 +372,57 @@ describe("GET /api/v1/dump", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(dumpURL);
-    expect(response.headers.get("cache-control")).toBe("public, max-age=3600, s-maxage=3600");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=300, s-maxage=300");
+    expect(response.headers.get("last-modified")).toBe("Mon, 16 Nov 2026 00:00:00 GMT");
     expect(vi.mocked(get).mock.calls).toEqual([
       [
         "open-timings-latest.json",
         { access: "public", token: "vercel_blob_rw_store_secret", useCache: false },
       ],
     ]);
+  });
+
+  it("reads the pointer once while it is cached", async () => {
+    pointer(JSON.stringify({ url: dumpURL, date: "2026-11-16", videos: 2 }));
+
+    const app = appWith(memoryStore(), { blobToken });
+
+    await app.request("/api/v1/dump");
+
+    const response = await app.request("/api/v1/dump");
+
+    expect(response.headers.get("location")).toBe(dumpURL);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("redirects to the dump the cron just wrote", async () => {
+    pointer(JSON.stringify({ url: yesterdayURL, date: "2026-11-15", videos: 1 }));
+
+    const app = appWith(await seeded(), { blobToken, cronSecret });
+
+    await app.request("/api/v1/dump");
+    await runCron(app, `Bearer ${cronSecret}`);
+
+    const response = await app.request("/api/v1/dump");
+
+    expect(response.headers.get("location")).toBe(dumpURL);
+    expect(response.headers.get("last-modified")).toBe("Mon, 16 Nov 2026 00:00:00 GMT");
+  });
+});
+
+describe("GET /timings", () => {
+  it("shows the date of the latest dump next to the download", async () => {
+    pointer(JSON.stringify({ url: dumpURL, date: "2026-11-16", videos: 2 }));
+
+    const page = await (await appWith(memoryStore(), { blobToken }).request("/timings")).text();
+
+    expect(page).toContain('<span class="small">Updated 2026-11-16</span>');
+  });
+
+  it("shows no date without a dump", async () => {
+    const page = await (await appWith(memoryStore(), {}).request("/timings")).text();
+
+    expect(page).not.toContain("Updated");
+    expect(get).not.toHaveBeenCalled();
   });
 });

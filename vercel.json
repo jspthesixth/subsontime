@@ -2,7 +2,7 @@
   "framework": null,
   "regions": ["fra1"],
   "buildCommand": "pnpm build",
-  "functions": { "api/index.ts": { "includeFiles": "wasm/**" } },
+  "functions": { "api/index.ts": { "includeFiles": "wasm/**", "maxDuration": 300 } },
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
   "crons": [{ "path": "/api/cron/dump", "schedule": "30 3 * * *" }]
 }

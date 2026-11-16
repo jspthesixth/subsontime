@@ -27,7 +27,7 @@ import {
 } from "./timings/api.ts";
 import { cuesRoute, lookUpRoute, statsRoute, writeRoute } from "./timings/api-route.ts";
 import { memoryStore, type TimingsStore } from "./timings/db.ts";
-import { dumpCronRoute, latestDumpRoute } from "./timings/dump.ts";
+import { dumpCronRoute, latestDump, latestDumpRoute } from "./timings/dump.ts";
 import { dailyOrigins } from "./timings/origin.ts";
 import { groupingKeyOf } from "./timings/submitter.ts";
 import { checkPage } from "./web/check-page.ts";
@@ -167,7 +167,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
             () => undefined,
           );
 
-    return context.html(timingsPage(stats, deps.analytics));
+    const dump = await latestDump(state, deps.blobToken).catch(() => undefined);
+
+    return context.html(timingsPage(stats, dump?.date, deps.analytics));
   });
   app.use("/api/v1/*", cors());
   app.use(
@@ -203,7 +205,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   );
   app.get("/api/titles", titlesRoute(titleLimit));
   app.get("/api/titles/:id/episodes", episodesRoute(titleLimit));
-  app.get("/api/v1/dump", latestDumpRoute(deps.blobToken));
+  app.get("/api/v1/dump", latestDumpRoute(state, deps.blobToken));
 
   if (openTimings !== undefined) {
     const timingsDeps = {
@@ -225,7 +227,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     app.get(
       "/api/cron/dump",
       bearerAuth({ token: deps.cronSecret ?? [] }),
-      dumpCronRoute({ ...openTimings, blobToken: deps.blobToken }),
+      dumpCronRoute({ ...openTimings, state, blobToken: deps.blobToken }),
     );
     app.get("/api/v1/fixes", lookUpRoute(timingsDeps));
     app.get("/api/v1/fixes/:video/:id/cues", cuesRoute(timingsDeps));

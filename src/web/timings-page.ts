@@ -159,13 +159,14 @@ const privacyBlock = html`<section class="band">
   </div>
 </section>`;
 
-const apiBlock = html`<section id="api" class="wrap section">
-  <div class="stack gap-32">
-    <div class="stack gap-12 measure">
-      <h2 class="h2">Use the data</h2>
-      <p class="body">A public API, and a daily download of the whole record.</p>
-    </div>
-    <pre class="code">
+const apiBlock = (dumpDate: string | undefined) =>
+  html`<section id="api" class="wrap section">
+    <div class="stack gap-32">
+      <div class="stack gap-12 measure">
+        <h2 class="h2">Use the data</h2>
+        <p class="body">A public API, and a daily download of the whole record.</p>
+      </div>
+      <pre class="code">
 <span class="c"># every known fix for one video file</span>
 GET /api/v1/fixes?video=<span class="a">8e245d9679d31e12</span>:4703284372
 
@@ -176,12 +177,13 @@ GET /api/v1/fixes/<span class="a">8e245d9679d31e12</span>:4703284372/<span class
 POST /api/v1/fixes
 POST /api/v1/mismatches
 POST /api/v1/reports</pre>
-    <div class="row-wrap gap-12">
-      <a class="btn btn-ghost" href="/api/v1/dump">Download the data</a>
-      <span class="small">Daily, gzipped JSON Lines, CC0-1.0</span>
+      <div class="row-wrap gap-12">
+        <a class="btn btn-ghost" href="/api/v1/dump">Download the data</a>
+        <span class="small">Daily, gzipped JSON Lines, CC0-1.0</span>
+        ${dumpDate === undefined ? "" : html`<span class="small">Updated ${dumpDate}</span>`}
+      </div>
     </div>
-  </div>
-</section>`;
+  </section>`;
 
 const templates = html`<template id="fix-row-template"
   ><div class="sub-row fixes" role="row">
@@ -194,7 +196,7 @@ const templates = html`<template id="fix-row-template"
   </div></template
 >`;
 
-const content = (stats: StoreStats | undefined) =>
+const content = (stats: StoreStats | undefined, dumpDate: string | undefined) =>
   html`<main>
       <section class="wrap" style="padding-top: 80px; padding-bottom: 64px;">
         <div class="stack gap-24">
@@ -206,17 +208,21 @@ const content = (stats: StoreStats | undefined) =>
           </p>
         </div>
       </section>
-      ${statsBlock(stats)} ${lookUpBlock} ${stepsBlock} ${privacyBlock} ${apiBlock}
+      ${statsBlock(stats)} ${lookUpBlock} ${stepsBlock} ${privacyBlock} ${apiBlock(dumpDate)}
     </main>
     ${templates}`;
 
-export const timingsPage = (stats: StoreStats | undefined, analytics?: boolean) =>
+export const timingsPage = (
+  stats: StoreStats | undefined,
+  dumpDate: string | undefined,
+  analytics?: boolean,
+) =>
   layout({
     analytics,
     title: "Open Timings",
     description:
       "The shared record of subtitle fixes: how to fix a subtitle's timing, file by file, found once and used by everyone.",
     active: "timings",
-    content: content(stats),
+    content: content(stats, dumpDate),
     scripts: ["timings"],
   });

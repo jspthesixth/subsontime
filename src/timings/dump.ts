@@ -1,9 +1,10 @@
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { get, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 import type { Context } from "hono";
 import * as v from "valibot";
+import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import { parseJSON } from "../json.ts";
 import { lookUp, type Summaries } from "./api.ts";
 import type { TimingsStore, VideoKey } from "./db.ts";
@@ -11,24 +12,61 @@ import type { TimingsStore, VideoKey } from "./db.ts";
 type DumpDeps = { groupingKey: Buffer; blobToken: string };
 
 const pageSize = 500;
+const lookUpBatch = 8;
 const pointerPath = "open-timings-latest.json";
+const pointerKey = "open-timings-dump";
+const pointerSeconds = 300;
 const notConfiguredMessage = "Data dumps are not configured";
 const noDumpMessage = "No data dump yet";
 const uncached: Summaries = { read: (_, load) => load(), forget: async () => undefined };
-const pointerSchema = v.object({ url: v.string(), date: v.string(), videos: v.number() });
+const pointerSchema = v.object({
+  url: v.string(),
+  date: v.pipe(v.string(), v.isoDate()),
+  videos: v.number(),
+});
 
+type Pointer = v.InferOutput<typeof pointerSchema>;
+
+const pointerOf = (text: string | undefined) => {
+  const parsed = v.safeParse(pointerSchema, text === undefined ? undefined : parseJSON(text));
+
+  return parsed.success ? parsed.output : undefined;
+};
+
+const readPointer = async (blobToken: string) => {
+  const blob = await get(pointerPath, { access: "public", token: blobToken, useCache: false });
+
+  return pointerOf(blob?.statusCode === 200 ? await new Response(blob.stream).text() : undefined);
+};
+
+const remember = (state: SharedState, pointer: Pointer) =>
+  orMiss(() => state.set(pointerKey, JSON.stringify(pointer), pointerSeconds), undefined);
+
+const batchesOf = (page: VideoKey[]) =>
+  Array.from({ length: Math.ceil(page.length / lookUpBatch) }, (_, index) =>
+    page.slice(index * lookUpBatch, (index + 1) * lookUpBatch),
+  );
+
+// ponytail: one run must finish within maxDuration (300s on Hobby); resume by page if it outgrows that
 async function* dumpLines(store: TimingsStore, groupingKey: Buffer) {
   let page: VideoKey[] = [];
 
   do {
     page = await store.videoPage(page.at(-1), pageSize);
 
-    for (const video of page) {
-      const timings = await lookUp(store, video, { groupingKey, summaries: uncached });
+    for (const batch of batchesOf(page)) {
+      const looked = await Promise.all(
+        batch.map(async (video) => ({
+          video,
+          timings: await lookUp(store, video, { groupingKey, summaries: uncached }),
+        })),
+      );
 
-      if (timings.fixes.length > 0 || timings.hidden.length > 0) {
-        yield `${JSON.stringify({ video: `${video.hash}:${video.size}`, ...timings })}\n`;
-      }
+      yield* looked.flatMap(({ video, timings }) =>
+        timings.fixes.length > 0 || timings.hidden.length > 0
+          ? [`${JSON.stringify({ video: `${video.hash}:${video.size}`, ...timings })}\n`]
+          : [],
+      );
     }
   } while (page.length === pageSize);
 }
@@ -37,7 +75,7 @@ export const writeDump = async (
   store: TimingsStore,
   { groupingKey, blobToken }: DumpDeps,
   now: Date,
-) => {
+): Promise<Pointer> => {
   const date = now.toISOString().slice(0, 10);
   const blobOptions = { access: "public", addRandomSuffix: false, allowOverwrite: true } as const;
   const gzip = createGzip();
@@ -54,6 +92,7 @@ export const writeDump = async (
     pipeline(Readable.from(counted()), gzip),
     put(`open-timings-${date}.jsonl.gz`, gzip, {
       ...blobOptions,
+      cacheControlMaxAge: 3600,
       contentType: "application/gzip",
       multipart: true,
       token: blobToken,
@@ -61,6 +100,7 @@ export const writeDump = async (
   ]);
 
   const pointer = { url: dump.url, date, videos };
+  const previous = await readPointer(blobToken);
 
   await put(pointerPath, JSON.stringify(pointer), {
     ...blobOptions,
@@ -68,36 +108,64 @@ export const writeDump = async (
     token: blobToken,
   });
 
+  if (previous !== undefined && previous.url !== pointer.url) {
+    await del(previous.url, { token: blobToken });
+  }
+
   return pointer;
 };
 
-type CronDeps = { store: TimingsStore; groupingKey: Buffer; blobToken?: string };
+export const latestDump = async (state: SharedState, blobToken?: string) => {
+  if (blobToken === undefined) {
+    return undefined;
+  }
+
+  const cached = pointerOf(await orMiss(() => state.get(pointerKey), undefined));
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const pointer = await readPointer(blobToken);
+
+  if (pointer !== undefined) {
+    await remember(state, pointer);
+  }
+
+  return pointer;
+};
+
+type CronDeps = {
+  store: TimingsStore;
+  groupingKey: Buffer;
+  state: SharedState;
+  blobToken?: string;
+};
 
 export const dumpCronRoute =
-  ({ store, groupingKey, blobToken }: CronDeps) =>
+  ({ store, groupingKey, state, blobToken }: CronDeps) =>
   async (context: Context) => {
     if (blobToken === undefined) {
       return context.json({ error: notConfiguredMessage }, 503);
     }
 
-    return context.json(await writeDump(store, { groupingKey, blobToken }, new Date()));
+    const pointer = await writeDump(store, { groupingKey, blobToken }, new Date());
+
+    await remember(state, pointer);
+
+    return context.json(pointer);
   };
 
-export const latestDumpRoute = (blobToken?: string) => async (context: Context) => {
-  const pointer =
-    blobToken === undefined
-      ? null
-      : await get(pointerPath, { access: "public", token: blobToken, useCache: false });
-  const parsed = v.safeParse(
-    pointerSchema,
-    pointer?.statusCode === 200 ? parseJSON(await new Response(pointer.stream).text()) : undefined,
-  );
+export const latestDumpRoute =
+  (state: SharedState, blobToken?: string) => async (context: Context) => {
+    const pointer = await latestDump(state, blobToken);
 
-  if (!parsed.success) {
-    return context.json({ error: noDumpMessage }, 404);
-  }
+    if (pointer === undefined) {
+      return context.json({ error: noDumpMessage }, 404);
+    }
 
-  context.header("cache-control", "public, max-age=3600, s-maxage=3600");
+    context.header("cache-control", "public, max-age=300, s-maxage=300");
+    context.header("last-modified", new Date(pointer.date).toUTCString());
 
-  return context.redirect(parsed.output.url, 302);
-};
+    return context.redirect(pointer.url, 302);
+  };
