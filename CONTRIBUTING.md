@@ -68,7 +68,8 @@ python -m unittest discover -s tests
 - builds the command line for Linux (glibc and musl) and macOS on x64 and arm64 and for Windows on x64,
 - builds the Jellyfin plugin zip and the Bazarr+ provider zip,
 - publishes all of them with `SHA256SUMS` as a GitHub release,
-- adds the plugin version to `plugins/jellyfin/releases.json` on the default branch, which `/jellyfin/manifest.json` serves.
+- adds the plugin version to `plugins/jellyfin/releases.json` on the default branch, which `/jellyfin/manifest.json` serves,
+- pushes the Docker image `ghcr.io/jspthesixth/subsontime` for `linux/amd64` and `linux/arm64`, tagged `<version>` and `latest`.
 
 ## Security issues
 

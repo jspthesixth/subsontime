@@ -15,6 +15,7 @@ RUN pnpm build
 FROM install AS runtime
 COPY src src
 COPY wasm wasm
+COPY plugins/jellyfin/releases.json plugins/jellyfin/releases.json
 COPY --from=build /app/public public
 
 ENV NODE_ENV=production
