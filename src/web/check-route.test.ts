@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { seal } from "../config/seal.ts";
-import type { SourceSet } from "../sources/from-config.ts";
-import { fakeSource } from "../sources/test-sources.ts";
+import { memorySharedState } from "../jobs/shared-state.ts";
+import { sourcesFromConfig, type SourceSet } from "../sources/from-config.ts";
+import { fakeSource, memoryTokenCache } from "../sources/test-sources.ts";
 import type { Source } from "../sources/source.ts";
 import { encodeRef, refKey } from "../stremio/refs.ts";
 import { retime } from "../timing/retime.ts";
@@ -97,6 +98,67 @@ describe("POST /api/check", () => {
     ]);
     expect(result.reference).toBe("English, made for this exact file");
     expect(result.sources).toBe(2);
+  });
+
+  it("never downloads a checked subtitle as a served one", async () => {
+    const sources = {
+      listed: [
+        fakeSource("Fake", [
+          { ref: "wrong", cues: unrelated },
+          { ref: "right", cues: shifted },
+        ]),
+      ],
+      references: [hashReference()],
+    };
+
+    await checked(sources);
+
+    expect(sources.listed[0]?.download.mock.calls.map(([ref, , served]) => [ref, served])).toEqual([
+      ["wrong", false],
+      ["right", false],
+    ]);
+  });
+
+  it("spends none of a signed-in user's OpenSubtitles downloads", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+
+      if (url.startsWith("https://api.opensubtitles.com/api/v1/subtitles")) {
+        return new Response(
+          JSON.stringify({ data: [{ attributes: { language: "en", files: [{ file_id: 7 }] } }] }),
+        );
+      }
+
+      if (url.endsWith("/download")) {
+        return new Response(JSON.stringify({ link: "https://dl.example.com/7.srt" }));
+      }
+
+      return url.endsWith("/login")
+        ? new Response(JSON.stringify({ token: "user-token" }))
+        : new Response(JSON.stringify({ subtitles: [] }));
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sources = sourcesFromConfig(
+      {
+        ...defaultConfig(["eng"]),
+        sources: [
+          { kind: "stremio-addon", url: "https://opensubtitles-v3.strem.io/manifest.json" },
+          { kind: "opensubtitles", username: "alice", password: "secret" },
+        ],
+      },
+      { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
+    );
+
+    await checked(sources);
+
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith("/login") || new Headers(init?.headers).has("Authorization"),
+      ),
+    ).toEqual([]);
   });
 
   it("lists every top candidate of a language, shown ones first in menu order", async () => {

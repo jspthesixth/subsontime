@@ -261,6 +261,7 @@ const runCheck = async (
         download,
         controller.signal,
         shared,
+        { served: false },
       ),
       attempts,
     ),

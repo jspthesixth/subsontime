@@ -255,8 +255,10 @@ export async function* resolveAttempts(
     lazyReferences = false,
     anchorOf,
     cuesOf = servedCues,
+    served = true,
   }: {
     lazyReferences?: boolean;
+    served?: boolean;
     anchorOf?: () => Promise<Anchor | undefined>;
     cuesOf?: typeof servedCues;
   } = {},
@@ -285,7 +287,7 @@ export async function* resolveAttempts(
   }
 
   for (const candidate of ref.c) {
-    const attempt: Attempt = await download(candidate, true)
+    const attempt: Attempt = await download(candidate, served)
       .then(async (track): Promise<Attempt> => {
         const hidden = hiddenMatch(track.cues, shared);
 
