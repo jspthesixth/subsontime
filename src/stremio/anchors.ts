@@ -3,7 +3,7 @@ import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SingleFlight } from "../jobs/single-flight.ts";
 import { firstAgreeing } from "../timing/anchor.ts";
 import type { Track } from "../timing/retime.ts";
-import type { Download } from "./file-route.ts";
+import type { Download } from "./attempts.ts";
 import { candidateKey, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 const decisionSeconds = 30 * 24 * 60 * 60;

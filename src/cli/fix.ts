@@ -25,10 +25,10 @@ import {
   servedCues,
   sharesOf,
   type Share,
-} from "../stremio/file-route.ts";
+} from "../stremio/attempts.ts";
 import type { Shared } from "../stremio/open-timings.ts";
 import type { CandidateRef } from "../stremio/refs.ts";
-import { bestSlotSize, searchVideo, toCandidateRef } from "../stremio/subtitles-route.ts";
+import { bestSlotSize, searchVideo, toCandidateRef } from "../stremio/search.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
@@ -36,7 +36,7 @@ import { scoreOf, speedRatios } from "../timing/alass.ts";
 import { shiftOf, type RetimeResult } from "../timing/retime.ts";
 import type { FixWithCues } from "../timings/confirm.ts";
 import type { VideoKey } from "../timings/db.ts";
-import { reasonOf } from "../web/check-route.ts";
+import { reasonOf } from "../stremio/attempts.ts";
 import { identify, type Identified } from "./identify.ts";
 import type { TimingsClient } from "./timings-client.ts";
 import { fileFingerprint } from "./video-hash.ts";

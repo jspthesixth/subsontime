@@ -5,39 +5,35 @@ import type { RouteDeps } from "../app.ts";
 import { languagesSchema, type Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import { invalidLinkMessage } from "../config/seal.ts";
-import { fetchWithTimeout } from "../http.ts";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SourceSet } from "../sources/from-config.ts";
-import { maximumSearchBytes, type Candidate, type VideoQuery } from "../sources/source.ts";
+import type { Candidate, VideoQuery } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import { installKeyOf, tokenCacheFor } from "../sources/token-cache.ts";
 import {
   downloader,
+  mismatchReason,
+  reasonOf,
   recordAttempts,
   resolveAttempts,
   servedCues,
   type Attempt,
-} from "../stremio/file-route.ts";
+} from "../stremio/attempts.ts";
 import {
   checkShared,
   hashesOf,
   videoKeyOf,
   viewerOf,
-  type Hidden,
   type OpenTimings,
   type Shared,
 } from "../stremio/open-timings.ts";
 import { decodeRef, encodeRef } from "../stremio/refs.ts";
-import {
-  bestGroupsOf,
-  bestSlotSize,
-  searchVideo,
-  toCandidateRef,
-} from "../stremio/subtitles-route.ts";
+import { bestGroupsOf, bestSlotSize, searchVideo, toCandidateRef } from "../stremio/search.ts";
 import type { RetimeResult } from "../timing/retime.ts";
 import { reportReasons, submitReport, TimingsInputError } from "../timings/api.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { submitterOf } from "../timings/submitter.ts";
+import { catalogTypes, unsupportedVideoMessage, type LimitDeps } from "./catalog.ts";
 import { sealedConfigOf, unsealSafely } from "./config-route.ts";
 import { languageOptions } from "./language-options.ts";
 import { tooManyMessage } from "./source-check-route.ts";
@@ -53,11 +49,6 @@ export type CheckRow = {
   ref?: string;
 };
 
-type LimitDeps = {
-  allow: (key: string) => Promise<boolean>;
-  clientKey: (context: Context) => string;
-};
-
 type CheckDeps = RouteDeps & LimitDeps & { secret: string; state: SharedState };
 type ReportDeps = CheckDeps & { openTimings: OpenTimings };
 
@@ -67,32 +58,17 @@ type Slot =
   | { status: "taken"; key: string; holder: string }
   | { status: "busy" }
   | { status: "unknown" };
-type CatalogType = "movie" | "series";
-
 const budgetMs = 20_000;
 const maximumRunning = 2;
 const slotSeconds = 30;
 const slotRefreshMs = 10_000;
-const cinemetaURL = "https://v3-cinemeta.strem.io";
-const cinemetaTimeoutMs = 4000;
-const maximumTitles = 10;
-const maximumQueryLength = 100;
-const catalogTypes: CatalogType[] = ["movie", "series"];
-const imdbIdPattern = /^tt\d+$/;
 const invalidCheckMessage = "Pick a film or episode to check";
-const unsupportedVideoMessage = "Unsupported video id";
-const unreachableCatalogMessage = "Could not reach Stremio's catalog. Try again.";
 const busyMessage = "Busy, try again in a moment";
-const tooManySearchesMessage = "Too many searches. Try again in a minute.";
-const mismatchReason =
-  "Made for another video. Its dialogue does not line up with this file anywhere.";
-const unreadableReason = "Could not be read.";
 const tooManyReportsMessage = "Too many reports. Try again in a minute.";
 const invalidReportMessage = "Pick what is wrong with this subtitle";
 const invalidRefMessage = "Invalid subtitle reference";
 const unreadableReportMessage = "We could not read this subtitle, so it cannot be reported.";
 const unavailableMessage = "Try again in a moment";
-const catalogCache = { "cache-control": "public, max-age=3600" };
 
 const checkSchema = v.object({
   installURL: v.optional(v.string()),
@@ -108,29 +84,6 @@ const reportBodySchema = v.object({
   ref: v.string(),
   reason: v.picklist(reportReasons),
   installURL: v.optional(v.string()),
-});
-
-const catalogSchema = v.object({
-  metas: v.array(
-    v.object({ id: v.string(), name: v.string(), releaseInfo: v.optional(v.string()) }),
-  ),
-});
-
-const seriesSchema = v.object({
-  meta: v.object({
-    videos: v.optional(
-      v.array(
-        v.object({
-          season: v.number(),
-          episode: v.optional(v.number()),
-          number: v.optional(v.number()),
-          name: v.optional(v.string()),
-          title: v.optional(v.string()),
-        }),
-      ),
-      [],
-    ),
-  }),
 });
 
 const languageNames = new Map(languageOptions.map(({ code, name }) => [code, name]));
@@ -179,19 +132,6 @@ const madeFor = (candidate: Candidate) => ({
   source: candidate.sourceName,
   release: candidate.releaseName,
 });
-
-const hiddenReason = ({ reason = "mismatch" }: Hidden) =>
-  reason === "mismatch"
-    ? "Hidden by Open Timings: made for another video."
-    : `Hidden by Open Timings: reported as ${reason.replaceAll("-", " ")}.`;
-
-export const reasonOf = ({ result, hidden }: Attempt) => {
-  if (hidden !== undefined) {
-    return hiddenReason(hidden);
-  }
-
-  return result?.kind === "mismatch" ? mismatchReason : unreadableReason;
-};
 
 const referenceText = (config: Config, references: Candidate[]) => {
   const first = references[0];
@@ -500,107 +440,3 @@ export const checkReportRoute =
 
     return context.json({ ok: true }, 202);
   };
-
-export const searchCatalog = async (type: CatalogType, query: string) => {
-  const response = await fetchWithTimeout(
-    `${cinemetaURL}/catalog/${type}/top/search=${encodeURIComponent(query)}.json`,
-    { maxBytes: maximumSearchBytes },
-    cinemetaTimeoutMs,
-  );
-
-  if (!response.ok) {
-    throw new Error(`Cinemeta answered ${response.status}`);
-  }
-
-  const { metas } = v.parse(catalogSchema, await response.json());
-
-  return metas
-    .filter((meta) => imdbIdPattern.test(meta.id))
-    .map(({ id, name, releaseInfo }) => ({
-      id,
-      type,
-      name,
-      year: releaseInfo?.match(/^\d{4}/)?.[0],
-    }));
-};
-
-const matchRank = (name: string, query: string) => {
-  const folded = name.toLocaleLowerCase();
-
-  if (folded === query) {
-    return 0;
-  }
-
-  return folded.startsWith(query) ? 1 : 2;
-};
-
-const limited =
-  ({ allow, clientKey }: LimitDeps, route: (context: Context) => Promise<Response>) =>
-  async (context: Context) =>
-    (await allow(clientKey(context)))
-      ? route(context)
-      : context.json({ error: tooManySearchesMessage }, 429);
-
-const searchTitles = async (context: Context) => {
-  const query = (context.req.query("q") ?? "").trim().slice(0, maximumQueryLength);
-  const type = context.req.query("type");
-  const types = catalogTypes.filter((each) => type === undefined || each === type);
-
-  if (query === "") {
-    return context.json([], 200, catalogCache);
-  }
-
-  const results = await Promise.allSettled(types.map((each) => searchCatalog(each, query)));
-  const lists = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
-
-  if (lists.length === 0) {
-    return context.json({ error: unreachableCatalogMessage }, 502);
-  }
-
-  const interleaved = Array.from({ length: maximumTitles }, (_, index) =>
-    lists.flatMap((list) => list.slice(index, index + 1)),
-  ).flat();
-
-  const folded = query.toLocaleLowerCase();
-  const ranked = interleaved.toSorted(
-    (a, b) => matchRank(a.name, folded) - matchRank(b.name, folded),
-  );
-
-  return context.json(ranked.slice(0, maximumTitles), 200, catalogCache);
-};
-
-const listEpisodes = async (context: Context) => {
-  const id = context.req.param("id") ?? "";
-
-  if (!imdbIdPattern.test(id)) {
-    return context.json({ error: unsupportedVideoMessage }, 400);
-  }
-
-  const meta = await fetchWithTimeout(
-    `${cinemetaURL}/meta/series/${id}.json`,
-    { maxBytes: maximumSearchBytes },
-    cinemetaTimeoutMs,
-  )
-    .then(async (response) => v.parse(seriesSchema, await response.json()).meta)
-    .catch(() => undefined);
-
-  if (meta === undefined) {
-    return context.json({ error: unreachableCatalogMessage }, 502);
-  }
-
-  const episodes = meta.videos
-    .flatMap(({ season, episode, number, name, title }) => {
-      const episodeNumber = episode ?? number;
-
-      return episodeNumber === undefined
-        ? []
-        : [{ season, episode: episodeNumber, name: name ?? title ?? "" }];
-    })
-    .toSorted((a, b) => a.season - b.season || a.episode - b.episode);
-
-  return context.json(episodes, 200, catalogCache);
-};
-
-export const titlesRoute = (deps: LimitDeps) => limited(deps, searchTitles);
-
-export const episodesRoute = (deps: LimitDeps) => limited(deps, listEpisodes);

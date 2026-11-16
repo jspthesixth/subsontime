@@ -1,4 +1,3 @@
-import * as v from "valibot";
 import type { HiddenView, VideoTimings } from "../../../timings/confirm.ts";
 
 export type FixRowView = {
@@ -15,40 +14,6 @@ const methodNames: Record<string, string> = {
   audio: "Audio",
   reference: "Reference",
   "release-name": "Release name",
-};
-
-const timingsSchema = v.object({
-  fixes: v.array(
-    v.object({
-      id: v.string(),
-      subtitleSketch: v.array(v.string()),
-      status: v.picklist(["confirmed", "hint"]),
-      method: v.string(),
-      agreeing: v.number(),
-      fromAudio: v.boolean(),
-      cueCount: v.number(),
-    }),
-  ),
-  hidden: v.array(
-    v.object({
-      subtitleSketch: v.array(v.string()),
-      reason: v.picklist([
-        "mismatch",
-        "machine-translated",
-        "wrong-language",
-        "lines-missing",
-        "timing-off",
-        "broken-characters",
-      ]),
-      count: v.number(),
-    }),
-  ),
-});
-
-export const timingsOf = (body: unknown): VideoTimings | undefined => {
-  const parsed = v.safeParse(timingsSchema, body);
-
-  return parsed.success ? parsed.output : undefined;
 };
 
 const shortId = (id: string) => id.slice(0, 8);

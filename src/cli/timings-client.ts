@@ -1,9 +1,9 @@
 import * as v from "valibot";
 import { createGuard, fetchWithTimeout } from "../http.ts";
 import { maximumDownloadBytes, maximumSearchBytes } from "../sources/source.ts";
-import type { Share } from "../stremio/file-route.ts";
+import type { Share } from "../stremio/attempts.ts";
 import type { VideoKey } from "../timings/db.ts";
-import { timingsOf } from "../web/client/lib/fix-rows.ts";
+import { timingsOf } from "../timings/timings-schema.ts";
 
 export const defaultAPIURL = "https://subsontime.com";
 

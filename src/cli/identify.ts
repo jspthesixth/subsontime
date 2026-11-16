@@ -1,6 +1,6 @@
 import { basename, extname } from "node:path";
 import type { VideoQuery } from "../sources/source.ts";
-import { searchCatalog } from "../web/check-route.ts";
+import { searchCatalog } from "../web/catalog.ts";
 
 export type Title = Pick<VideoQuery, "type" | "imdbId" | "season" | "episode">;
 

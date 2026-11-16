@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fixRows, timingsOf } from "./fix-rows.ts";
+import { timingsOf } from "../../../timings/timings-schema.ts";
+import { fixRows } from "./fix-rows.ts";
 
 describe("fixRows", () => {
   it("maps fixes and hidden entries from a lookup response to table rows", () => {
