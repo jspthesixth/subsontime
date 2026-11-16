@@ -9,6 +9,7 @@ import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import { parseJSON } from "../json.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import type { Candidate, Source } from "../sources/source.ts";
+import { isCapitals, recase } from "../subtitles/capitals.ts";
 import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
 import { mergeDual } from "../subtitles/dual.ts";
@@ -370,12 +371,66 @@ const shareAfterResponse = (
     })
     .catch(logWrite);
 
-const firstServed = (attempts: Attempt[], config: Config, cuesOf = servedCues) =>
-  attempts.map((attempt) => cuesOf(attempt, config)).find((each) => each !== undefined);
+type Cased = (cues: Cue[], served: CandidateRef) => Promise<Cue[]>;
 
-const servedOf = (attempts: Attempt[], config: Config, dialogueOnly: boolean): Served => {
-  const cues = firstServed(attempts, config);
-  const shown = dialogueOnly && cues !== undefined ? stripHearingImpaired(cues) : cues;
+const vocabularyDownloads = 2;
+
+const keyOf = ({ n, r }: CandidateRef) => candidateKey(n, r);
+
+const mixedCaseOf = async (
+  pool: CandidateRef[],
+  download: Download,
+  tries = vocabularyDownloads,
+): Promise<Cue[][]> => {
+  const [next, ...rest] = pool;
+
+  if (next === undefined || tries === 0) {
+    return [];
+  }
+
+  const [track] = await settledTracks([download(next)]);
+
+  return track === undefined || isCapitals(track.cues)
+    ? mixedCaseOf(rest, download, tries - 1)
+    : [track.cues];
+};
+
+const casedFor =
+  (ref: SubtitleRef, download: Download): Cased =>
+  async (cues, served) => {
+    if (!isCapitals(cues)) {
+      return cues;
+    }
+
+    const pool = [...(ref.a ?? []), ...ref.c, ...(ref.s ?? []), ...ref.x].filter(
+      (candidate) => candidate.l === served.l && keyOf(candidate) !== keyOf(served),
+    );
+    const others = [...new Map(pool.map((candidate) => [keyOf(candidate), candidate])).values()];
+
+    return recase(cues, await mixedCaseOf(others, download), served.l);
+  };
+
+const firstServed = (attempts: Attempt[], config: Config, cuesOf = servedCues) =>
+  attempts.flatMap((attempt) => {
+    const cues = cuesOf(attempt, config);
+
+    return cues === undefined ? [] : [{ candidate: attempt.candidate, cues }];
+  })[0];
+
+const servedOf = async (
+  attempts: Attempt[],
+  config: Config,
+  dialogueOnly: boolean,
+  cased: Cased,
+): Promise<Served> => {
+  const served = firstServed(attempts, config);
+  const shown =
+    served === undefined
+      ? undefined
+      : await cased(
+          dialogueOnly ? stripHearingImpaired(served.cues) : served.cues,
+          served.candidate,
+        );
 
   if (shown !== undefined && shown.length > 0) {
     return { found: true, srt: writeSRT(shown) };
@@ -390,9 +445,17 @@ const servedOf = (attempts: Attempt[], config: Config, dialogueOnly: boolean): S
   };
 };
 
-const dualServedOf = (attempts: Attempt[][], config: Config): Served => {
-  const [primary = [], secondary = []] = attempts.map(
-    (each) => firstServed(each, config, timedCues) ?? [],
+const dualServedOf = async (
+  attempts: Attempt[][],
+  config: Config,
+  cased: Cased,
+): Promise<Served> => {
+  const [primary = [], secondary = []] = await Promise.all(
+    attempts.map(async (each) => {
+      const served = firstServed(each, config, timedCues);
+
+      return served === undefined ? [] : cased(served.cues, served.candidate);
+    }),
   );
 
   return primary.length === 0 || secondary.length === 0
@@ -480,10 +543,11 @@ export const fileRoute =
           ),
         ),
       );
+      const cased = casedFor(ref, download);
       const fresh =
         ref.s === undefined
-          ? servedOf(attempts.flat(), config, ref.t === "dialogue")
-          : dualServedOf(attempts, config);
+          ? await servedOf(attempts.flat(), config, ref.t === "dialogue", cased)
+          : await dualServedOf(attempts, config, cased);
 
       if (config.share && video !== undefined) {
         shares.push(...sharesOf(attempts.flat(), video));

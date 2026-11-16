@@ -3,6 +3,8 @@ import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource, type Entry } from "../sources/test-sources.ts";
+import { parseSubtitle } from "../subtitles/parse.ts";
+import { subtitleFixture } from "../subtitles/test-subtitles.ts";
 import { writeSRT } from "../subtitles/write.ts";
 import { retime } from "../timing/retime.ts";
 import { partlyUnrelated, syntheticTrack } from "../timing/test-tracks.ts";
@@ -640,5 +642,79 @@ describe("source in the language name", () => {
     });
 
     expect(subtitles.map(({ lang }) => lang)).toEqual(["eng", "eng"]);
+  });
+});
+
+const servedLines = async (app: App, url: string) =>
+  parseSubtitle((await fetched(app, url)).text)
+    .slice(0, 3)
+    .map(({ text }) => text);
+
+describe("captions in capitals", () => {
+  const capitals = subtitleFixture("gilmore-s05e18-capitals.srt");
+  const mixed = subtitleFixture("gilmore-s05e18.srt");
+
+  it("serves a caption made for the file with the casing of another subtitle", async () => {
+    const { app, subtitles } = await listedFor({
+      listed: [
+        fakeSource("Fake", [
+          { ref: "a", hashMatch: true, cues: capitals },
+          { ref: "b", cues: mixed },
+        ]),
+      ],
+      references: [],
+    });
+
+    expect(await servedLines(app, urlOf(subtitles, "eng-best"))).toEqual([
+      "(Kevebor) Pes, vumutob.",
+      "What are the zanote bin zokago?",
+      "(Gosemo) Tuzit surakazugut.",
+    ]);
+    expect(await servedLines(app, urlOf(subtitles, "eng-dialogue"))).toEqual([
+      "Pes, vumutob.",
+      "What are the zanote bin zokago?",
+      "Tuzit surakazugut.",
+    ]);
+  });
+
+  it("learns the casing from a free subtitle before a metered reference", async () => {
+    const metered = fakeSource("OpenSubtitles API", [
+      { ref: "m", hashMatch: true, metered: true, cues: mixed },
+    ]);
+    const { app, subtitles } = await listedFor(
+      {
+        listed: [
+          fakeSource("Fake", [
+            { ref: "a", cues: capitals },
+            { ref: "b", cues: mixed },
+          ]),
+        ],
+        references: [metered],
+      },
+      { timing: "off" },
+    );
+
+    expect(await servedLines(app, urlOf(subtitles, "eng-best"))).toEqual([
+      "(Kevebor) Pes, vumutob.",
+      "What are the zanote bin zokago?",
+      "(Gosemo) Tuzit surakazugut.",
+    ]);
+    expect(metered.download).not.toHaveBeenCalled();
+  });
+
+  it("serves a retimed caption with the casing of its reference and its timing", async () => {
+    const { app, subtitles } = await listedFor({
+      ...retimedSources(),
+      listed: [
+        fakeSource("Fake", [
+          { ref: "a", cues: shifted.map((cue) => ({ ...cue, text: cue.text.toUpperCase() })) },
+        ]),
+      ],
+    });
+
+    expect(await fetched(app, urlOf(subtitles, "eng-best"))).toEqual({
+      status: 200,
+      text: writeSRT(track),
+    });
   });
 });
