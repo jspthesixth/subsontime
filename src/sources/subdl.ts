@@ -4,9 +4,12 @@ import { verdictOf } from "./check.ts";
 import { toISO6391, toISO6392 } from "../languages.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import {
+  episodeTagOf,
+  isSeries,
   maximumDownloadBytes,
   maximumSearchBytes,
   type Candidate,
+  type Series,
   type Source,
   type VideoQuery,
 } from "./source.ts";
@@ -37,9 +40,6 @@ const rowSchema = v.object({
 });
 
 type Row = v.InferOutput<typeof rowSchema>;
-type Series = VideoQuery & { type: "series"; season: number; episode: number };
-
-const pad = (value: number) => String(value).padStart(2, "0");
 
 const toSubDLCode = (lang: string) => {
   const special: Record<string, string> = { pob: "br_pt", por: "pt" };
@@ -53,9 +53,6 @@ const fromSubDLCode = (code: string) => {
 
   return special[lower] ?? toISO6392(lower);
 };
-
-const isSeries = (query: VideoQuery): query is Series =>
-  query.type === "series" && query.season !== undefined && query.episode !== undefined;
 
 const matchesEpisode = (query: Series, row: Row) => {
   const inRange =
@@ -77,7 +74,7 @@ const toCandidate = (row: Row, query: VideoQuery): Candidate[] => {
   }
 
   const releaseName = row.release_name || row.name || undefined;
-  const tag = isSeries(query) ? `#S${pad(query.season)}E${pad(query.episode)}` : "";
+  const tag = isSeries(query) ? `#${episodeTagOf(query.season, query.episode)}` : "";
 
   return [
     {

@@ -154,6 +154,22 @@ describe("titloviSource search", () => {
     expect(candidates.map((candidate) => candidate.lang)).toEqual([code]);
   });
 
+  it("returns nothing for a series query without a season", async () => {
+    stubFetch(
+      json(loginFixture),
+      json({
+        SubtitleResults: [{ Id: 1, Type: 2, Title: "T", Release: "", Lang: "Hrvatski", Rating: 1 }],
+      }),
+    );
+
+    const candidates = await titloviSource(credentials, memoryTokenCache()).search(
+      { type: "series", imdbId: "tt0238784", languages: ["hrv"] },
+      signal(),
+    );
+
+    expect(candidates).toEqual([]);
+  });
+
   it("returns nothing without a request when no language is supported", async () => {
     const fetchMock = stubFetch();
 

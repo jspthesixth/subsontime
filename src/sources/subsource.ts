@@ -3,9 +3,12 @@ import { fetchWithTimeout } from "../http.ts";
 import { verdictOf } from "./check.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import {
+  episodeTagOf,
+  isSeries,
   maximumDownloadBytes,
   maximumSearchBytes,
   type Candidate,
+  type Series,
   type Source,
   type VideoQuery,
 } from "./source.ts";
@@ -77,18 +80,12 @@ const rowSchema = v.object({
 });
 
 type Row = v.InferOutput<typeof rowSchema>;
-type Series = VideoQuery & { type: "series"; season: number; episode: number };
-
-const pad = (value: number) => String(value).padStart(2, "0");
-
-const isSeries = (query: VideoQuery): query is Series =>
-  query.type === "series" && query.season !== undefined && query.episode !== undefined;
 
 const rowText = (row: Row) => [...(row.releaseInfo ?? []), row.commentary ?? ""].join(" ");
 
 const matchesEpisode = (query: Series, row: Row) => {
   const text = rowText(row);
-  const tag = `S${pad(query.season)}E${pad(query.episode)}`;
+  const tag = episodeTagOf(query.season, query.episode);
 
   return new RegExp(`${tag}(?!\\d)`, "i").test(text) || !/S\d+E\d+/i.test(text);
 };
@@ -101,7 +98,7 @@ const toFPS = (framerate: Row["framerate"]) => {
 
 const toCandidate = (row: Row, lang: string, query: VideoQuery): Candidate => {
   const releaseName = row.releaseInfo?.find((entry) => entry !== "") || row.commentary || undefined;
-  const tag = isSeries(query) ? `#S${pad(query.season)}E${pad(query.episode)}` : "";
+  const tag = isSeries(query) ? `#${episodeTagOf(query.season, query.episode)}` : "";
 
   return {
     sourceName,

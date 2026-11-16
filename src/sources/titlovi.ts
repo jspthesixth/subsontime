@@ -4,6 +4,8 @@ import { fetchWithTimeout } from "../http.ts";
 import { verdictOf } from "./check.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import {
+  episodeTagOf,
+  isSeries,
   maximumDownloadBytes,
   maximumSearchBytes,
   type Candidate,
@@ -57,10 +59,6 @@ type Credentials = { username: string; password: string };
 type Session = v.InferOutput<typeof sessionSchema>;
 type Row = v.InferOutput<typeof rowSchema>;
 
-const pad = (value: number) => String(value).padStart(2, "0");
-
-const episodeTag = (season: number, episode: number) => `S${pad(season)}E${pad(episode)}`;
-
 const expiryOf = (expirationDate: string) => {
   if (/(Z|[+-]\d{2}:?\d{2})$/.test(expirationDate)) {
     return Date.parse(expirationDate);
@@ -100,11 +98,13 @@ const searchURL = (query: VideoQuery, names: string[], session: Session) => {
 };
 
 const matchesEpisode = (query: VideoQuery, row: Row) =>
-  query.type !== "series" || (row.Season === query.season && row.Episode === query.episode);
+  !isSeries(query)
+    ? query.type !== "series"
+    : row.Season === query.season && row.Episode === query.episode;
 
 const refOf = (row: Row, query: VideoQuery) =>
   query.type === "series" && typeof row.Season === "number" && typeof row.Episode === "number"
-    ? `${row.Type}:${row.Id}:${episodeTag(row.Season, row.Episode)}`
+    ? `${row.Type}:${row.Id}:${episodeTagOf(row.Season, row.Episode)}`
     : `${row.Type}:${row.Id}`;
 
 const refPattern = /^(\d+):(\d+)(?::(S\d{2,}E\d{2,}))?$/;
