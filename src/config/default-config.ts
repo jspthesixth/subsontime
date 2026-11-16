@@ -7,7 +7,12 @@ export const defaultForm = (languages: string[]): ConfigForm => ({
   bestOnly: true,
   timing: "auto",
   sources: [{ kind: "stremio-addon", url: openSubtitlesAddonURL }],
-  extras: { hideMismatches: true, dialogueOnly: false, foreignParts: false },
+  extras: {
+    hideMismatches: true,
+    dialogueOnly: false,
+    foreignParts: false,
+    sourceInLanguage: false,
+  },
   useShared: true,
   share: true,
 });

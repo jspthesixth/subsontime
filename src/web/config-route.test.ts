@@ -15,7 +15,12 @@ const form = {
   bestOnly: true,
   timing: "auto",
   sources: [{ kind: "stremio-addon", url: "https://opensubtitles-v3.strem.io/manifest.json" }],
-  extras: { hideMismatches: true, dialogueOnly: false, foreignParts: false },
+  extras: {
+    hideMismatches: true,
+    dialogueOnly: false,
+    foreignParts: false,
+    sourceInLanguage: false,
+  },
   useShared: true,
   share: true,
 };
@@ -89,7 +94,12 @@ describe("POST /api/config", () => {
 
     expect(await (await post("/api/config/open", { installURL })).json()).toEqual({
       ...form,
-      extras: { hideMismatches: false, dialogueOnly: false, foreignParts: false },
+      extras: {
+        hideMismatches: false,
+        dialogueOnly: false,
+        foreignParts: false,
+        sourceInLanguage: false,
+      },
     });
   });
 

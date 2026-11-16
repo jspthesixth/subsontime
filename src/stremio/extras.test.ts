@@ -610,3 +610,35 @@ describe("dual subtitles", () => {
     });
   });
 });
+
+describe("source in the language name", () => {
+  it("names the language and the source in each entry's language", async () => {
+    const { subtitles } = await listedFor(
+      {
+        listed: [
+          fakeSource("OpenSubtitles", [{ ref: "a", lang: "hrv" }, { ref: "e" }]),
+          fakeSource("Titlovi.com", [{ ref: "t", lang: "hrv" }]),
+        ],
+        references: [],
+      },
+      { languages: ["hrv", "eng"], extras: { ...dialogueOnly, sourceInLanguage: true } },
+    );
+
+    expect(subtitles.map(({ id, lang, label }) => [id, lang, label])).toEqual([
+      ["hrv-best", "Croatian - OpenSubtitles", "OpenSubtitles"],
+      ["hrv-dialogue", "Croatian - OpenSubtitles (dialogue only)", "OpenSubtitles (dialogue only)"],
+      ["hrv-best-2", "Croatian - Titlovi.com", "Titlovi.com"],
+      ["eng-best", "English - OpenSubtitles", "OpenSubtitles"],
+      ["eng-dialogue", "English - OpenSubtitles (dialogue only)", "OpenSubtitles (dialogue only)"],
+    ]);
+  });
+
+  it("keeps the language code when it is off", async () => {
+    const { subtitles } = await listedFor({
+      listed: [fakeSource("OpenSubtitles", [{ ref: "a" }])],
+      references: [],
+    });
+
+    expect(subtitles.map(({ lang }) => lang)).toEqual(["eng", "eng"]);
+  });
+});

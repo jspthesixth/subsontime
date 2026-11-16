@@ -101,6 +101,17 @@ describe("GET /stremio", () => {
     );
   });
 
+  it("has a Show the source in the language name switch, off", async () => {
+    const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
+
+    expect(page).toContain(
+      '<span class="h4" id="x-source">Show the source in the language name</span><span class="small">For TV apps that only show the language. Stremio then stops picking your language by itself.</span>',
+    );
+    expect(page).toMatch(
+      /<button[^>]*role="switch"[^>]*id="source-in-language"[^>]*aria-checked="false"[^>]*aria-labelledby="x-source"/,
+    );
+  });
+
   it("has a Dual subtitles switch, off, with a hidden second language choice", async () => {
     const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
 

@@ -47,6 +47,7 @@ const configObject = v.object({
     hideMismatches: v.boolean(),
     dialogueOnly: v.optional(v.boolean(), false),
     foreignParts: v.optional(v.boolean(), false),
+    sourceInLanguage: v.optional(v.boolean(), false),
     dualLanguage: v.optional(languageCode),
   }),
   useShared: v.optional(v.boolean(), true),

@@ -25,6 +25,7 @@ const timingInputs = [...document.querySelectorAll<HTMLInputElement>("input[name
 const hideMismatchesSwitch = find(document, "#hide-mismatches");
 const dialogueOnlySwitch = find(document, "#dialogue-only");
 const foreignPartsSwitch = find(document, "#foreign-parts");
+const sourceInLanguageSwitch = find(document, "#source-in-language");
 const dualSwitch = find(document, "#dual");
 const dualRow = find(document, "#dual-row");
 const dualSelect = find<HTMLSelectElement>(document, "#dual-lang");
@@ -186,6 +187,7 @@ const render = () => {
   hideMismatchesSwitch.setAttribute("aria-checked", String(state.extras.hideMismatches));
   dialogueOnlySwitch.setAttribute("aria-checked", String(state.extras.dialogueOnly));
   foreignPartsSwitch.setAttribute("aria-checked", String(state.extras.foreignParts));
+  sourceInLanguageSwitch.setAttribute("aria-checked", String(state.extras.sourceInLanguage));
   dualSwitch.setAttribute("aria-checked", String(state.extras.dualLanguage !== undefined));
   dualRow.hidden = state.extras.dualLanguage === undefined;
   [...dualSelect.options].forEach((option) => {
@@ -278,6 +280,10 @@ dialogueOnlySwitch.addEventListener("click", () =>
 
 foreignPartsSwitch.addEventListener("click", () =>
   update({ extras: { ...state.extras, foreignParts: !state.extras.foreignParts } }),
+);
+
+sourceInLanguageSwitch.addEventListener("click", () =>
+  update({ extras: { ...state.extras, sourceInLanguage: !state.extras.sourceInLanguage } }),
 );
 
 dualSwitch.addEventListener("click", () =>

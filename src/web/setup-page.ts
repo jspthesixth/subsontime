@@ -262,6 +262,13 @@ const extraSwitches: Switch[] = [
       </select>
     </div>`,
   },
+  {
+    id: "source-in-language",
+    labelId: "x-source",
+    title: "Show the source in the language name",
+    body: "For TV apps that only show the language. Stremio then stops picking your language by itself.",
+    checked: false,
+  },
 ];
 
 const extrasBlock = html`<section class="setup-block" aria-labelledby="s4">

@@ -367,5 +367,12 @@ export const subtitlesRoute =
       ...foreignPartsEntriesOf(lang),
     ]);
 
-    return context.json({ subtitles }, 200, { "cache-control": "public, max-age=3600" });
+    const named = config.extras.sourceInLanguage
+      ? subtitles.map((entry) => ({
+          ...entry,
+          lang: `${englishNameOf(entry.lang)} - ${entry.label}`,
+        }))
+      : subtitles;
+
+    return context.json({ subtitles: named }, 200, { "cache-control": "public, max-age=3600" });
   };

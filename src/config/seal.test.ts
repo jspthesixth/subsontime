@@ -68,7 +68,12 @@ describe("seal", () => {
       bestOnly: true,
       timing: "auto",
       sources: [{ kind: "stremio-addon", url: "https://opensubtitles-v3.strem.io/manifest.json" }],
-      extras: { hideMismatches: false, dialogueOnly: false, foreignParts: false },
+      extras: {
+        hideMismatches: false,
+        dialogueOnly: false,
+        foreignParts: false,
+        sourceInLanguage: false,
+      },
       useShared: true,
       share: true,
     });
