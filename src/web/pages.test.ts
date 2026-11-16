@@ -107,6 +107,19 @@ describe("GET /stremio", () => {
     );
   });
 
+  it("offers an OpenSubtitles sign-in row like the Titlovi.com one", async () => {
+    const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
+
+    expect(page).toContain(
+      '<div class="list-row source" data-kind="opensubtitles" data-state="idle"> <div class="list-main"> <span class="h4" id="opensubtitles-name">OpenSubtitles</span><span class="small">Optional. Sign in so downloads use your own OpenSubtitles account (about 20 a day free, more with VIP).</span>',
+    );
+    expect(page).toMatch(
+      /data-kind="opensubtitles"[\s\S]*?Sign in <\/button>[\s\S]*?<span class="status">[\s\S]*?Signed in<\/span>/,
+    );
+    expect(page).toMatch(/data-kind="titlovi"[\s\S]*?<span class="status">[\s\S]*?Added<\/span>/);
+    expect(page).not.toContain("Ready, no account needed");
+  });
+
   it("has a Dual subtitles switch, off, with a hidden second language choice", async () => {
     const page = (await (await app.request("/stremio")).text()).replace(/\s+/g, " ");
 

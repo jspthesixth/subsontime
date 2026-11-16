@@ -193,6 +193,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     sourceCheckRoute({
       allow: failOpen(rateLimit(state, limitKey, "sources", 10, 60_000)),
       clientKey,
+      openSubtitlesAppKey: deps.openSubtitlesAppKey,
     }),
   );
   app.post(

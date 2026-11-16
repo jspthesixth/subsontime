@@ -67,14 +67,17 @@ const addonURLs = () =>
     source.kind === "stremio-addon" && !isOpenSubtitles(source) ? [source.url] : [],
   );
 
-const summaryOf = ({ languages, sources, timing }: ConfigForm) =>
-  [
+const summaryOf = ({ languages, sources, timing }: ConfigForm) => {
+  const count = sources.filter(({ kind }) => kind !== "opensubtitles").length;
+
+  return [
     languages.map(nameOf).join(", "),
-    `${sources.length} ${sources.length === 1 ? "source" : "sources"}`,
+    `${count} ${count === 1 ? "source" : "sources"}`,
     timing === "auto" ? "Automatic timing" : "Timing off",
   ]
     .filter((part) => part !== "")
     .join(" · ");
+};
 
 const checkErrorOf = (result: unknown) =>
   typeof result === "object" && result !== null && "ok" in result && result.ok === true

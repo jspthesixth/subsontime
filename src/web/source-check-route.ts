@@ -2,15 +2,20 @@ import type { Context } from "hono";
 import * as v from "valibot";
 import { sourceSchema, type SourceSettings } from "../config/config.ts";
 import type { Verdict } from "../sources/check.ts";
+import { checkOpenSubtitles } from "../sources/opensubtitles.ts";
 import { checkSubDL } from "../sources/subdl.ts";
 import { checkSubSource } from "../sources/subsource.ts";
 import { checkTitlovi } from "../sources/titlovi.ts";
 
-type Checkable = Extract<SourceSettings, { kind: "titlovi" | "subdl" | "subsource" }>;
+type Checkable = Extract<
+  SourceSettings,
+  { kind: "opensubtitles" | "titlovi" | "subdl" | "subsource" }
+>;
 
 type SourceCheckDeps = {
   allow: (key: string) => Promise<boolean>;
   clientKey: (context: Context) => string;
+  openSubtitlesAppKey?: string;
 };
 
 const checkTimeoutMs = 8000;
@@ -19,15 +24,16 @@ const uncheckableMessage = "This source cannot be checked";
 export const tooManyMessage = "Too many checks. Try again in a minute.";
 
 const labels: Record<Checkable["kind"], { name: string; secret: string }> = {
+  opensubtitles: { name: "OpenSubtitles", secret: "username and password" },
   titlovi: { name: "Titlovi.com", secret: "username and password" },
   subdl: { name: "SubDL", secret: "API key" },
   subsource: { name: "SubSource", secret: "API key" },
 };
 
-const isCheckable = (source: SourceSettings): source is Checkable => source.kind in labels;
-
-const runCheck = (source: Checkable): Promise<Verdict> => {
+const runCheck = (source: Checkable, appKey: string): Promise<Verdict> => {
   switch (source.kind) {
+    case "opensubtitles":
+      return checkOpenSubtitles(source, appKey, checkTimeoutMs);
     case "titlovi":
       return checkTitlovi(source, checkTimeoutMs);
     case "subdl":
@@ -38,8 +44,12 @@ const runCheck = (source: Checkable): Promise<Verdict> => {
 };
 
 export const sourceCheckRoute =
-  ({ allow, clientKey }: SourceCheckDeps) =>
+  ({ allow, clientKey, openSubtitlesAppKey }: SourceCheckDeps) =>
   async (context: Context) => {
+    const isCheckable = (source: SourceSettings): source is Checkable =>
+      source.kind in labels &&
+      (source.kind !== "opensubtitles" || openSubtitlesAppKey !== undefined);
+
     context.header("Cache-Control", "no-store");
 
     if (!(await allow(clientKey(context)))) {
@@ -59,7 +69,9 @@ export const sourceCheckRoute =
 
     const { name, secret } = labels[body.output.kind];
 
-    const verdict = await runCheck(body.output).catch((): Verdict => "unreachable");
+    const verdict = await runCheck(body.output, openSubtitlesAppKey ?? "").catch(
+      (): Verdict => "unreachable",
+    );
     const answers: Record<Verdict, { ok: boolean; error?: string }> = {
       accepted: { ok: true },
       rejected: { ok: false, error: `${name} did not accept this ${secret}.` },

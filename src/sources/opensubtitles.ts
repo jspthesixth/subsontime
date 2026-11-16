@@ -4,6 +4,7 @@ import packageJSON from "../../package.json" with { type: "json" };
 import { fetchWithTimeout } from "../http.ts";
 import { toISO6391, toISO6392 } from "../languages.ts";
 import { parseRelease } from "../subtitles/release.ts";
+import { verdictOf } from "./check.ts";
 import {
   maximumDownloadBytes,
   maximumSearchBytes,
@@ -138,6 +139,22 @@ export const restCandidate = (entry: RESTEntry): Candidate[] => {
   ];
 };
 
+const requestLogin = (user: Credentials, appKey: string, timeoutMs: number, signal?: AbortSignal) =>
+  fetchWithTimeout(
+    `${defaultBaseURL}/login`,
+    {
+      method: "POST",
+      headers: { ...baseHeaders(appKey), "Content-Type": "application/json" },
+      body: JSON.stringify({ username: user.username, password: user.password }),
+      signal,
+      maxBytes: maximumSearchBytes,
+    },
+    timeoutMs,
+  );
+
+export const checkOpenSubtitles = async (user: Credentials, appKey: string, timeoutMs: number) =>
+  verdictOf(await requestLogin(user, appKey, timeoutMs), loginSchema);
+
 export const openSubtitlesSource = (
   credentials: Credentials | undefined,
   appKey: string,
@@ -154,17 +171,7 @@ export const openSubtitlesSource = (
       return cached.output;
     }
 
-    const response = await fetchWithTimeout(
-      `${defaultBaseURL}/login`,
-      {
-        method: "POST",
-        headers: { ...baseHeaders(appKey), "Content-Type": "application/json" },
-        body: JSON.stringify({ username: user.username, password: user.password }),
-        signal,
-        maxBytes: maximumSearchBytes,
-      },
-      requestTimeoutMs,
-    );
+    const response = await requestLogin(user, appKey, requestTimeoutMs, signal);
     const parsed = v.safeParse(loginSchema, await response.json().catch(() => undefined));
 
     if (!response.ok || !parsed.success) {

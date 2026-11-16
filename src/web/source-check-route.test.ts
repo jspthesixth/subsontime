@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 
-const newApp = () =>
+const newApp = (openSubtitlesAppKey?: string) =>
   createApp({
     secret: "a-test-secret-that-is-long-enough-1234",
     clientKey: (context) => context.req.header("x-test-client") ?? "none",
+    openSubtitlesAppKey,
   });
 
 const check = (app: ReturnType<typeof newApp>, body: unknown, ip = "203.0.113.7") =>
@@ -31,6 +32,11 @@ const stubFetch = (response: Response | Error) => {
 };
 
 const titlovi = { kind: "titlovi", username: "someone-secret", password: "hunter2-secret" };
+const openSubtitles = {
+  kind: "opensubtitles",
+  username: "someone-secret",
+  password: "hunter2-secret",
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -62,6 +68,43 @@ describe("POST /api/sources/check", () => {
     });
     expect(body).not.toContain("someone-secret");
     expect(body).not.toContain("hunter2-secret");
+  });
+
+  it("signs in to OpenSubtitles with the app key", async () => {
+    const fetchMock = stubFetch(json({ token: "token", base_url: "api.opensubtitles.com" }));
+    const response = await check(newApp("app-key"), openSubtitles);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+
+    expect(await response.json()).toEqual({ ok: true });
+    expect(String(url)).toBe("https://api.opensubtitles.com/api/v1/login");
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("api-key")).toBe("app-key");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      username: "someone-secret",
+      password: "hunter2-secret",
+    });
+  });
+
+  it("says OpenSubtitles refused the sign-in, without echoing it", async () => {
+    stubFetch(json({ message: "Error, invalid username/password  ", status: 401 }, 401));
+
+    const body = await (await check(newApp("app-key"), openSubtitles)).text();
+
+    expect(JSON.parse(body)).toEqual({
+      ok: false,
+      error: "OpenSubtitles did not accept this username and password.",
+    });
+    expect(body).not.toContain("someone-secret");
+    expect(body).not.toContain("hunter2-secret");
+  });
+
+  it("cannot check an OpenSubtitles account without an app key", async () => {
+    const fetchMock = stubFetch(json({}));
+    const response = await check(newApp(), openSubtitles);
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "This source cannot be checked" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("checks a SubDL key with one English search for one film", async () => {

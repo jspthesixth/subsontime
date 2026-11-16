@@ -10,22 +10,34 @@ const apiKeyField: AccountField[] = [
   { name: "apiKey", label: "API key", type: "text", autocomplete: "off" },
 ];
 
+const loginFields: AccountField[] = [
+  { name: "username", label: "Username", type: "text", autocomplete: "username" },
+  { name: "password", label: "Password", type: "password", autocomplete: "current-password" },
+];
+
 const accounts = [
+  {
+    kind: "opensubtitles",
+    name: "OpenSubtitles",
+    body: "Optional. Sign in so downloads use your own OpenSubtitles account (about 20 a day free, more with VIP).",
+    add: "Sign in",
+    saved: "Signed in",
+    fields: loginFields,
+  },
   {
     kind: "titlovi",
     name: "Titlovi.com",
     body: "Best for Croatian, Serbian, Bosnian, Slovenian and Macedonian.",
     add: "Add account",
-    fields: [
-      { name: "username", label: "Username", type: "text", autocomplete: "username" },
-      { name: "password", label: "Password", type: "password", autocomplete: "current-password" },
-    ],
+    saved: "Added",
+    fields: loginFields,
   },
   {
     kind: "subdl",
     name: "SubDL",
     body: "Large multilingual catalog.",
     add: "Add API key",
+    saved: "Added",
     fields: apiKeyField,
   },
   {
@@ -33,6 +45,7 @@ const accounts = [
     name: "SubSource",
     body: "Strong on new releases.",
     add: "Add API key",
+    saved: "Added",
     fields: apiKeyField,
   },
 ];
@@ -91,7 +104,7 @@ const languagesBlock = html`<section class="setup-block" aria-labelledby="s1">
   </div>
 </section>`;
 
-const accountRow = ({ kind, name, body, add, fields }: (typeof accounts)[number]) =>
+const accountRow = ({ kind, name, body, add, saved, fields }: (typeof accounts)[number]) =>
   html`<div class="list-row source" data-kind="${kind}" data-state="idle">
     <div class="list-main">
       <span class="h4" id="${kind}-name">${name}</span><span class="small">${body}</span>
@@ -105,7 +118,7 @@ const accountRow = ({ kind, name, body, add, fields }: (typeof accounts)[number]
       ${add}
     </button>
     <div class="row-wrap gap-8 source-saved">
-      <span class="status">${statusIcon}Added</span>
+      <span class="status">${statusIcon}${saved}</span>
       <button type="button" class="btn-quiet source-remove" aria-label="Remove ${name}">
         Remove
       </button>
@@ -142,16 +155,7 @@ const accountRow = ({ kind, name, body, add, fields }: (typeof accounts)[number]
 const sourcesBlock = html`<section class="setup-block" aria-labelledby="s2">
   ${setupHead("02", "s2", "Sources", "Where to look. Accounts are used only to search and download for you, and are stored encrypted in your install link.")}
   <div class="stack gap-24">
-    <div class="list" id="source-list">
-      <div class="list-row">
-        <div class="list-main">
-          <span class="h4">OpenSubtitles</span
-          ><span class="small">Every language. Also the default timing reference.</span>
-        </div>
-        <span class="status">${statusIcon}Ready, no account needed</span>
-      </div>
-      ${accounts.map(accountRow)}
-    </div>
+    <div class="list" id="source-list">${accounts.map(accountRow)}</div>
     <form class="field" id="addon-form">
       <label class="label" for="addon-url">Any Stremio subtitle addon</label>
       <div class="input-row">
