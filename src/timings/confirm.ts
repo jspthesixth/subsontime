@@ -6,6 +6,7 @@ import {
   type NewReport,
   type ReportRow,
 } from "./db.ts";
+import { median } from "../timing/retime.ts";
 import {
   setSimilarity,
   sketchSize,
@@ -248,14 +249,6 @@ const confirms = (a: FixRow, b: FixRow) =>
 
 const isConfirmed = (fixes: FixRow[]) => fixes.some((a) => fixes.some((b) => confirms(a, b)));
 
-const median = (values: number[]) => {
-  const sorted = Int32Array.from(values).toSorted();
-
-  return Math.round(
-    ((sorted[(sorted.length - 1) >> 1] ?? 0) + (sorted[sorted.length >> 1] ?? 0)) / 2,
-  );
-};
-
 type Name = Pick<FixView, "id" | "subtitleSketch">;
 
 const viewOf = (name: Name, cues: FixCue[]) => ({ ...name, cues, cueCount: cues.length });
@@ -275,8 +268,8 @@ const confirmedView = (name: Name, component: Timed[]): Ranked => {
   const cues = [...timings]
     .map(([h, copies]) => ({
       h,
-      s: median(copies.map((cue) => cue.s)),
-      e: median(copies.map((cue) => cue.e)),
+      s: Math.round(median(copies.map((cue) => cue.s))),
+      e: Math.round(median(copies.map((cue) => cue.e))),
     }))
     .toSorted((a, b) => a.s - b.s || a.e - b.e);
 
