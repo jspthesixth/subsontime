@@ -76,9 +76,15 @@ def listing(origin):
         {"id": "hrv-1", "lang": "hrv", "label": "Titlovi", "url": f"{origin}/{sealed}/sub/hrv.srt"},
         {"id": "eng-3", "lang": "eng", "label": "SubDL", "url": f"{origin}/elsewhere/sub/other.srt"},
         {"id": "eng-4", "lang": "eng", "label": "SubDL", "url": f"http://other.example/{sealed}/sub/moved.srt"},
+        {"id": "eng-5", "lang": "eng", "label": "SubDL"},
+        {"lang": "eng", "url": f"{origin}/{sealed}/sub/no-id.srt"},
     ]
 
     return {f"/{sealed}/subtitles/": (200, json.dumps({"subtitles": entries}).encode())}
+
+
+def path_of(candidate):
+    return candidate["provider_payload"]["path"]
 
 
 class OpenSubtitlesHashTest(unittest.TestCase):
@@ -155,28 +161,28 @@ class SearchTest(unittest.TestCase):
             [f"/{sealed}/subtitles/movie/tt0063350/videoHash=7e41b4dbe9b10c2e&videoSize=204800&filename=Night%20of%20the%20Living%20Dead%20%281968%29.mkv.json"],
         )
 
-    def test_uses_the_series_id_and_the_hash_bazarr_gives(self):
+    def test_uses_the_series_id_and_hashes_the_episode_file(self):
         episode = {
             "kind": "episode",
-            "name": "/missing/Show.S01E02.mkv",
-            "original_path": "/missing/Show.S01E02.mkv",
+            "name": None,
+            "original_path": write_video(self.directory.name, "Show.S01E02.mkv", 1000),
             "imdb_id": "tt9999999",
             "series_imdb_id": "tt0944947",
             "season": 1,
             "episode": 2,
-            "hashes": {"opensubtitles": "0123456789abcdef"},
-            "size": 734003200,
+            "hashes": {},
+            "size": None,
         }
 
         candidates = provider.SubsOnTimeProvider().search(episode, [english], self.config)
 
         self.assertEqual(
             self.server.requested,
-            [f"/{sealed}/subtitles/series/tt0944947:1:2/videoHash=0123456789abcdef&videoSize=734003200&filename=Show.S01E02.mkv.json"],
+            [f"/{sealed}/subtitles/series/tt0944947:1:2/videoHash=f90c876c5a7f1d56&videoSize=1000&filename=Show.S01E02.mkv.json"],
         )
         self.assertEqual(
-            [(each["id"], each["score"], each["score_out_of"]) for each in candidates],
-            [("eng-2", 359, 360), ("eng-dialogue", 358, 360), ("eng-1", 357, 360), ("eng-4", 356, 360), ("eng-forced", 359, 360)],
+            [(path_of(each), each["score"], each["score_out_of"]) for each in candidates],
+            [("/sub/second.srt", 359, 360), ("/sub/third.srt?t=d", 358, 360), ("/sub/first.srt", 357, 360), ("/sub/moved.srt", 356, 360), ("/sub/forced.srt", 295, 360)],
         )
         self.assertEqual(
             sorted(candidates[0]["matches"]),
@@ -191,17 +197,17 @@ class SearchTest(unittest.TestCase):
 
         self.assertEqual(self.server.requested, [f"/{sealed}/subtitles/movie/tt0000001/filename=Movie.2020.mkv.json"])
 
-    def test_scores_every_subtitle_as_a_full_match_made_for_this_file_first(self):
+    def test_scores_every_subtitle_as_a_full_match_made_for_this_file_first_and_forced_last(self):
         candidates = provider.SubsOnTimeProvider().search(self.movie(), [english], self.config)
 
         self.assertEqual(
-            [(each["id"], each["score"], each["score_without_hash"], each["score_out_of"]) for each in candidates],
+            [(path_of(each), each["score"], each["score_without_hash"], each["score_out_of"]) for each in candidates],
             [
-                ("eng-2", 179, 179, 180),
-                ("eng-dialogue", 178, 178, 180),
-                ("eng-1", 177, 177, 180),
-                ("eng-4", 176, 176, 180),
-                ("eng-forced", 179, 179, 180),
+                ("/sub/second.srt", 179, 179, 180),
+                ("/sub/third.srt?t=d", 178, 178, 180),
+                ("/sub/first.srt", 177, 177, 180),
+                ("/sub/moved.srt", 176, 176, 180),
+                ("/sub/forced.srt", 130, 130, 180),
             ],
         )
         self.assertEqual(
@@ -212,21 +218,49 @@ class SearchTest(unittest.TestCase):
 
     def test_keeps_the_language_bazarr_asked_for_and_flags_forced(self):
         candidates = provider.SubsOnTimeProvider().search(self.movie(), [english, brazilian], self.config)
-        languages = {each["id"]: each["language"] for each in candidates}
+        languages = {path_of(each): each["language"] for each in candidates}
 
-        self.assertEqual(languages["eng-1"], english)
-        self.assertEqual(languages["eng-forced"], {**english, "forced": True})
-        self.assertEqual(languages["pob-1"], brazilian)
-        self.assertNotIn("hrv-1", languages)
+        self.assertEqual(languages["/sub/first.srt"], english)
+        self.assertEqual(languages["/sub/forced.srt"], {**english, "forced": True})
+        self.assertEqual(languages["/sub/pob.srt"], brazilian)
+        self.assertNotIn("/sub/hrv.srt", languages)
 
-    def test_keeps_only_the_path_under_the_install_link(self):
+    def test_keeps_only_the_path_under_the_install_link_and_skips_broken_entries(self):
         candidates = provider.SubsOnTimeProvider().search(self.movie(), [english], self.config)
-        payloads = {each["id"]: each["provider_payload"] for each in candidates}
 
-        self.assertEqual(payloads["eng-1"], {"provider": "subsontime", "path": "/sub/first.srt"})
-        self.assertEqual(payloads["eng-dialogue"], {"provider": "subsontime", "path": "/sub/third.srt?t=d"})
-        self.assertEqual(payloads["eng-4"], {"provider": "subsontime", "path": "/sub/moved.srt"})
+        self.assertEqual(
+            [each["provider_payload"] for each in candidates],
+            [
+                {"provider": "subsontime", "path": "/sub/second.srt"},
+                {"provider": "subsontime", "path": "/sub/third.srt?t=d"},
+                {"provider": "subsontime", "path": "/sub/first.srt"},
+                {"provider": "subsontime", "path": "/sub/moved.srt"},
+                {"provider": "subsontime", "path": "/sub/forced.srt"},
+            ],
+        )
         self.assertNotIn(sealed, json.dumps(candidates))
+
+    def test_names_each_subtitle_by_its_path(self):
+        first = provider.SubsOnTimeProvider().search(self.movie(), [english], self.config)
+        again = provider.SubsOnTimeProvider().search(self.movie(), [english], self.config)
+        ids = {path_of(each): each["id"] for each in first}
+
+        self.assertEqual(ids["/sub/first.srt"], "b9c677ad8bd8662dc906b010604dbcd4b372e728a6b76eec9ca957394de726c2")
+        self.assertEqual(ids["/sub/second.srt"], "6acb57f64dbdd601ac6843fdacf03ef1370f4ea2b9099ea6dd9540a5c6e1523e")
+        self.assertEqual(len(set(ids.values())), 5)
+        self.assertEqual([each["id"] for each in again], [each["id"] for each in first])
+
+    def test_never_puts_the_install_link_in_a_search_error(self):
+        failing = AddonServer(lambda origin: {"/": (500, b"")})
+        config = {"install_link": f"{failing.origin}/{sealed}/manifest.json"}
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            provider.SubsOnTimeProvider().search(self.movie(), [english], config)
+
+        failing.close()
+        error = raised.exception
+        self.assertNotIn(sealed, str(error) + "".join(traceback.format_exception(type(error), error, error.__traceback__)))
+        error.close()
 
     def test_finds_nothing_without_an_install_link(self):
         self.assertEqual(provider.SubsOnTimeProvider().search(self.movie(), [english], {}), [])

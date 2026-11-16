@@ -1,4 +1,5 @@
 import functools
+import hashlib
 import itertools
 import json
 import os
@@ -8,7 +9,7 @@ import urllib.request
 
 provider_id = "subsontime"
 chunk_bytes = 65536
-request_timeout_seconds = 120
+request_timeout_seconds = 30
 made_for_this_file = "made for this file"
 match_weights = {
     "movie": {"title": 60, "year": 40, "source": 30, "edition": 30, "release_group": 15, "audio_codec": 1, "resolution": 1, "video_codec": 1, "streaming_service": 1},
@@ -68,11 +69,7 @@ def opensubtitles_hash(path):
 
 
 def fingerprint_of(video):
-    given = (video.get("hashes") or {}).get("opensubtitles")
     path = video.get("original_path") or video.get("name")
-
-    if given and video.get("size"):
-        return given, int(video["size"])
 
     try:
         return opensubtitles_hash(path) if path else None
@@ -141,27 +138,31 @@ def matches_at(kind, position):
     return next(((total, keys) for total, keys in ladder if total <= target), ladder[-1])
 
 
-def group_of(entry):
-    return entry["lang"], entry["id"].endswith("-forced")
+def is_complete(entry):
+    return isinstance(entry, dict) and all(isinstance(entry.get(key), str) for key in ("id", "lang", "label", "url"))
+
+
+def is_forced(entry):
+    return entry["id"].endswith("-forced")
 
 
 def ranked(placed):
-    ordered = sorted(placed, key=lambda pair: (*group_of(pair[0]), made_for_this_file not in notes_of(pair[0]["label"])))
+    ordered = sorted(placed, key=lambda pair: (pair[0]["lang"], is_forced(pair[0]), made_for_this_file not in notes_of(pair[0]["label"])))
 
     return [
         (entry, path, position)
-        for _, group in itertools.groupby(ordered, key=lambda pair: group_of(pair[0]))
+        for _, group in itertools.groupby(ordered, key=lambda pair: pair[0]["lang"])
         for position, (entry, path) in enumerate(group)
     ]
 
 
 def candidate_of(entry, path, position, language, kind):
-    score, matches = matches_at(kind, position)
-    _, forced = group_of(entry)
+    forced = is_forced(entry)
+    score, matches = match_ladders[kind][-1] if forced else matches_at(kind, position)
 
     return {
         "provider": provider_id,
-        "id": entry["id"],
+        "id": hashlib.sha256(path.encode()).hexdigest(),
         "language": {**language, "hi": False, "forced": forced},
         "matches": matches,
         "score": score,
@@ -190,7 +191,7 @@ class SubsOnTimeProvider:
         placed = [
             (entry, path)
             for entry in listing.get("subtitles", [])
-            if entry.get("lang") in wanted and (path := path_under(base_path, entry["url"])) is not None
+            if is_complete(entry) and entry["lang"] in wanted and (path := path_under(base_path, entry["url"])) is not None
         ]
 
         return [candidate_of(entry, path, position, wanted[entry["lang"]], video["kind"]) for entry, path, position in ranked(placed)]
