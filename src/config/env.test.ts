@@ -35,6 +35,7 @@ describe("readEnvironment", () => {
       },
       database: { url: undefined, unpooledURL: undefined },
       sharedState: undefined,
+      dumps: { blobToken: undefined, cronSecret: undefined },
     });
   });
 
@@ -57,6 +58,8 @@ describe("readEnvironment", () => {
         DATABASE_URL_UNPOOLED: "postgres://direct",
         UPSTASH_REDIS_REST_URL: "http://localhost:8079",
         UPSTASH_REDIS_REST_TOKEN: "token",
+        BLOB_READ_WRITE_TOKEN: "blob-token",
+        CRON_SECRET: "cron-secret",
       }),
     ).toEqual({
       server: {
@@ -77,17 +80,20 @@ describe("readEnvironment", () => {
       },
       database: { url: "postgres://pooled", unpooledURL: "postgres://direct" },
       sharedState: { url: "http://localhost:8079", token: "token" },
+      dumps: { blobToken: "blob-token", cronSecret: "cron-secret" },
     });
   });
 
   it("treats empty variables as unset", () => {
-    const { sources, database, server } = readEnvironment({
+    const { sources, database, server, dumps } = readEnvironment({
       ...secrets,
       PORT: "",
       PUBLIC_URL: "",
       TRUST_PROXY: "",
       OPENSUBTITLES_APP_KEY: "",
       DATABASE_URL: "",
+      BLOB_READ_WRITE_TOKEN: "",
+      CRON_SECRET: "",
     });
 
     expect(server.port).toBe(7000);
@@ -95,6 +101,7 @@ describe("readEnvironment", () => {
     expect(server.trustProxy).toBe(false);
     expect(sources.openSubtitlesAppKey).toBeUndefined();
     expect(database.url).toBeUndefined();
+    expect(dumps).toEqual({ blobToken: undefined, cronSecret: undefined });
   });
 
   it("enables a flag only for 1", () => {

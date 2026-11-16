@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
 import { timing } from "hono/timing";
+import { bearerAuth } from "hono/bearer-auth";
 import jellyfinReleases from "../plugins/jellyfin/releases.json" with { type: "json" };
 import { baseURL } from "./base-url.ts";
 import { ConfigError, type Config } from "./config/config.ts";
@@ -26,6 +27,7 @@ import {
 } from "./timings/api.ts";
 import { cuesRoute, lookUpRoute, statsRoute, writeRoute } from "./timings/api-route.ts";
 import { memoryStore, type TimingsStore } from "./timings/db.ts";
+import { dumpCronRoute, latestDumpRoute } from "./timings/dump.ts";
 import { dailyOrigins } from "./timings/origin.ts";
 import { groupingKeyOf } from "./timings/submitter.ts";
 import { checkPage } from "./web/check-page.ts";
@@ -52,6 +54,8 @@ export type AppDeps = {
   timings?: TimingsStore;
   defer?: (work: Promise<unknown>) => void;
   analytics?: boolean;
+  blobToken?: string;
+  cronSecret?: string;
 };
 
 export type AppEnv = { Variables: { config: Config; tokens: TokenCache } };
@@ -199,6 +203,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   );
   app.get("/api/titles", titlesRoute(titleLimit));
   app.get("/api/titles/:id/episodes", episodesRoute(titleLimit));
+  app.get("/api/v1/dump", latestDumpRoute(deps.blobToken));
 
   if (openTimings !== undefined) {
     const timingsDeps = {
@@ -216,6 +221,11 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
         allow: failOpen(rateLimit(state, limitKey, "stats", 60, 60_000)),
         clientKey,
       }),
+    );
+    app.get(
+      "/api/cron/dump",
+      bearerAuth({ token: deps.cronSecret ?? [] }),
+      dumpCronRoute({ ...openTimings, blobToken: deps.blobToken }),
     );
     app.get("/api/v1/fixes", lookUpRoute(timingsDeps));
     app.get("/api/v1/fixes/:video/:id/cues", cuesRoute(timingsDeps));

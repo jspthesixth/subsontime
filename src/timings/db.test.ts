@@ -237,6 +237,27 @@ const contract = (makeStore: () => TimingsStore) => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ reason: "wrong-language" });
   });
+
+  it("pages each video once in hash and size order across fixes, mismatches and reports", async () => {
+    const smallVideo = { hash: video.hash, size: 1 };
+
+    await store.putFix(fix());
+    await store.putFix(fix({ submitter: submitterB }));
+    await store.putMismatch(mismatch({ video: otherVideo }));
+    await store.putReport(report({ video: smallVideo }));
+
+    expect(await store.videoPage(undefined, 10)).toEqual([
+      { hash: "0123456789abcdef", size: 1 },
+      { hash: "0123456789abcdef", size: 7_345_678_901 },
+      { hash: "fedcba9876543210", size: 1_000 },
+    ]);
+    expect(await store.videoPage(undefined, 1)).toEqual([{ hash: "0123456789abcdef", size: 1 }]);
+    expect(await store.videoPage(smallVideo, 1)).toEqual([
+      { hash: "0123456789abcdef", size: 7_345_678_901 },
+    ]);
+    expect(await store.videoPage(video, 10)).toEqual([{ hash: "fedcba9876543210", size: 1_000 }]);
+    expect(await store.videoPage(otherVideo, 10)).toEqual([]);
+  });
 };
 
 describe("memoryStore", () => {

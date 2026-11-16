@@ -355,6 +355,7 @@ describe("reading Open Timings", () => {
       putMismatch: failing,
       putReport: failing,
       stats: failing,
+      videoPage: failing,
     };
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const defer = deferSpy();

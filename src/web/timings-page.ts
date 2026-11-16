@@ -163,7 +163,7 @@ const apiBlock = html`<section id="api" class="wrap section">
   <div class="stack gap-32">
     <div class="stack gap-12 measure">
       <h2 class="h2">Use the data</h2>
-      <p class="body">A public API now, and a full download of the whole record at launch.</p>
+      <p class="body">A public API, and a daily download of the whole record.</p>
     </div>
     <pre class="code">
 <span class="c"># every known fix for one video file</span>
@@ -177,8 +177,8 @@ POST /api/v1/fixes
 POST /api/v1/mismatches
 POST /api/v1/reports</pre>
     <div class="row-wrap gap-12">
-      <button type="button" class="btn btn-ghost" disabled>Download the data</button>
-      <span class="small">Coming at launch</span>
+      <a class="btn btn-ghost" href="/api/v1/dump">Download the data</a>
+      <span class="small">Daily, gzipped JSON Lines, CC0-1.0</span>
     </div>
   </div>
 </section>`;

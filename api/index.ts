@@ -5,7 +5,7 @@ import { readEnvironment } from "../src/config/env.ts";
 import { sharedStateFrom } from "../src/jobs/shared-state.ts";
 import { memoryStore, postgresStore } from "../src/timings/db.ts";
 
-const { server, secrets, sources, database, sharedState } = readEnvironment(process.env);
+const { server, secrets, sources, database, sharedState, dumps } = readEnvironment(process.env);
 
 export default createApp({
   secret: secrets.secret,
@@ -17,4 +17,6 @@ export default createApp({
   timings: database.url ? postgresStore(database.url) : memoryStore(),
   defer: waitUntil,
   analytics: server.onVercel,
+  blobToken: dumps.blobToken,
+  cronSecret: dumps.cronSecret,
 });

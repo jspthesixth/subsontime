@@ -105,6 +105,14 @@ export const sharedStateSchema = v.pipe(
   ),
 );
 
+export const dumpsSchema = v.pipe(
+  v.object({ BLOB_READ_WRITE_TOKEN: text, CRON_SECRET: text }),
+  v.transform(({ BLOB_READ_WRITE_TOKEN, CRON_SECRET }) => ({
+    blobToken: BLOB_READ_WRITE_TOKEN,
+    cronSecret: CRON_SECRET,
+  })),
+);
+
 export const cliSchema = v.pipe(
   v.object({ NO_COLOR: text, SUBSONTIME_CONFIG_DIR: text, APPDATA: text, XDG_CONFIG_HOME: text }),
   v.transform(({ NO_COLOR, SUBSONTIME_CONFIG_DIR, APPDATA, XDG_CONFIG_HOME }) => ({
@@ -147,6 +155,7 @@ export const readEnvironment = (env: NodeJS.ProcessEnv) => ({
   sources: { ...readGroup(sourcesSchema, env), ...readGroup(openSubtitlesBudgetSchema, env) },
   database: readGroup(databaseSchema, env),
   sharedState: readGroup(sharedStateSchema, env),
+  dumps: readGroup(dumpsSchema, env),
 });
 
 export type Environment = ReturnType<typeof readEnvironment>;

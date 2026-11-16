@@ -3,5 +3,6 @@
   "regions": ["fra1"],
   "buildCommand": "pnpm build",
   "functions": { "api/index.ts": { "includeFiles": "wasm/**" } },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "crons": [{ "path": "/api/cron/dump", "schedule": "30 3 * * *" }]
 }

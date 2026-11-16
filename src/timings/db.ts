@@ -48,9 +48,11 @@ export type TimingsStore = {
   putMismatch(row: NewMismatch): Promise<void>;
   putReport(row: NewReport): Promise<void>;
   stats(): Promise<StoreStats>;
+  videoPage(after: VideoKey | undefined, limit: number): Promise<VideoKey[]>;
 };
 
 const readLimit = 500;
+const firstVideo: VideoKey = { hash: "", size: 0 };
 
 export const subtitleKey = (hashes: CueHash[]) =>
   createHash("md5").update(hashes.join(",")).digest("hex");
@@ -92,6 +94,8 @@ const memoryTable = <Row extends Keyed>() => {
 
 const videoId = ({ video }: Keyed) => `${video.hash}:${video.size}`;
 
+const byVideo = (a: VideoKey, b: VideoKey) => a.hash.localeCompare(b.hash) || a.size - b.size;
+
 const videosFromTwoOrigins = (rows: Keyed[]) =>
   [...Map.groupBy(rows, videoId).values()].filter(
     (videoRows) => new Set(videoRows.flatMap((row) => row.origin ?? [])).size >= 2,
@@ -115,12 +119,25 @@ export const memoryStore = (): TimingsStore => {
       videos: new Set([...fixes.all(), ...mismatches.all(), ...reports.all()].map(videoId)).size,
       hidden: videosFromTwoOrigins(mismatches.all()),
     }),
+    videoPage: async (after = firstVideo, limit) =>
+      [
+        ...new Map(
+          [...fixes.all(), ...mismatches.all(), ...reports.all()].map((row) => [
+            videoId(row),
+            row.video,
+          ]),
+        ).values(),
+      ]
+        .filter((video) => byVideo(video, after) > 0)
+        .toSorted(byVideo)
+        .slice(0, limit),
   };
 };
 
 type VideoColumns = { video_hash: string; video_size: string | number; origin: string | null };
+type VideoKeyColumns = Omit<VideoColumns, "origin">;
 
-const videoOf = (row: VideoColumns): VideoKey => ({
+const videoOf = (row: VideoKeyColumns): VideoKey => ({
   hash: row.video_hash,
   size: Number(row.video_size),
 });
@@ -258,6 +275,26 @@ export const postgresStore = (url: string): TimingsStore => {
           ) hidden) as hidden`;
 
       return row ?? { fixes: 0, confirmed: 0, videos: 0, hidden: 0 };
+    },
+    videoPage: async (after = firstVideo, limit) => {
+      const rows = await sql<VideoKeyColumns[]>`
+        select video_hash, video_size from (
+          (select distinct video_hash, video_size from fixes
+            where (video_hash, video_size) > (${after.hash}, ${after.size})
+            order by video_hash, video_size limit ${limit})
+          union
+          (select distinct video_hash, video_size from mismatches
+            where (video_hash, video_size) > (${after.hash}, ${after.size})
+            order by video_hash, video_size limit ${limit})
+          union
+          (select distinct video_hash, video_size from reports
+            where (video_hash, video_size) > (${after.hash}, ${after.size})
+            order by video_hash, video_size limit ${limit})
+        ) videos
+        order by video_hash, video_size
+        limit ${limit}`;
+
+      return rows.map(videoOf);
     },
   };
 };

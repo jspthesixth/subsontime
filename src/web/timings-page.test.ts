@@ -113,7 +113,7 @@ describe("GET /timings", () => {
     privacySentences.forEach((sentence) => expect(text).toContain(sentence));
   });
 
-  it("lists the real API endpoints and offers the download as not yet available", async () => {
+  it("lists the real API endpoints and links the CC0 data download", async () => {
     const page = await (await appWith(memoryStore()).request("/timings")).text();
 
     expect(page).toContain("GET /api/v1/fixes?video=");
@@ -121,8 +121,9 @@ describe("GET /timings", () => {
     expect(page).toContain("POST /api/v1/fixes");
     expect(page).toContain("POST /api/v1/mismatches");
     expect(page).toContain("POST /api/v1/reports");
-    expect(page).toMatch(/<button[^>]*disabled[^>]*>\s*Download the data/);
-    expect(page).toContain("Coming at launch");
+    expect(page).toContain('<a class="btn btn-ghost" href="/api/v1/dump">Download the data</a>');
+    expect(page).toContain("Daily, gzipped JSON Lines, CC0-1.0");
+    expect(page).not.toContain("at launch");
     expect(page).toContain('<script type="module" src="/client/timings.js"></script>');
   });
 });

@@ -8,7 +8,7 @@ import { readEnvironment } from "./config/env.ts";
 import { sharedStateFrom } from "./jobs/shared-state.ts";
 import { memoryStore, postgresStore } from "./timings/db.ts";
 
-const { server, secrets, sources, database, sharedState } = readEnvironment(process.env);
+const { server, secrets, sources, database, sharedState, dumps } = readEnvironment(process.env);
 
 const proxiedClient = (context: Context) =>
   server.trustProxy ? context.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() : undefined;
@@ -24,6 +24,8 @@ const app = createApp({
   timings: database.url ? postgresStore(database.url) : memoryStore(),
   defer: detached,
   analytics: server.onVercel,
+  blobToken: dumps.blobToken,
+  cronSecret: dumps.cronSecret,
   clientKey: (context) =>
     addressKey(proxiedClient(context) || getConnInfo(context).remote.address || "unknown"),
 });

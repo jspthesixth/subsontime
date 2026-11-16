@@ -78,6 +78,13 @@ With the app key, a file without a hash takes its timing references from the Ope
 | `KV_REST_API_URL`          | no       | Used when `UPSTASH_REDIS_REST_URL` is unset. The Vercel Marketplace Upstash integration sets it.                                 |
 | `KV_REST_API_TOKEN`        | no       | Used when `UPSTASH_REDIS_REST_TOKEN` is unset. The Vercel Marketplace Upstash integration sets it.                               |
 
+### Data dumps
+
+| Variable                | Required | Purpose                                                                                                     |
+| ----------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
+| `BLOB_READ_WRITE_TOKEN` | no       | Vercel Blob token. With it, the daily cron writes the Open Timings dump and `/api/v1/dump` redirects to it. |
+| `CRON_SECRET`           | no       | Bearer secret the daily cron sends to `/api/cron/dump`. Without it the route refuses every call.            |
+
 ### CLI
 
 | Variable                | Required | Purpose                                                            |
