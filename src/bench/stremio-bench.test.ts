@@ -204,6 +204,30 @@ describe("cachingFetch", () => {
     expect(cached.counts).toEqual({ network: 1, restDownloads: 0, refused: 1 });
   });
 
+  it("records a response the caller gave up on", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bench-"));
+    const caller = new AbortController();
+    const upstream = vi.fn<typeof fetch>(async (_, init) => {
+      caller.abort();
+
+      return init?.signal?.aborted === true
+        ? Promise.reject(new Error("aborted upstream"))
+        : new Response("subtitle", { status: 200 });
+    });
+    const cached = cachingFetch({
+      dir,
+      seeds: new Map(),
+      restDownloadsLeft: async () => false,
+      upstream,
+    });
+
+    await expect(
+      cached.fetch("https://example.com/file/1", { signal: caller.signal }),
+    ).rejects.toThrow("This operation was aborted");
+    expect(await (await cached.fetch("https://example.com/file/1")).text()).toBe("subtitle");
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+
   it("spends a daily ledger once per download", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bench-"));
     const left = dailyLedger(join(dir, "ledger.json"), 1, () => new Date("2026-11-16T10:00:00Z"));

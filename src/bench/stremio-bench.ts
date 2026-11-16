@@ -290,7 +290,10 @@ export const cachingFetch = ({
 
     counts.network += 1;
 
-    const response = await upstream(input, init);
+    const response = await upstream(input, {
+      ...init,
+      signal: null,
+    });
 
     if (response.status >= 400) {
       return response;
@@ -307,6 +310,7 @@ export const cachingFetch = ({
 
     await mkdir(dir, { recursive: true });
     await writeFile(path, JSON.stringify(record));
+    init?.signal?.throwIfAborted();
 
     return replay(record);
   };
