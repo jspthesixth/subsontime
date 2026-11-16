@@ -9,6 +9,7 @@ import { videoHash } from "./lib/video-hash.ts";
 type Title = { id: string; type: "movie" | "series"; name: string; year?: string };
 type Episode = { season: number; episode: number; name: string };
 type VideoFile = { hash: string; size: number; name: string };
+type Report = { index: number; installURL: string };
 type CheckResult = {
   shown: CheckRow[];
   leftOut: CheckRow[];
@@ -21,6 +22,7 @@ const searchDelayMs = 250;
 const minimumQueryLength = 2;
 const maximumLanguages = 10;
 const unknownRelease = "Unknown release";
+const sentMessage = "Report sent. Thank you.";
 const retimedPath = "M2 8h9M8 4.5L11.5 8 8 11.5M14 3v10";
 const notRetimedPath = "M3 8h10";
 const timingPaths: Record<string, string> = {
@@ -47,6 +49,7 @@ const checkStatus = find(document, "#check-status");
 const results = find(document, "#results");
 const shownHead = find(document, "#shown-head");
 const shownRows = find(document, "#shown-rows");
+const reportHint = find(document, "#report-hint");
 const leftOutSection = find(document, "#left-out");
 const leftOutRows = find(document, "#left-out-rows");
 
@@ -214,7 +217,55 @@ const videoId = (title: Title) => {
     : `${title.id}:${seasonSelect.value}:${episodeSelect.value}`;
 };
 
-const shownRow = ({ lang, source, release, label, detail, playsFirst }: CheckRow) => {
+const offerReport = (
+  row: DocumentFragment,
+  { lang, source }: CheckRow,
+  ref: string,
+  report: Report,
+) => {
+  const button = find<HTMLButtonElement>(row, ".row-report");
+  const panel = find(row, ".row-panel");
+  const send = find<HTMLButtonElement>(row, ".row-send");
+  const error = find(row, ".row-error");
+  const sent = find(row, ".row-sent");
+  const setOpen = (open: boolean) => {
+    panel.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+  };
+
+  button.hidden = false;
+  find(row, ".row-question").textContent = `What is wrong with ${lang} from ${source}?`;
+  panel.querySelectorAll("input").forEach((input) => {
+    input.name = `reason-${report.index}`;
+  });
+  button.addEventListener("click", () => setOpen(panel.hidden === true));
+  find(row, ".row-cancel").addEventListener("click", () => setOpen(false));
+  send.addEventListener("click", async () => {
+    const reason = panel.querySelector<HTMLInputElement>("input:checked")?.value;
+
+    send.disabled = true;
+    error.textContent = "";
+
+    const outcome = await postJSON("/api/check/report", {
+      ref,
+      reason,
+      ...(report.installURL === "" ? {} : { installURL: report.installURL }),
+    });
+
+    if ("error" in outcome) {
+      send.disabled = false;
+      error.textContent = outcome.error;
+
+      return;
+    }
+
+    sent.textContent = sentMessage;
+  });
+};
+
+const shownRow = (checkRow: CheckRow, report: Report) => {
+  const { lang, source, release, label, detail, playsFirst, ref } = checkRow;
+
   const row = clone("#shown-template");
 
   find(row, ".row-lang").textContent = lang;
@@ -224,6 +275,10 @@ const shownRow = ({ lang, source, release, label, detail, playsFirst }: CheckRow
   find(row, ".row-label").textContent = label;
   find(row, ".row-detail").textContent = detail ?? "";
   find(row, ".row-first").hidden = playsFirst !== true;
+
+  if (ref !== undefined) {
+    offerReport(row, checkRow, ref, report);
+  }
 
   return row;
 };
@@ -248,7 +303,11 @@ const timingSummary = (shown: CheckRow[]) => {
   return groups.map(([label, rows]) => `${rows?.length ?? 0} ${label.toLowerCase()}`).join(", ");
 };
 
-const showResults = ({ shown, leftOut, reference, searchedMs, sources }: CheckResult) => {
+const showResults = (
+  { shown, leftOut, reference, searchedMs, sources }: CheckResult,
+  installURL: string,
+  withFile: boolean,
+) => {
   find(document, "#summary-timing").textContent = timingSummary(shown);
   find(document, "#summary-reference").textContent = reference ?? "None found";
   find(document, "#summary-searched").textContent =
@@ -256,7 +315,8 @@ const showResults = ({ shown, leftOut, reference, searchedMs, sources }: CheckRe
   find(document, "#shown-count").textContent = count(shown.length, "subtitle");
   find(document, "#left-out-count").textContent = count(leftOut.length, "subtitle");
   shownHead.hidden = shown.length === 0;
-  shownRows.replaceChildren(...shown.map(shownRow));
+  shownRows.replaceChildren(...shown.map((row, index) => shownRow(row, { index, installURL })));
+  reportHint.hidden = withFile || shown.length === 0;
   leftOutSection.hidden = leftOut.length === 0;
   leftOutRows.replaceChildren(...leftOut.map(leftOutRow));
   results.hidden = false;
@@ -307,6 +367,7 @@ form.addEventListener("submit", async (event) => {
   const title = chosen;
   const id = title === undefined ? undefined : videoId(title);
   const installURL = linkInput.value.trim();
+  const file = video;
 
   event.preventDefault();
   checkError.textContent = "";
@@ -333,9 +394,9 @@ form.addEventListener("submit", async (event) => {
     languages: fromLocales(navigator.languages).slice(0, maximumLanguages),
     type: title.type,
     id,
-    ...(video === undefined
+    ...(file === undefined
       ? {}
-      : { videoHash: video.hash, videoSize: video.size, filename: video.name }),
+      : { videoHash: file.hash, videoSize: file.size, filename: file.name }),
   });
 
   checkButton.disabled = false;
@@ -347,5 +408,5 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  showResults(outcome.result as CheckResult);
+  showResults(outcome.result as CheckResult, installURL, file !== undefined);
 });

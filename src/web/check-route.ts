@@ -20,13 +20,19 @@ import {
 } from "../stremio/file-route.ts";
 import {
   checkShared,
+  hashesOf,
   videoKeyOf,
   viewerOf,
   type Hidden,
+  type OpenTimings,
   type Shared,
 } from "../stremio/open-timings.ts";
+import { decodeRef, encodeRef } from "../stremio/refs.ts";
 import { bestSlotSize, searchVideo, toCandidateRef } from "../stremio/subtitles-route.ts";
 import type { RetimeResult } from "../timing/retime.ts";
+import { reportReasons, submitReport, TimingsInputError } from "../timings/api.ts";
+import type { VideoKey } from "../timings/db.ts";
+import { submitterOf } from "../timings/submitter.ts";
 import { sealedConfigOf, unsealSafely } from "./config-route.ts";
 import { languageOptions } from "./language-options.ts";
 import { tooManyMessage } from "./source-check-route.ts";
@@ -39,6 +45,7 @@ export type CheckRow = {
   detail?: string;
   reason?: string;
   playsFirst?: boolean;
+  ref?: string;
 };
 
 type LimitDeps = {
@@ -47,6 +54,7 @@ type LimitDeps = {
 };
 
 type CheckDeps = RouteDeps & LimitDeps & { secret: string; state: SharedState };
+type ReportDeps = CheckDeps & { openTimings: OpenTimings };
 
 type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
 type SharedFix = Extract<RetimeResult, { kind: "shared-fix" }>;
@@ -74,6 +82,11 @@ const tooManySearchesMessage = "Too many searches. Try again in a minute.";
 const mismatchReason =
   "Made for another video. Its dialogue does not line up with this file anywhere.";
 const unreadableReason = "Could not be read.";
+const tooManyReportsMessage = "Too many reports. Try again in a minute.";
+const invalidReportMessage = "Pick what is wrong with this subtitle";
+const invalidRefMessage = "Invalid subtitle reference";
+const unreadableReportMessage = "We could not read this subtitle, so it cannot be reported.";
+const unavailableMessage = "Try again in a moment";
 const catalogCache = { "cache-control": "public, max-age=3600" };
 
 const checkSchema = v.object({
@@ -84,6 +97,12 @@ const checkSchema = v.object({
   videoHash: v.optional(v.pipe(v.string(), v.regex(/^[0-9a-f]{16}$/))),
   videoSize: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
   filename: v.optional(v.pipe(v.string(), v.maxLength(512))),
+});
+
+const reportBodySchema = v.object({
+  ref: v.string(),
+  reason: v.picklist(reportReasons),
+  installURL: v.optional(v.string()),
 });
 
 const catalogSchema = v.object({
@@ -207,6 +226,7 @@ const runCheck = async (
   query: VideoQuery,
   started: number,
   sharing: Promise<Shared | undefined>,
+  refOf: (candidate: Candidate) => string | undefined,
 ) => {
   const [found, shared] = await Promise.all([searchVideo(sources, query), sharing]);
 
@@ -253,11 +273,16 @@ const runCheck = async (
         )
       : [],
   );
-  const shown: CheckRow[] = served.map((entry) => ({
-    ...madeFor(entry.candidate),
-    ...timingOf(entry.attempt, entry.candidate.fps),
-    ...(playsFirst.has(entry) ? { playsFirst: true } : {}),
-  }));
+  const shown: CheckRow[] = served.map((entry) => {
+    const ref = refOf(entry.candidate);
+
+    return {
+      ...madeFor(entry.candidate),
+      ...timingOf(entry.attempt, entry.candidate.fps),
+      ...(playsFirst.has(entry) ? { playsFirst: true } : {}),
+      ...(ref === undefined ? {} : { ref }),
+    };
+  });
   const leftOut: CheckRow[] = tried
     .filter((entry) => !served.includes(entry))
     .map(({ candidate, attempt }) => ({
@@ -308,8 +333,22 @@ const hold = (state: SharedState, slot: Slot) => {
   };
 };
 
+const reportRefOf =
+  (refKey: Buffer, { type, imdbId, season, episode }: VideoQuery, video: VideoKey) =>
+  (candidate: Candidate) =>
+    encodeRef(
+      {
+        v: 1,
+        q: { t: type, i: imdbId, s: season, e: episode },
+        c: [toCandidateRef(candidate)],
+        x: [],
+        w: { h: video.hash, z: video.size },
+      },
+      refKey,
+    );
+
 export const checkRoute =
-  ({ sourcesFor, secret, allow, clientKey, state, openTimings }: CheckDeps) =>
+  ({ sourcesFor, secret, refKey, allow, clientKey, state, openTimings }: CheckDeps) =>
   async (context: Context) => {
     const started = performance.now();
 
@@ -356,19 +395,99 @@ export const checkRoute =
         ? Promise.resolve(undefined)
         : checkShared(openTimings, fingerprint, viewerOf(config, openTimings.installSalt));
 
+    const query = { ...video, ...file, languages: config.languages };
+    const refOf =
+      openTimings === undefined || fingerprint === undefined
+        ? () => undefined
+        : reportRefOf(refKey, query, fingerprint);
+
     try {
       return context.json(
-        await runCheck(
-          config,
-          sourcesFor(config, tokens),
-          { ...video, ...file, languages: config.languages },
-          started,
-          sharing,
-        ),
+        await runCheck(config, sourcesFor(config, tokens), query, started, sharing, refOf),
       );
     } finally {
       await release();
     }
+  };
+
+const reportedOf = (ref: string, refKey: Buffer) => {
+  try {
+    const { c, w } = decodeRef(ref, refKey);
+
+    const candidate = c[0];
+
+    return candidate === undefined || w === undefined
+      ? undefined
+      : { candidate, video: { hash: w.h, size: w.z } };
+  } catch {
+    return undefined;
+  }
+};
+
+export const checkReportRoute =
+  ({ sourcesFor, secret, refKey, allow, clientKey, state, openTimings }: ReportDeps) =>
+  async (context: Context) => {
+    const client = clientKey(context);
+
+    if (!(await allow(client))) {
+      return context.json({ error: tooManyReportsMessage }, 429);
+    }
+
+    const body = v.safeParse(reportBodySchema, await context.req.json().catch(() => undefined), {
+      message: invalidReportMessage,
+    });
+
+    if (!body.success) {
+      return context.json({ error: body.issues[0].message }, 400);
+    }
+
+    const { ref, reason, installURL } = body.output;
+
+    const reported = reportedOf(ref, refKey);
+    const install = installOf(installURL, [], secret);
+
+    if (reported === undefined) {
+      return context.json({ error: invalidRefMessage }, 400);
+    }
+
+    if (install === undefined) {
+      return context.json({ error: invalidLinkMessage }, 400);
+    }
+
+    const { config, sealed } = install;
+
+    const { store, installSalt, originOf, summaries } = openTimings;
+
+    const tokens = tokenCacheFor(state, secret, installKeyOf(sealed));
+    const subtitleHashes = await downloader(sourcesFor(config, tokens))(reported.candidate)
+      .then((track) => hashesOf(track.cues))
+      .catch(() => []);
+
+    if (subtitleHashes.length === 0) {
+      return context.json({ error: unreadableReportMessage }, 422);
+    }
+
+    const origin = await orMiss(() => originOf(client), undefined);
+
+    if (origin === undefined) {
+      return context.json({ error: unavailableMessage }, 503);
+    }
+
+    try {
+      await submitReport(
+        store,
+        { video: reported.video, subtitleHashes, reason },
+        { submitter: submitterOf(config.installId, installSalt), origin, summaries },
+      );
+    } catch (error) {
+      if (error instanceof TimingsInputError) {
+        return context.json({ error: error.message }, 400);
+      }
+
+      throw error;
+    }
+
+    return context.json({ ok: true }, 202);
   };
 
 export const searchCatalog = async (type: CatalogType, query: string) => {

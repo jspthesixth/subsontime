@@ -61,16 +61,15 @@ const fixSchema = v.object({
   referenceKey: v.optional(v.pipe(v.string(), v.regex(/^[0-9a-f]{16}(,[0-9a-f]{16}){0,7}$/))),
 });
 const mismatchSchema = v.object({ video: videoSchema, subtitleHashes: hashListSchema });
-const reportSchema = v.object({
-  ...mismatchSchema.entries,
-  reason: v.picklist([
-    "machine-translated",
-    "wrong-language",
-    "lines-missing",
-    "timing-off",
-    "broken-characters",
-  ]),
-});
+
+export const reportReasons = [
+  "machine-translated",
+  "wrong-language",
+  "lines-missing",
+  "timing-off",
+  "broken-characters",
+] as const;
+const reportSchema = v.object({ ...mismatchSchema.entries, reason: v.picklist(reportReasons) });
 
 const parse = <Schema extends v.GenericSchema>(
   schema: Schema,

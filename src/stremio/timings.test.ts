@@ -718,6 +718,7 @@ describe("the check page with Open Timings", () => {
         label: "Shared fix, confirmed",
         detail: "2 agree · from audio",
         playsFirst: true,
+        ref: "eyJ2IjoxLCJxIjp7InQiOiJtb3ZpZSIsImkiOiJ0dDAxMTExNjEifSwiYyI6W3sibiI6IkZha2UiLCJyIjoiZml4ZWQiLCJsIjoiZW5nIn1dLCJ4IjpbXSwidyI6eyJoIjoiMDEyMzQ1Njc4OWFiY2RlZiIsInoiOjEyMzQ1Njd9fQ.0R9VfchJqTtG5O8dukJEMA",
       },
     ]);
     expect(result.leftOut).toEqual([

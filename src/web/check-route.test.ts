@@ -5,8 +5,10 @@ import { seal } from "../config/seal.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource } from "../sources/test-sources.ts";
 import type { Source } from "../sources/source.ts";
+import { encodeRef, refKey } from "../stremio/refs.ts";
 import { retime } from "../timing/retime.ts";
 import { syntheticTrack, transform } from "../timing/test-tracks.ts";
+import { memoryStore } from "../timings/db.ts";
 
 vi.mock("../timing/retime.ts", { spy: true });
 
@@ -18,6 +20,7 @@ type CheckRow = {
   detail?: string;
   reason?: string;
   playsFirst?: boolean;
+  ref?: string;
 };
 
 type CheckResult = {
@@ -425,6 +428,218 @@ describe("POST /api/check", () => {
 
     expect(statuses).toEqual([...Array.from({ length: 10 }, () => 200), 429]);
     expect((await check(app, movie, "198.51.100.1")).status).toBe(200);
+  });
+});
+
+const installSalt = "an-install-salt-that-is-long-enough-12345";
+const installURL = `https://subs.example.com/${seal(
+  { ...defaultConfig(["eng"]), installId: "6f1c1a52-6a43-4e8a-9b55-0c2a6a1d2e3f" },
+  secret,
+)}/manifest.json`;
+const greeting = [
+  { start: 1000, end: 3000, text: "Hello there." },
+  { start: 4000, end: 6000, text: "<i>General Kenobi!</i>" },
+];
+const file = { videoHash: "8e245d9679d31e12", videoSize: 12909756 };
+const unreadableMessage = "We could not read this subtitle, so it cannot be reported.";
+
+const reporting = () => {
+  const timings = memoryStore();
+  const putReport = vi.spyOn(timings, "putReport");
+  const source = fakeSource("Fake", [
+    { ref: "a", hashMatch: true, cues: greeting, releaseName: "Movie.2024.1080p.WEB-DL" },
+  ]);
+  const app = createApp({
+    secret,
+    installSalt,
+    timings,
+    sourcesFor: () => ({ listed: [source], references: [] }),
+    clientKey: (context) => context.req.header("x-test-client") ?? "none",
+  });
+
+  return { app, source, putReport };
+};
+
+const post = (app: ReturnType<typeof createApp>, path: string, body: unknown, client = "a") =>
+  app.request(path, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-test-client": client },
+    body: JSON.stringify(body),
+  });
+
+const refOf = async (app: ReturnType<typeof createApp>, body: unknown = movie) => {
+  const result = (await (await post(app, "/api/check", body)).json()) as CheckResult;
+
+  return result.shown[0]?.ref ?? "";
+};
+
+describe("POST /api/check/report", () => {
+  it("reports a subtitle by its hashes and never its text", async () => {
+    const { app, putReport } = reporting();
+
+    const ref = await refOf(app, { ...movie, ...file, installURL });
+
+    const response = await post(app, "/api/check/report", {
+      ref,
+      reason: "machine-translated",
+      installURL,
+    });
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(putReport.mock.calls).toEqual([
+      [
+        {
+          video: { hash: "8e245d9679d31e12", size: 12909756 },
+          subtitleHashes: ["12998c017066eb0d", "354cacb2d2c45cb2"],
+          reason: "machine-translated",
+          submitter: "7e5125cb4f1eb5af57ebfca8d10a7181",
+          origin: expect.stringMatching(/^[0-9a-f]{16}$/),
+        },
+      ],
+    ]);
+    expect(JSON.stringify(putReport.mock.calls)).not.toMatch(/hello|kenobi/i);
+  });
+
+  it("gives a row no report ref when the check ran without the video file", async () => {
+    const { app } = reporting();
+
+    const result = (await (await post(app, "/api/check", movie)).json()) as CheckResult;
+
+    expect(result.shown).toEqual([
+      {
+        lang: "English",
+        source: "Fake",
+        release: "Movie.2024.1080p.WEB-DL",
+        label: "Made for this file",
+        detail: "fingerprint match",
+        playsFirst: true,
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      "an unsigned ref",
+      () =>
+        Buffer.from(
+          JSON.stringify({
+            v: 1,
+            q: { t: "movie", i: "tt0111161" },
+            c: [{ n: "Fake", r: "a", l: "eng" }],
+            x: [],
+            w: { h: "8e245d9679d31e12", z: 12909756 },
+          }),
+        ).toString("base64url"),
+    ],
+    [
+      "a ref with a changed payload",
+      (ref: string) => {
+        const [payload = "", signature = ""] = ref.split(".");
+
+        const changed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+
+        changed.w.z = 1;
+
+        return `${Buffer.from(JSON.stringify(changed)).toString("base64url")}.${signature}`;
+      },
+    ],
+    [
+      "a signed ref without a video",
+      () =>
+        encodeRef(
+          { v: 1, q: { t: "movie", i: "tt0111161" }, c: [{ n: "Fake", r: "a", l: "eng" }], x: [] },
+          refKey(secret),
+        ),
+    ],
+  ])("refuses %s", async (_, refFrom) => {
+    const { app, putReport } = reporting();
+
+    const ref = refFrom(await refOf(app, { ...movie, ...file }));
+
+    const response = await post(app, "/api/check/report", { ref, reason: "wrong-language" });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid subtitle reference" });
+    expect(putReport).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["cannot be downloaded", new Error("Download failed")],
+    ["cannot be parsed", new TextEncoder().encode("not a subtitle")],
+  ])("refuses a subtitle that %s, with a message", async (_, outcome) => {
+    const { app, source, putReport } = reporting();
+
+    const ref = await refOf(app, { ...movie, ...file });
+
+    if (outcome instanceof Error) {
+      source.download.mockRejectedValueOnce(outcome);
+    } else {
+      source.download.mockResolvedValueOnce(outcome);
+    }
+
+    const response = await post(app, "/api/check/report", { ref, reason: "lines-missing" });
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: unreadableMessage });
+    expect(putReport).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unknown reason before downloading anything", async () => {
+    const { app, source, putReport } = reporting();
+
+    const ref = await refOf(app, { ...movie, ...file });
+
+    source.download.mockClear();
+
+    const response = await post(app, "/api/check/report", { ref, reason: "too-long" });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Pick what is wrong with this subtitle" });
+    expect(source.download).not.toHaveBeenCalled();
+    expect(putReport).not.toHaveBeenCalled();
+  });
+
+  it("answers 429 to the eleventh report in a minute, apart from checks", async () => {
+    const { app } = reporting();
+
+    const statuses: number[] = [];
+
+    for (let index = 0; index < 11; index += 1) {
+      statuses.push(
+        (await post(app, "/api/check/report", { ref: "x", reason: "timing-off" })).status,
+      );
+    }
+
+    expect(statuses).toEqual([...Array.from({ length: 10 }, () => 400), 429]);
+    expect((await post(app, "/api/check", movie)).status).toBe(200);
+  });
+});
+
+describe("GET /check report panel", () => {
+  it("offers the five reasons, the hint and the two buttons from the board", async () => {
+    const page = (await (await reporting().app.request("/check")).text()).replace(/\s+/g, " ");
+
+    expect(page).toContain('role="radiogroup" aria-label="Reason"');
+    expect(
+      [
+        ...page.matchAll(/<input type="radio" name="reason" value="([a-z-]+)"[^>]*\/>([^<]+)</g),
+      ].map(([, value, label]) => [value, label]),
+    ).toEqual([
+      ["machine-translated", "Machine translated"],
+      ["wrong-language", "Wrong language"],
+      ["lines-missing", "Lines missing"],
+      ["timing-off", "Timing still off"],
+      ["broken-characters", "Broken characters"],
+    ]);
+    expect(page).toContain(
+      "Reports are anonymous. After a few, this subtitle stops showing for everyone.",
+    );
+    expect(page).toMatch(/<button type="button" class="btn btn-ghost btn-sm row-cancel">Cancel</);
+    expect(page).toMatch(
+      /<button type="button" class="btn btn-light btn-sm row-send">Send report</,
+    );
+    expect(page).toMatch(/<button[^>]*class="btn-quiet row-report"[^>]*> Report </);
   });
 });
 

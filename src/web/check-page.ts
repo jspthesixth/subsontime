@@ -1,5 +1,14 @@
 import { html } from "hono/html";
+import type { reportReasons } from "../timings/api.ts";
 import { layout } from "./layout.ts";
+
+const reasonLabels: Record<(typeof reportReasons)[number], string> = {
+  "machine-translated": "Machine translated",
+  "wrong-language": "Wrong language",
+  "lines-missing": "Lines missing",
+  "timing-off": "Timing still off",
+  "broken-characters": "Broken characters",
+};
 
 const fileIcon = html`<svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
   <rect
@@ -96,8 +105,11 @@ const results = html`<div id="results" hidden>
       <h2 class="h3" id="shown">What we found</h2>
       <span class="small" id="shown-count"></span>
     </div>
-    <div class="sub-row sub-head no-actions" id="shown-head" aria-hidden="true">
-      <span>Language</span><span>Source</span><span>Made for</span><span>Timing</span>
+    <p class="hint" id="report-hint" style="padding-bottom: 16px;" hidden>
+      To report a subtitle, check again with the video file. Reports are kept per file.
+    </p>
+    <div class="sub-row sub-head" id="shown-head" aria-hidden="true">
+      <span>Language</span><span>Source</span><span>Made for</span><span>Timing</span><span></span>
     </div>
     <div id="shown-rows"></div>
   </section>
@@ -111,25 +123,63 @@ const results = html`<div id="results" hidden>
   </section>
 </div>`;
 
+const reasons = Object.entries(reasonLabels).map(
+  ([value, label], index) =>
+    html`<label class="tag" style="padding: 8px 14px; font-size: 13px; cursor: pointer;"
+      ><input
+        type="radio"
+        name="reason"
+        value="${value}"
+        ${index === 0 ? "checked" : ""}
+        style="accent-color: #F5D547;"
+      />${label}</label
+    >`,
+);
+
 const templates = html`<template id="shown-template"
-    ><div class="sub-row no-actions">
-      <div><span class="sub-k">Language</span><span class="h4 row-lang"></span></div>
-      <div><span class="sub-k">Source</span><span class="body row-source"></span></div>
-      <div class="sub-wide">
-        <span class="sub-k">Made for</span><span class="mono ink-2 row-release"></span>
+    ><div>
+      <div class="sub-row">
+        <div><span class="sub-k">Language</span><span class="h4 row-lang"></span></div>
+        <div><span class="sub-k">Source</span><span class="body row-source"></span></div>
+        <div class="sub-wide">
+          <span class="sub-k">Made for</span><span class="mono ink-2 row-release"></span>
+        </div>
+        <div class="sub-wide">
+          <span class="sub-k">Timing</span>
+          <span class="status"
+            ><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <path class="row-icon" stroke="#F5D547" stroke-width="1.8" fill="none"></path></svg
+            ><span class="row-label"></span
+          ></span>
+          <span class="mono ink-3 row-detail" style="display: block; padding-top: 2px;"></span>
+          <span class="tag tag-accent row-first" style="margin-top: 8px;" hidden>Plays first</span>
+        </div>
+        <div class="sub-wide row-wrap gap-8">
+          <button type="button" class="btn-quiet row-report" aria-expanded="false" hidden>
+            Report
+          </button>
+        </div>
       </div>
-      <div class="sub-wide">
-        <span class="sub-k">Timing</span>
-        <span class="status"
-          ><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <path class="row-icon" stroke="#F5D547" stroke-width="1.8" fill="none"></path></svg
-          ><span class="row-label"></span
-        ></span>
-        <span class="mono ink-3 row-detail" style="display: block; padding-top: 2px;"></span>
-        <span class="tag tag-accent row-first" style="margin-top: 8px;" hidden>Plays first</span>
-      </div>
-    </div></template
-  >
+      <div
+        class="panel row-panel"
+        style="margin: 0 0 16px; padding: 20px; display: flex; flex-direction: column; gap: 16px; border-color: #55544D;"
+        hidden
+      >
+        <span class="h4 row-question"></span>
+        <div class="row-wrap gap-8" role="radiogroup" aria-label="Reason">${reasons}</div>
+        <div class="row-wrap between gap-12">
+          <p class="hint">
+            Reports are anonymous. After a few, this subtitle stops showing for everyone.
+          </p>
+          <div class="row-wrap gap-8">
+            <button type="button" class="btn btn-ghost btn-sm row-cancel">Cancel</button>
+            <button type="button" class="btn btn-light btn-sm row-send">Send report</button>
+          </div>
+        </div>
+        <p class="hint error row-error" role="alert"></p>
+        <p class="small row-sent" role="status" aria-live="polite"></p>
+      </div></div
+  ></template>
   <template id="left-out-template"
     ><div class="list-row">
       <div class="list-main">

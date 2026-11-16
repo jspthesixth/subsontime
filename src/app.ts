@@ -28,7 +28,7 @@ import { memoryStore, type TimingsStore } from "./timings/db.ts";
 import { dailyOrigins } from "./timings/origin.ts";
 import { groupingKeyOf } from "./timings/submitter.ts";
 import { checkPage } from "./web/check-page.ts";
-import { checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
+import { checkReportRoute, checkRoute, episodesRoute, titlesRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
 import { homePage } from "./web/home-page.ts";
 import { setupPage } from "./web/setup-page.ts";
@@ -215,6 +215,15 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     app.post("/api/v1/fixes", writeRoute(submitFix, timingsDeps));
     app.post("/api/v1/mismatches", writeRoute(submitMismatch, timingsDeps));
     app.post("/api/v1/reports", writeRoute(submitReport, timingsDeps));
+    app.post(
+      "/api/check/report",
+      checkReportRoute({
+        ...routeDeps,
+        openTimings,
+        secret: deps.secret,
+        allow: failOpen(rateLimit(state, limitKey, "report", 10, 60_000)),
+      }),
+    );
   }
 
   app.get("/:config/configure", (context) => {
