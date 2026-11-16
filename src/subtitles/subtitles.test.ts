@@ -150,4 +150,13 @@ describe("writeSRT", () => {
       "1\n01:01:01,007 --> 01:01:02,000\nx\n",
     );
   });
+
+  it("starts a cue that begins before zero at zero and drops one that ends by then", () => {
+    expect(
+      writeSRT([
+        { start: -1500, end: 500, text: "x" },
+        { start: -3000, end: -1000, text: "gone" },
+      ]),
+    ).toBe("1\n00:00:00,000 --> 00:00:00,500\nx\n");
+  });
 });

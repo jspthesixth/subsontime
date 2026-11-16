@@ -7,6 +7,7 @@ const formatTime = (ms: number) =>
 
 export const writeSRT = (cues: Cue[]): string =>
   cues
+    .flatMap((cue) => (cue.end <= 0 ? [] : [{ ...cue, start: Math.max(cue.start, 0) }]))
     .map(
       (cue, index) =>
         `${index + 1}\n${formatTime(cue.start)} --> ${formatTime(cue.end)}\n${cue.text}\n`,
