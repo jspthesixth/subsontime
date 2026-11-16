@@ -157,21 +157,27 @@ export const hear = async (pcm: AsyncIterable<Int16Array>): Promise<Heard> => {
   return { spans, audioMs: (samples * 1000) / pcmSampleRate };
 };
 
-export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAlignment> => {
-  const { spans: speech } = heard;
-
+export const speechProblemOf = (heard: Heard, cues: Cue[]) => {
   if (cues.length === 0) {
-    return { kind: "empty-subtitle" };
+    return { kind: "empty-subtitle" as const };
   }
 
-  if (speech.length === 0) {
-    return { kind: "no-speech" };
+  if (heard.spans.length === 0) {
+    return { kind: "no-speech" as const };
   }
 
   const share = speechShareOf(heard);
 
-  if (!isPlausibleSpeech(share)) {
-    return { kind: "implausible-speech", share };
+  return isPlausibleSpeech(share) ? undefined : { kind: "implausible-speech" as const, share };
+};
+
+export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAlignment> => {
+  const { spans: speech } = heard;
+
+  const problem = speechProblemOf(heard, cues);
+
+  if (problem !== undefined) {
+    return problem;
   }
 
   const speedRatio = bestSpeedRatio(speech, cues, speedRatios, withinSpeech);

@@ -8,8 +8,7 @@ import {
   audioSkipContrast,
   contrastOf,
   hear,
-  isPlausibleSpeech,
-  speechShareOf,
+  speechProblemOf,
   type AudioAlignment,
   type Heard,
 } from "../audio/align-audio.ts";
@@ -374,17 +373,13 @@ const listenTo = (path: string) => {
           return unused({ kind: "failed", reason: heard.message });
         }
 
+        const problem = speechProblemOf(heard, cues);
+
+        if (problem !== undefined) {
+          return unused(problem);
+        }
+
         const { spans } = heard;
-
-        if (spans.length === 0) {
-          return unused({ kind: "no-speech" });
-        }
-
-        const share = speechShareOf(heard);
-
-        if (!isPlausibleSpeech(share)) {
-          return unused({ kind: "implausible-speech", share });
-        }
 
         const contrast = contrastOf(spans, cues, scoreOf(spans, cues));
 

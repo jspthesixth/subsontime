@@ -17,6 +17,7 @@ import {
   decisionOf,
   plausibleSpeechShare,
   shortClipMs,
+  speechProblemOf,
   minimumCues,
   windowAgreementMs,
   windowCount,
@@ -146,6 +147,31 @@ describe("samplesFrom", () => {
     shifted.set(new Uint8Array(samples.buffer), 1);
 
     expect(await drain(samplesFrom(bytesIn(shifted.subarray(1), [4])))).toEqual([1234, -4321]);
+  });
+});
+
+describe("speechProblemOf", () => {
+  const cues = syntheticTrack(1, 3);
+
+  it("names a soundtrack without speech", () => {
+    expect(speechProblemOf({ spans: [], audioMs: 1000 }, cues)).toEqual({ kind: "no-speech" });
+  });
+
+  it("names an empty subtitle", () => {
+    expect(
+      speechProblemOf({ spans: [{ start: 0, end: 500, text: "" }], audioMs: 1000 }, []),
+    ).toEqual({
+      kind: "empty-subtitle",
+    });
+  });
+
+  it("names speech in too much of the soundtrack", () => {
+    expect(
+      speechProblemOf({ spans: [{ start: 0, end: 1000, text: "" }], audioMs: 1000 }, cues),
+    ).toEqual({
+      kind: "implausible-speech",
+      share: 1,
+    });
   });
 });
 
