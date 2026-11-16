@@ -1,8 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
 import type { Cue } from "../subtitles/cue.ts";
+import { ffmpegCommand } from "./ffmpeg.ts";
 import { fundamental, harmonics, sampleRate } from "../timing/test-audio.ts";
 
-export const ffmpeg = process.env.SUBSONTIME_FFMPEG || "ffmpeg";
+export const ffmpeg = ffmpegCommand();
 
 export const hasFFmpeg = spawnSync(ffmpeg, ["-version"]).status === 0;
 

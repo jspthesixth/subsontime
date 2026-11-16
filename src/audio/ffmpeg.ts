@@ -3,11 +3,12 @@ import { existsSync } from "node:fs";
 import { format, parse } from "node:path";
 import { promisify } from "node:util";
 import * as v from "valibot";
+import { audioSchema, readGroup } from "../config/env.ts";
 import { toISO6391 } from "../languages.ts";
 
 export const pcmSampleRate = 16000;
 
-export const ffmpegCommand = () => process.env.SUBSONTIME_FFMPEG || "ffmpeg";
+export const ffmpegCommand = () => readGroup(audioSchema, process.env).ffmpeg ?? "ffmpeg";
 
 export const ffmpegFound = () => spawnSync(ffmpegCommand(), ["-version"]).error === undefined;
 
@@ -32,9 +33,9 @@ export type AudioStream = v.InferInput<typeof probeSchema>["streams"][number];
 const probeTimeoutMs = 30_000;
 
 export const ffprobeCommand = () => {
-  const { SUBSONTIME_FFPROBE: configured } = process.env;
+  const { ffprobe: configured } = readGroup(audioSchema, process.env);
 
-  if (configured) {
+  if (configured !== undefined) {
     return configured;
   }
 
