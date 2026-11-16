@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
 import type { Context } from "hono";
+import { endTime, startTime } from "hono/timing";
 import * as v from "valibot";
 import type { AppEnv, RouteDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
@@ -421,12 +422,26 @@ export const fileRoute =
     const viewer =
       openTimings === undefined ? undefined : viewerOf(config, openTimings.installSalt);
     const shares: Share[] = [];
+    const timed = async <T>(name: string, work: () => Promise<T>) => {
+      startTime(context, name);
+
+      try {
+        return await work();
+      } finally {
+        endTime(context, name);
+      }
+    };
     const produce = async () => {
-      const shared = await sharedFor({ state, singleFlight, openTimings }, config, ref);
+      const shared = await timed("shared", () =>
+        sharedFor({ state, singleFlight, openTimings }, config, ref),
+      );
       const download = downloader(sourcesFor(config, context.get("tokens")));
       const attempts = await recordAttempts(
         resolveAttempts(ref, config, download, undefined, shared, {
-          anchorOf: () => fileAnchor({ state, singleFlight, openTimings }, ref, download, shared),
+          anchorOf: () =>
+            timed("anchor", () =>
+              fileAnchor({ state, singleFlight, openTimings }, ref, download, shared),
+            ),
         }),
       );
       const fresh = servedOf(attempts, config, ref.t === "dialogue");
@@ -441,7 +456,9 @@ export const fileRoute =
 
       return fresh;
     };
-    const flown = await singleFlight(id, async () => encodeServed(await produce()));
+    const flown = await timed("flight", () =>
+      singleFlight(id, async () => encodeServed(await timed("produce", produce))),
+    );
     const served = decodeServed(flown) ?? (await produce());
 
     if (openTimings !== undefined && viewer !== undefined && shares.length > 0) {

@@ -2,6 +2,7 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { cors } from "hono/cors";
+import { timing } from "hono/timing";
 import { baseURL } from "./base-url.ts";
 import { ConfigError, type Config } from "./config/config.ts";
 import { invalidLinkMessage, unseal } from "./config/seal.ts";
@@ -247,7 +248,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   );
   app.get("/:config/subtitles/:type/:id", subtitlesRoute(routeDeps));
   app.get("/:config/subtitles/:type/:id/:extra", subtitlesRoute(routeDeps));
-  app.get("/:config/sub/:file", fileRoute(routeDeps));
+  app.get("/:config/sub/:file", timing({ crossOrigin: true }), fileRoute(routeDeps));
 
   return app;
 }
