@@ -1,3 +1,5 @@
+import functools
+import itertools
 import json
 import os
 import struct
@@ -8,10 +10,25 @@ provider_id = "subsontime"
 chunk_bytes = 65536
 request_timeout_seconds = 120
 made_for_this_file = "made for this file"
-scores = {
-    "movie": {"identifiers": ["title", "year"], "without_hash": 100, "hash": 179, "out_of": 180},
-    "episode": {"identifiers": ["series", "year", "season", "episode"], "without_hash": 310, "hash": 359, "out_of": 360},
+match_weights = {
+    "movie": {"title": 60, "year": 40, "source": 30, "edition": 30, "release_group": 15, "audio_codec": 1, "resolution": 1, "video_codec": 1, "streaming_service": 1},
+    "episode": {"series": 160, "year": 90, "season": 30, "episode": 30, "source": 25, "release_group": 20, "audio_codec": 1, "resolution": 1, "video_codec": 1, "streaming_service": 1},
 }
+score_out_of = {"movie": 180, "episode": 360}
+minimum_scores = {"movie": 126, "episode": 288}
+
+
+def match_sets_of(weights, minimum):
+    sums = functools.reduce(
+        lambda found, key: {**found, **{total + weights[key]: keys + [key] for total, keys in found.items()}},
+        weights,
+        {0: []},
+    )
+
+    return sorted(((total, keys) for total, keys in sums.items() if total >= minimum), reverse=True)
+
+
+match_ladders = {kind: match_sets_of(weights, minimum_scores[kind]) for kind, weights in match_weights.items()}
 
 
 def is_plain_url_text(text):
@@ -117,19 +134,39 @@ def fetch(url):
         return response.read()
 
 
-def candidate_of(entry, path, language, kind):
-    weights = scores[kind]
-    made_for_file = made_for_this_file in notes_of(entry["label"])
-    forced = entry["id"].endswith("-forced")
+def matches_at(kind, position):
+    ladder = match_ladders[kind]
+    target = max(ladder[0][0] - position, minimum_scores[kind])
+
+    return next(((total, keys) for total, keys in ladder if total <= target), ladder[-1])
+
+
+def group_of(entry):
+    return entry["lang"], entry["id"].endswith("-forced")
+
+
+def ranked(placed):
+    ordered = sorted(placed, key=lambda pair: (*group_of(pair[0]), made_for_this_file not in notes_of(pair[0]["label"])))
+
+    return [
+        (entry, path, position)
+        for _, group in itertools.groupby(ordered, key=lambda pair: group_of(pair[0]))
+        for position, (entry, path) in enumerate(group)
+    ]
+
+
+def candidate_of(entry, path, position, language, kind):
+    score, matches = matches_at(kind, position)
+    _, forced = group_of(entry)
 
     return {
         "provider": provider_id,
         "id": entry["id"],
         "language": {**language, "hi": False, "forced": forced},
-        "matches": weights["identifiers"] + (["hash"] if made_for_file else []),
-        "score": weights["hash"] if made_for_file else weights["without_hash"],
-        "score_without_hash": weights["without_hash"],
-        "score_out_of": weights["out_of"],
+        "matches": matches,
+        "score": score,
+        "score_without_hash": score,
+        "score_out_of": score_out_of[kind],
         "hash_verifiable": False,
         "hearing_impaired_verifiable": False,
         "hearing_impaired": False,
@@ -150,11 +187,13 @@ class SubsOnTimeProvider:
         listing = json.loads(fetch(f"{addon_base}/subtitles/{video_id}/{extras_of(video)}.json"))
         base_path = urllib.parse.urlsplit(addon_base).path
 
-        return [
-            candidate_of(entry, path, wanted[entry["lang"]], video["kind"])
+        placed = [
+            (entry, path)
             for entry in listing.get("subtitles", [])
             if entry.get("lang") in wanted and (path := path_under(base_path, entry["url"])) is not None
         ]
+
+        return [candidate_of(entry, path, position, wanted[entry["lang"]], video["kind"]) for entry, path, position in ranked(placed)]
 
     def download(self, provider_payload, language, config):
         addon_base = addon_base_of(config.get("install_link"))

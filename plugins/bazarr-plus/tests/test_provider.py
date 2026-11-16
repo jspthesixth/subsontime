@@ -175,8 +175,13 @@ class SearchTest(unittest.TestCase):
             [f"/{sealed}/subtitles/series/tt0944947:1:2/videoHash=0123456789abcdef&videoSize=734003200&filename=Show.S01E02.mkv.json"],
         )
         self.assertEqual(
-            [(each["id"], sorted(each["matches"]), each["score"], each["score_out_of"]) for each in candidates[:2]],
-            [("eng-1", ["episode", "season", "series", "year"], 310, 360), ("eng-2", ["episode", "hash", "season", "series", "year"], 359, 360)],
+            [(each["id"], each["score"], each["score_out_of"]) for each in candidates],
+            [("eng-2", 359, 360), ("eng-dialogue", 358, 360), ("eng-1", 357, 360), ("eng-4", 356, 360), ("eng-forced", 359, 360)],
+        )
+        self.assertEqual(
+            sorted(candidates[0]["matches"]),
+            ["audio_codec", "episode", "release_group", "resolution", "season", "series", "source", "streaming_service", "video_codec", "year"],
+
         )
 
     def test_searches_by_name_when_the_file_cannot_be_read(self):
@@ -186,20 +191,24 @@ class SearchTest(unittest.TestCase):
 
         self.assertEqual(self.server.requested, [f"/{sealed}/subtitles/movie/tt0000001/filename=Movie.2020.mkv.json"])
 
-    def test_ranks_subtitles_made_for_this_file_first(self):
+    def test_scores_every_subtitle_as_a_full_match_made_for_this_file_first(self):
         candidates = provider.SubsOnTimeProvider().search(self.movie(), [english], self.config)
 
         self.assertEqual(
-            [(each["id"], sorted(each["matches"]), each["score"]) for each in candidates],
+            [(each["id"], each["score"], each["score_without_hash"], each["score_out_of"]) for each in candidates],
             [
-                ("eng-1", ["title", "year"], 100),
-                ("eng-2", ["hash", "title", "year"], 179),
-                ("eng-dialogue", ["hash", "title", "year"], 179),
-                ("eng-forced", ["title", "year"], 100),
-                ("eng-4", ["title", "year"], 100),
+                ("eng-2", 179, 179, 180),
+                ("eng-dialogue", 178, 178, 180),
+                ("eng-1", 177, 177, 180),
+                ("eng-4", 176, 176, 180),
+                ("eng-forced", 179, 179, 180),
             ],
         )
-        self.assertEqual({(each["score_without_hash"], each["score_out_of"], each["hash_verifiable"]) for each in candidates}, {(100, 180, False)})
+        self.assertEqual(
+            sorted(candidates[0]["matches"]),
+            ["audio_codec", "edition", "release_group", "resolution", "source", "streaming_service", "title", "video_codec", "year"],
+        )
+        self.assertEqual({each["hash_verifiable"] for each in candidates}, {False})
 
     def test_keeps_the_language_bazarr_asked_for_and_flags_forced(self):
         candidates = provider.SubsOnTimeProvider().search(self.movie(), [english, brazilian], self.config)
@@ -222,6 +231,39 @@ class SearchTest(unittest.TestCase):
     def test_finds_nothing_without_an_install_link(self):
         self.assertEqual(provider.SubsOnTimeProvider().search(self.movie(), [english], {}), [])
         self.assertEqual(self.server.requested, [])
+
+
+class LongListingTest(unittest.TestCase):
+    def setUp(self):
+        entries = lambda origin: [
+            {"id": f"eng-{index}", "lang": "eng", "label": "SubDL", "url": f"{origin}/{sealed}/sub/{index}.srt"} for index in range(80)
+        ]
+        self.server = AddonServer(lambda origin: {f"/{sealed}/subtitles/": (200, json.dumps({"subtitles": entries(origin)}).encode())})
+        self.config = {"install_link": f"{self.server.origin}/{sealed}/manifest.json"}
+
+    def tearDown(self):
+        self.server.close()
+
+    def scores_of(self, video):
+        return [each["score"] for each in provider.SubsOnTimeProvider().search(video, [english], self.config)]
+
+    def test_steps_down_to_the_movie_minimum(self):
+        movie = {"kind": "movie", "name": "/missing/Movie.2020.mkv", "imdb_id": "tt0000001", "hashes": {}, "size": None}
+
+        self.assertEqual(
+            self.scores_of(movie),
+            [179, 178, 177, 176, 175] + [164] * 11 + [163, 162, 161, 160] + [149] * 11 + [148, 147, 146, 145]
+            + [139] * 6 + [138, 137, 136, 135, 134, 133, 132, 131] + [130] * 31,
+        )
+
+    def test_steps_down_to_the_series_minimum(self):
+        episode = {"kind": "episode", "name": "/missing/Show.S01E02.mkv", "series_imdb_id": "tt0944947", "season": 1, "episode": 2, "hashes": {}, "size": None}
+
+        self.assertEqual(
+            self.scores_of(episode),
+            [359, 358, 357, 356, 355] + [339] * 16 + [338, 337, 336, 335, 334, 333, 332, 331, 330, 329, 328, 327, 326, 325]
+            + [314] * 11 + [313, 312, 311, 310, 309, 308, 307, 306, 305, 304, 303, 302, 301, 300, 299, 298, 297, 296] + [295] * 16,
+        )
 
 
 class DownloadTest(unittest.TestCase):

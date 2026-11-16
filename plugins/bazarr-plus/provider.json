@@ -60,9 +60,9 @@
     "fin"
   ],
   "files": {
-    "provider.py": "5f485793e5fe92182f20ce668dedc7ba6e037b68051165f7c56cb5579daad45b"
+    "provider.py": "147bf23aede9aeaa07e57ab3faba6a7e86767a0b2b5f3622e1e70de87b222fda"
   },
-  "bundle_sha256": "7634a516c033c2f1921aeee5869163bec3429474eadfe4d90ecd87f6dfa558bb",
+  "bundle_sha256": "f944e16e8ded216f948db14a26dfa69e897756502418ff2df88e2bb0840807d8",
   "source": {
     "type": "github",
     "repo": "jspthesixth/subsontime",
