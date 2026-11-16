@@ -30,7 +30,7 @@ import {
   type Shared,
 } from "./open-timings.ts";
 import { recalledFileHash, withFileHash } from "./file-hashes.ts";
-import { decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
+import { candidateKey, decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 export type Track = { candidate: Candidate; cues: Cue[] };
 export type Attempt = {
@@ -121,7 +121,7 @@ export const downloader = (sources: SourceSet, signal?: AbortSignal): Download =
   const downloads = new Map<string, Promise<Track>>();
 
   return (candidate) => {
-    const key = JSON.stringify([candidate.n, candidate.r]);
+    const key = candidateKey(candidate.n, candidate.r);
     const track = downloads.get(key) ?? fetchTrack(byName, candidate, signal);
 
     downloads.set(key, track);

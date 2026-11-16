@@ -191,10 +191,13 @@ export const releaseFamilyOf = ({ source, group }: Release): ReleaseFamily | und
 export const inReleaseFamily = (release: Release, family: ReleaseFamily) =>
   release.group?.toLowerCase() === family.group && release.source === family.source;
 
-const discOrWebSources = new Set<Release["source"]>(["bluray", "dvdrip", "web-dl", "webrip"]);
 const ripGroups = new Set(["joy", "tigole", "qxr", "silence", "psa"]);
 
-export const isDiscOrWeb = ({ source }: Release) => discOrWebSources.has(source);
+export const isDiscOrWeb = (release: Release) => {
+  const kind = sourceKindOf(release);
+
+  return kind === "disc" || kind === "web";
+};
 
 export const looksLikeRip = (filename: string) => {
   const { source, resolution, group } = parseRelease(filename);
@@ -225,4 +228,7 @@ const sourceKinds: Record<NonNullable<Release["source"]>, SourceKind> = {
 export const sourceKindOf = ({ source }: Release) =>
   source === undefined ? undefined : sourceKinds[source];
 
-export const isHearingImpaired = (name: string) => /(^|[^a-z0-9])(hi|sdh)([^a-z0-9]|$)/i.test(name);
+export const isHearingImpaired = (name: string) =>
+  /(^|[^A-Za-z0-9])HI([^A-Za-z0-9]|$)/.test(name) ||
+  /(^|[^a-z0-9])sdh([^a-z0-9]|$)/i.test(name) ||
+  /[._-]hi(\.(srt|sub|ass|vtt))?$/i.test(name);

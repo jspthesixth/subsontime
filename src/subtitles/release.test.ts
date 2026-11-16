@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   inReleaseFamily,
+  isHearingImpaired,
   parseRelease,
   releaseFamilyOf,
   releaseSignatureOf,
@@ -273,5 +274,18 @@ describe("releaseFamilyOf", () => {
     expect(inReleaseFamily(parseRelease("Show.S01E02.DVDRip.XviD-CLERKS.srt"), family)).toBe(true);
     expect(inReleaseFamily(parseRelease("Show.S01E02.HDTV.XviD-CLERKS.srt"), family)).toBe(false);
     expect(inReleaseFamily(parseRelease("Show.S01E02.DVDRip.XviD-LOL.srt"), family)).toBe(false);
+  });
+});
+
+describe("isHearingImpaired", () => {
+  it.each([
+    ["Gilmore Girls S05E17 Pulp Friction.DVDRip.HI.cc.en.WB", true],
+    ["Show.S01E01.1080p.WEB-DL.SDH.srt", true],
+    ["Show.S01E01.1080p.WEB-DL.en.hi.srt", true],
+    ["Gilmore Girls S05E17 Pulp Friction.DVDRip.NonHI.cc.en.WB", false],
+    ["Hi.Honey.Im.Home.S01E01.DVDRip.XviD-GRP", false],
+    ["Say Hi to Mom 2019 1080p WEB-DL", false],
+  ])("reads %s as hearing impaired: %s", (name, expected) => {
+    expect(isHearingImpaired(name)).toBe(expected);
   });
 });

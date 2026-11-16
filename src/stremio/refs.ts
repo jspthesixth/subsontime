@@ -27,6 +27,8 @@ const subtitleRefSchema = v.object({
   t: v.optional(v.literal("dialogue")),
 });
 
+export const candidateKey = (sourceName: string, ref: string) => JSON.stringify([sourceName, ref]);
+
 export type CandidateRef = v.InferOutput<typeof candidateRefSchema>;
 export type SubtitleRef = v.InferOutput<typeof subtitleRefSchema>;
 
