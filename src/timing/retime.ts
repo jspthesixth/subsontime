@@ -35,7 +35,7 @@ export const retimedMinimumScore = 0.6;
 export const mismatchMaximumScore = 0.2;
 export const splitWorthScore = 0.85;
 
-const agreementMs = 150;
+export const agreementMs = 150;
 const cutMs = 1000;
 
 export const median = (values: number[]) => {
@@ -153,7 +153,7 @@ const choose = (aligned: Aligned[]) => {
   return passing.find((result) => Math.abs(result.offsetMs - center) <= agreementMs) ?? passing[0];
 };
 
-const isMismatch = (result: Aligned) =>
+export const isMismatch = (result: Pick<Aligned, "offsetScore" | "score">) =>
   result.offsetScore < mismatchMaximumScore &&
   Math.max(result.offsetScore, result.score) < retimedMinimumScore;
 
