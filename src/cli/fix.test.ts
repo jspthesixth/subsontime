@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { alignToSpeech, type AudioAlignment } from "../audio/align-audio.ts";
+import { alignToSpeech, type AudioAlignment, type AudioDecision } from "../audio/align-audio.ts";
 import { hasFFmpeg, writeBursts } from "../audio/test-video.ts";
 import type { SourceSet } from "../sources/from-config.ts";
 import { fakeSource } from "../sources/test-sources.ts";
@@ -42,7 +42,7 @@ vi.mock("node:fs/promises", { spy: true });
 const track = syntheticTrack(1, 200);
 const shifted = transform(track, (time) => time + 2000);
 const unrelated = syntheticTrack(2, 200).map((cue) => ({ ...cue, text: `Wrong ${cue.text}` }));
-const spoken = syntheticTrack(1, 90);
+const spoken = syntheticTrack(1, 120);
 const spokenEnd = spoken.at(-1)?.end ?? 0;
 const lateSpoken = transform(spoken, (time) => time + 2000);
 const otherSpoken = transform(spoken, (time) => time + 3000).map((cue) => ({
@@ -472,7 +472,10 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
     expect(posts(requests)).toEqual([]);
   });
 
-  it("skips a subtitle whose contrast is under 1 and reports no mismatch", async () => {
+  it.each<[number, AudioDecision]>([
+    [0.85, "mismatch"],
+    [1.4, "not-clear"],
+  ])("skips a subtitle at contrast %f (%s) and reports no mismatch", async (contrast, decision) => {
     const video = await copyBursts(`${movieName}.mkv`);
     const { url, requests } = await startTimings();
 
@@ -482,8 +485,8 @@ describe.skipIf(!hasFFmpeg)("with ffmpeg", () => {
       score: 0.2,
       offsetScore: 0.2,
       speedRatio: 1,
-      contrast: 0.9,
-      decision: "mismatch",
+      contrast,
+      decision,
     });
 
     const { code, output } = await run(

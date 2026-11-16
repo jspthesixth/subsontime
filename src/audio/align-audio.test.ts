@@ -17,7 +17,10 @@ import {
   decisionOf,
   plausibleSpeechShare,
   shortClipMs,
-  thirdsAgreementMs,
+  minimumWindowCues,
+  minimumWindows,
+  windowAgreementMs,
+  windowCount,
 } from "./align-audio.ts";
 import { exitError, pcmFrom, samplesFrom } from "./ffmpeg.ts";
 import {
@@ -241,18 +244,31 @@ describe("alignToSpeech with a rigid gate", () => {
     );
   });
 
-  it("does not accept a subtitle whose thirds need offsets 1.5 s apart", async () => {
-    const cut = Math.floor(speech.length / 2);
+  it.each([0.5, 0.25, 0.15, 0.1])(
+    "does not accept a subtitle whose last %f of cues sit 1.5 s later",
+    async (tail) => {
+      const cut = Math.round(speech.length * (1 - tail));
+      const result = await alignToSpeech(
+        heard,
+        movedBy((index) => (index < cut ? 2000 : 3500)),
+      );
+
+      expect(result).toMatchObject({
+        kind: "aligned",
+        contrast: expect.toSatisfy((value) => value >= audioAcceptContrast),
+        decision: "not-clear",
+      });
+    },
+  );
+
+  it("does not accept the subtitle whose cues from 85 % on sit 1.5 s later", async () => {
+    const cut = Math.floor(speech.length * 0.85);
     const result = await alignToSpeech(
       heard,
       movedBy((index) => (index < cut ? 2000 : 3500)),
     );
 
-    expect(result).toMatchObject({
-      kind: "aligned",
-      contrast: expect.toSatisfy((value) => value >= audioAcceptContrast),
-      decision: "not-clear",
-    });
+    expect(result).toMatchObject({ kind: "aligned", decision: "not-clear" });
   });
 });
 
@@ -278,15 +294,26 @@ describe("alignToSpeech", () => {
   );
 });
 
+const fitsAt = (offsetsMs: (number | null)[]) =>
+  offsetsMs.map((offsetMs) => ({ cues: minimumWindowCues, offsetMs }));
+
 const agreeing = {
   contrast: audioAcceptContrast,
   windowMs: shortClipMs,
-  thirdOffsetsMs: [0, thirdsAgreementMs, 100],
+  offsetMs: 1000,
+  windows: fitsAt(
+    Array.from({ length: windowCount }, (_, index) => 1000 + (index % 2) * windowAgreementMs),
+  ),
 };
+
+const withWindow = (index: number, fit: { cues: number; offsetMs: number | null }) => ({
+  ...agreeing,
+  windows: agreeing.windows.map((window, at) => (at === index ? fit : window)),
+});
 
 describe("decisionOf", () => {
   it.each([
-    ["a full subtitle whose thirds agree", agreeing, "accept"],
+    ["a full subtitle whose windows agree", agreeing, "accept"],
     [
       "a contrast just under the bar",
       { ...agreeing, contrast: audioAcceptContrast - 0.01 },
@@ -294,11 +321,35 @@ describe("decisionOf", () => {
     ],
     ["a subtitle under 300 s", { ...agreeing, windowMs: shortClipMs - 1 }, "not-clear"],
     [
-      "thirds 1 ms too far apart",
-      { ...agreeing, thirdOffsetsMs: [0, thirdsAgreementMs + 1, 100] },
+      "one window 1 ms too far",
+      withWindow(9, { cues: minimumWindowCues, offsetMs: 1000 + windowAgreementMs + 1 }),
       "not-clear",
     ],
-    ["an empty third", { ...agreeing, thirdOffsetsMs: [0, null, 100] }, "not-clear"],
+    [
+      "one window 1 ms too far below",
+      withWindow(0, { cues: minimumWindowCues, offsetMs: 1000 - windowAgreementMs - 1 }),
+      "not-clear",
+    ],
+    [
+      "a far window with too few cues to count",
+      withWindow(9, { cues: minimumWindowCues - 1, offsetMs: 60_000 }),
+      "accept",
+    ],
+    [
+      "a counted window without speech nearby",
+      withWindow(4, { cues: minimumWindowCues, offsetMs: null }),
+      "not-clear",
+    ],
+    [
+      "fewer counted windows than the minimum",
+      {
+        ...agreeing,
+        windows: agreeing.windows.map((window, index) =>
+          index < windowCount - minimumWindows + 1 ? { ...window, cues: 0 } : window,
+        ),
+      },
+      "not-clear",
+    ],
     ["the mismatch bar", { ...agreeing, contrast: audioMismatchContrast }, "not-clear"],
     [
       "a contrast just under the mismatch bar",

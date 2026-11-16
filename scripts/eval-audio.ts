@@ -5,7 +5,7 @@ import { availableParallelism } from "node:os";
 import { dirname, join } from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import {
-  headRule,
+  audioRule,
   labelOffsetMs,
   offsetsOf,
   pairsOf,
@@ -128,7 +128,7 @@ const decide = async (root: string, split: string) => {
 
   const sha = revision();
   const cache = await readCache(root, split, process.env, sha);
-  const rows = rowsOf(featuresOf(pairs, cache), headRule, labelOffsetMs);
+  const rows = rowsOf(featuresOf(pairs, cache), audioRule, labelOffsetMs);
   const path = join(root, "results", `${split}-${sha}.jsonl`);
 
   await mkdir(dirname(path), { recursive: true });

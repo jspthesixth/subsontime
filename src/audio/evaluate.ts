@@ -63,7 +63,7 @@ export type Pair = {
   identityUnverified?: boolean;
 };
 
-export type RuleFeatures = Pick<Features, "rigid" | "shifts" | "thirds">;
+export type RuleFeatures = Pick<Features, "rigid" | "shifts" | "windows">;
 
 export type Rule = (features: RuleFeatures) => AudioDecision;
 
@@ -185,7 +185,7 @@ const shiftScoreOf = (features: RuleFeatures, shift: number) => {
 };
 
 export const evidenceOf = (features: RuleFeatures): AudioEvidence | undefined => {
-  const { rigid, thirds } = features;
+  const { rigid, windows } = features;
 
   if (rigid.speechSpans === 0 || !isPlausibleSpeech(rigid.speechShare)) {
     return undefined;
@@ -194,6 +194,7 @@ export const evidenceOf = (features: RuleFeatures): AudioEvidence | undefined =>
   const { speedRatio, offsetMs, score } = bestFit(rigid);
 
   const [window = rigid.window] = offsetCues([{ ...rigid.window, text: "" }], speedRatio, offsetMs);
+
   const contrast = contrastFrom(score, usableShifts(window, rigid.speechWindow), (shift) =>
     shiftScoreOf(features, shift),
   );
@@ -203,11 +204,12 @@ export const evidenceOf = (features: RuleFeatures): AudioEvidence | undefined =>
     : {
         contrast,
         windowMs: window.end - window.start,
-        thirdOffsetsMs: thirds.map((third) => third?.offsetMs ?? null),
+        offsetMs,
+        windows,
       };
 };
 
-export const headRule: Rule = (features) => decisionOf(evidenceOf(features));
+export const audioRule: Rule = (features) => decisionOf(evidenceOf(features));
 
 export const timingErrorOf = (diffs: number[], offsetMs: number) => {
   const errors = diffs.map((diff) => Math.abs(diff - offsetMs));
@@ -216,11 +218,11 @@ export const timingErrorOf = (diffs: number[], offsetMs: number) => {
 };
 
 export const rowsOf = (features: Features[], rule: Rule, ruledOffsetMs: number): Row[] =>
-  features.map(({ rigid, shifts, thirds, mislisting, timing, split: _split, ...pair }) => {
+  features.map(({ rigid, shifts, windows, mislisting, timing, ...pair }) => {
     const fit = bestFit(rigid);
-    const decision = rule({ rigid, shifts, thirds });
+    const decision = rule({ rigid, shifts, windows });
     const startDiffsMs = pair.truth === "positive" ? timing?.diffsMs : undefined;
-    const contrast = evidenceOf({ rigid, shifts, thirds })?.contrast;
+    const contrast = evidenceOf({ rigid, shifts, windows })?.contrast;
     const mislistedBy = pair.truth === "negative" && decision === "accept" ? mislisting?.by : null;
 
     return {

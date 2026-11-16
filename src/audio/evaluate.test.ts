@@ -9,7 +9,7 @@ import { syntheticTrack, transform } from "../timing/test-tracks.ts";
 import { alignToSpeech, audioDecisionOf, type Heard } from "./align-audio.ts";
 import {
   evidenceOf,
-  headRule,
+  audioRule,
   outcomeOf,
   pairsOf,
   rowsOf,
@@ -149,10 +149,9 @@ afterAll(async () => {
 const emptyCache = (): Cache => ({
   rigid: new Map(),
   shifts: new Map(),
-  thirds: new Map(),
+  windows: new Map(),
   mislisting: new Map(),
   timing: new Map(),
-  split: new Map(),
 });
 
 const cacheOf = (computed: Computed[]) => {
@@ -184,17 +183,18 @@ const ruleFeaturesOf = async (heard: Heard, cues: Cue[]) => {
   const [computed] = await featuresFor(
     {
       subtitle: "clip",
-      targets: [{ key: "k", file: "f", negative: true, needs: ["rigid", "shifts", "thirds"] }],
+      targets: [{ key: "k", file: "f", negative: true, needs: ["rigid", "shifts", "windows"] }],
     },
     load,
   );
-  const { rigid, shifts, thirds } = computed?.values ?? {};
 
-  if (rigid === undefined || shifts === undefined || thirds === undefined) {
+  const { rigid, shifts, windows } = computed?.values ?? {};
+
+  if (rigid === undefined || shifts === undefined || windows === undefined) {
     throw new Error("Features missing");
   }
 
-  return { rigid, shifts, thirds };
+  return { rigid, shifts, windows };
 };
 
 const trainPairs = async () => (await pairsOf(root, "train", {})).pairs;
@@ -202,7 +202,7 @@ const trainPairs = async () => (await pairsOf(root, "train", {})).pairs;
 const decidedRows = async () => {
   const pairs = await trainPairs();
 
-  return rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), headRule, 0);
+  return rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), audioRule, 0);
 };
 
 const rowFor = (rows: Row[], subtitle: string, file: string) =>
@@ -276,10 +276,10 @@ describe("pairsOf", () => {
   });
 });
 
-describe("headRule over cached features", () => {
+describe("audioRule over cached features", () => {
   it("decides every pair with the contrast alignToSpeech gives", async () => {
     const pairs = await trainPairs();
-    const rows = rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), headRule, 0);
+    const rows = rowsOf(featuresOf(pairs, cacheOf(await computedFor(pairs))), audioRule, 0);
     const speeches: Record<string, Cue[]> = { a: speechA, b: speechB };
     const expected = await Promise.all(
       rows.map(async ({ subtitle, file }) => {
@@ -344,12 +344,12 @@ describe("the feature cache", () => {
     const ownOnA = featureKey({ subtitleSha: "sha-ownA", file: "a" });
     const rigid = cache.rigid.get(ownOnA);
 
-    cache.split.delete(ownOnA);
+    cache.windows.delete(ownOnA);
 
     expect(jobsOf(pairs, cache)).toEqual([
       {
         subtitle: "ownA",
-        targets: [expect.objectContaining({ key: ownOnA, needs: ["split"], rigid })],
+        targets: [expect.objectContaining({ key: ownOnA, needs: ["windows"], rigid })],
       },
     ]);
   });

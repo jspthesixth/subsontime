@@ -35,19 +35,40 @@ const picture = (durationMs: number) => [
   `color=c=black:s=16x16:r=1:d=${seconds(durationMs)}`,
 ];
 
-export const writeBursts = (path: string, bursts: Cue[], durationMs: number) =>
-  run([
+const burstsPerSource = 80;
+
+export const writeBursts = (path: string, bursts: Cue[], durationMs: number) => {
+  const groups = Array.from({ length: Math.ceil(bursts.length / burstsPerSource) }, (_, index) =>
+    bursts.slice(index * burstsPerSource, (index + 1) * burstsPerSource),
+  );
+  const mixed =
+    groups.length === 1
+      ? []
+      : [
+          "-filter_complex",
+          `${groups.map((_, index) => `[${index + 1}:a]`).join("")}amix=inputs=${groups.length}:normalize=0[a]`,
+          "-map",
+          "0:v",
+          "-map",
+          "[a]",
+        ];
+
+  return run([
     ...picture(durationMs),
-    "-f",
-    "lavfi",
-    "-i",
-    `aevalsrc=exprs='if(${gate(bursts)},${voiced},0)':s=${sampleRate}:d=${seconds(durationMs)}`,
+    ...groups.flatMap((group) => [
+      "-f",
+      "lavfi",
+      "-i",
+      `aevalsrc=exprs='if(${gate(group)},${voiced},0)':s=${sampleRate}:d=${seconds(durationMs)}`,
+    ]),
+    ...mixed,
     "-c:v",
     "ffv1",
     "-c:a",
     "flac",
     path,
   ]);
+};
 
 export const writeSilentAudio = (path: string, durationMs: number) =>
   run([

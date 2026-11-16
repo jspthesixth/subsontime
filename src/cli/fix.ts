@@ -5,6 +5,7 @@ import { basename, dirname, extname, join } from "node:path";
 import {
   alignToSpeech,
   audioDecisionOf,
+  audioSkipContrast,
   contrastOf,
   hear,
   isPlausibleSpeech,
@@ -486,7 +487,7 @@ const pickTimed = async (
     const audio = await steps.listen?.(lang).align(track.cues);
     const aligned = audio?.kind === "aligned" ? audio : undefined;
 
-    if (aligned !== undefined && audioDecisionOf(aligned) === "mismatch") {
+    if (aligned !== undefined && aligned.contrast < audioSkipContrast) {
       skipped.push({ lang, candidate, reason: anotherVideoReason });
       continue;
     }

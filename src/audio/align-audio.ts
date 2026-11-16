@@ -1,5 +1,5 @@
 import type { Cue } from "../subtitles/cue.ts";
-import { alignOffset, bestSpeedRatio, scoreOf, speedRatios } from "../timing/alass.ts";
+import { alignOffset, bestSpeedRatio, offsetCues, scoreOf, speedRatios } from "../timing/alass.ts";
 import { detectSpeech } from "../timing/speech.ts";
 import { audioStreamOf, pcmFrom, pcmSampleRate } from "./ffmpeg.ts";
 
@@ -25,8 +25,12 @@ export type AudioAlignment =
 export type AudioDecision = "accept" | "not-clear" | "mismatch";
 
 export const audioAcceptContrast = 3.5;
-export const audioMismatchContrast = 1;
-export const thirdsAgreementMs = 250;
+export const audioMismatchContrast = 0.9;
+export const audioSkipContrast = 1.5;
+export const windowAgreementMs = 250;
+export const windowCount = 10;
+export const minimumWindowCues = 10;
+export const minimumWindows = 8;
 export const plausibleSpeechShare = { min: 0.15, max: 0.9 };
 
 export const wrongShiftsMs = [37, 71, 113, 149].flatMap((seconds) => [
@@ -37,6 +41,7 @@ export const shortClipMs = 300_000;
 
 const minimumBaseline = 0.03;
 const minimumShifts = 4;
+const windowMarginMs = 30_000;
 
 export const withinSpeech = { withinReference: true };
 
@@ -70,21 +75,50 @@ export const contrastOf = (spans: Cue[], cues: Cue[], score: number) =>
     scoreOf(spans, shifted(cues, shift)),
   );
 
-export const thirdsOf = (cues: Cue[]) =>
-  [0, 1, 2].map((third) =>
-    cues.slice(Math.floor((third * cues.length) / 3), Math.floor(((third + 1) * cues.length) / 3)),
+export type WindowFit = { cues: number; offsetMs: number | null };
+
+export const windowFitsOf = (speech: Cue[], cues: Cue[], speedRatio: number, offsetMs: number) => {
+  const aligned = offsetCues(cues, speedRatio, offsetMs);
+  const { start, end } = windowOf(aligned);
+
+  const width = Math.max((end - start) / windowCount, 1);
+  const indexes = aligned.map((cue) =>
+    Math.min(windowCount - 1, Math.floor((cue.start - start) / width)),
   );
+
+  return Array.from({ length: windowCount }, (_, index): WindowFit => {
+    const from = start + index * width - windowMarginMs;
+    const to = start + (index + 1) * width + windowMarginMs;
+    const own = cues.filter((cue, at) => indexes[at] === index);
+    const near = speech.filter((span) => span.end > from && span.start < to);
+
+    return {
+      cues: own.length,
+      offsetMs:
+        own.length === 0 || near.length === 0
+          ? null
+          : alignOffset(near, own, { ...withinSpeech, speedRatio }).offsetMs,
+    };
+  });
+};
 
 export type AudioEvidence = {
   contrast: number;
   windowMs: number;
-  thirdOffsetsMs: (number | null)[];
+  offsetMs: number;
+  windows: WindowFit[];
 };
 
-const thirdsAgree = (offsets: (number | null)[]) => {
-  const known = offsets.filter((offset) => offset !== null);
+const windowsAgree = (offsetMs: number, windows: WindowFit[]) => {
+  const counted = windows.filter((window) => window.cues >= minimumWindowCues);
 
-  return known.length === 3 && Math.max(...known) - Math.min(...known) <= thirdsAgreementMs;
+  return (
+    counted.length >= minimumWindows &&
+    counted.every(
+      (window) =>
+        window.offsetMs !== null && Math.abs(window.offsetMs - offsetMs) <= windowAgreementMs,
+    )
+  );
 };
 
 export const decisionOf = (evidence?: AudioEvidence): AudioDecision => {
@@ -92,14 +126,14 @@ export const decisionOf = (evidence?: AudioEvidence): AudioDecision => {
     return "not-clear";
   }
 
-  const { contrast, windowMs, thirdOffsetsMs } = evidence;
+  const { contrast, windowMs, offsetMs, windows } = evidence;
 
   if (contrast < audioMismatchContrast) {
     return "mismatch";
   }
 
   const accepted =
-    contrast >= audioAcceptContrast && windowMs >= shortClipMs && thirdsAgree(thirdOffsetsMs);
+    contrast >= audioAcceptContrast && windowMs >= shortClipMs && windowsAgree(offsetMs, windows);
 
   return accepted ? "accept" : "not-clear";
 };
@@ -155,11 +189,7 @@ export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAli
 
   const { start, end } = windowOf(rigid.cues);
 
-  const thirdOffsetsMs = thirdsOf(cues).map((third) =>
-    third.length === 0
-      ? null
-      : alignOffset(speech, third, { ...withinSpeech, speedRatio }).offsetMs,
-  );
+  const windows = windowFitsOf(speech, cues, speedRatio, rigid.offsetMs);
 
   return {
     kind: "aligned",
@@ -168,7 +198,12 @@ export const alignToSpeech = async (heard: Heard, cues: Cue[]): Promise<AudioAli
     offsetScore: rigid.score,
     speedRatio,
     contrast,
-    decision: decisionOf({ contrast, windowMs: end - start, thirdOffsetsMs }),
+    decision: decisionOf({
+      contrast,
+      windowMs: end - start,
+      offsetMs: rigid.offsetMs,
+      windows,
+    }),
   };
 };
 

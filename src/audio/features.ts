@@ -5,19 +5,11 @@ import type { Cue } from "../subtitles/cue.ts";
 import { decodeSubtitle } from "../subtitles/decode.ts";
 import { uniqueLines } from "../subtitles/lines.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
-import {
-  alignCues,
-  alignOffset,
-  bestScoredRatio,
-  offsetCues,
-  scoreOf,
-  speedRatios,
-} from "../timing/alass.ts";
-import { shiftOf } from "../timing/retime.ts";
+import { alignOffset, bestScoredRatio, offsetCues, scoreOf, speedRatios } from "../timing/alass.ts";
 import {
   shifted,
   speechShareOf,
-  thirdsOf,
+  windowFitsOf,
   windowOf,
   withinSpeech,
   wrongShiftsMs,
@@ -59,24 +51,17 @@ export const primitiveSchemas = {
     fits: v.array(FitSchema),
   }),
   shifts: v.object({ scores: v.array(v.number()) }),
-  thirds: v.array(v.nullable(v.object({ offsetMs: v.number(), withinScore: v.number() }))),
+  windows: v.array(v.object({ cues: v.number(), offsetMs: v.nullable(v.number()) })),
   mislisting: v.object({ by: v.nullable(v.string()) }),
   timing: v.object({ diffsMs: v.array(v.number()) }),
-  split: v.object({
-    withinScore: v.number(),
-    offsetMs: v.number(),
-    cuts: v.number(),
-    diffsMs: v.array(v.number()),
-  }),
 };
 
 export const primitiveVersions = {
   rigid: 1,
   shifts: 1,
-  thirds: 1,
+  windows: 1,
   mislisting: 1,
   timing: 1,
-  split: 1,
 } satisfies Record<keyof typeof primitiveSchemas, number>;
 
 export type Primitive = keyof typeof primitiveSchemas;
@@ -87,7 +72,7 @@ export type Rigid = Values["rigid"];
 
 export type Cache = { [P in Primitive]: Map<string, Values[P]> };
 
-export type Features = Pair & Pick<Values, "rigid" | "shifts" | "thirds"> & Partial<Values>;
+export type Features = Pair & Pick<Values, "rigid" | "shifts" | "windows"> & Partial<Values>;
 
 export const primitives = Object.keys(primitiveVersions) as Primitive[];
 
@@ -110,10 +95,9 @@ type Target = { key: string; file: string; trusted?: string; negative: boolean }
 const appliesTo: Record<Primitive, (target: Target) => boolean> = {
   rigid: () => true,
   shifts: () => true,
-  thirds: () => true,
+  windows: () => true,
   mislisting: (target) => target.negative,
   timing: (target) => target.trusted !== undefined,
-  split: (target) => target.trusted !== undefined,
 };
 
 export type Job = {
@@ -307,10 +291,9 @@ export const readCache = async (
   return {
     rigid: await read("rigid"),
     shifts: await read("shifts"),
-    thirds: await read("thirds"),
+    windows: await read("windows"),
     mislisting: await read("mislisting"),
     timing: await read("timing"),
-    split: await read("split"),
   };
 };
 
@@ -413,31 +396,11 @@ export const featuresFor = async (job: Job, load: Loader): Promise<Computed[]> =
         shifts: () => ({
           scores: shiftGridMs.map((shift) => scoreOf(heard.spans, shifted(rigidCues, shift))),
         }),
-        thirds: () =>
-          thirdsOf(cues).map((third) => {
-            if (third.length === 0) {
-              return null;
-            }
-
-            const fit = alignOffset(heard.spans, third, { ...withinSpeech, speedRatio });
-
-            return { offsetMs: fit.offsetMs, withinScore: fit.score };
-          }),
+        windows: () => windowFitsOf(heard.spans, cues, speedRatio, offsetMs),
         mislisting: async () => ({
           by: mislistedBy(lines, await load.labelled(target.file)) ?? null,
         }),
         timing: async () => ({ diffsMs: startDiffsOf(rigidCues, await trusted()) }),
-        split: async () => {
-          const split = await alignCues(heard.spans, cues, { ...withinSpeech, speedRatio });
-          const { offsetMs: splitOffsetMs, cuts } = shiftOf(cues, split.cues, speedRatio);
-
-          return {
-            withinScore: split.score,
-            offsetMs: splitOffsetMs,
-            cuts,
-            diffsMs: startDiffsOf(split.cues, await trusted()),
-          };
-        },
       };
       const values = await Promise.all(
         target.needs.map(async (primitive) => [primitive, await compute[primitive]()] as const),
@@ -453,16 +416,12 @@ export const featuresOf = (pairs: Pair[], cache: Cache): Features[] => {
     const key = featureKey(pair);
     const rigid = cache.rigid.get(key);
     const shifts = cache.shifts.get(key);
-    const thirds = cache.thirds.get(key);
+    const windows = cache.windows.get(key);
     const mislisting = cache.mislisting.get(key);
     const timing = cache.timing.get(key);
-    const split = cache.split.get(key);
-    const complete =
-      pair.truth === "negative"
-        ? mislisting !== undefined
-        : timing !== undefined && split !== undefined;
+    const complete = pair.truth === "negative" ? mislisting !== undefined : timing !== undefined;
 
-    if (rigid === undefined || shifts === undefined || thirds === undefined || !complete) {
+    if (rigid === undefined || shifts === undefined || windows === undefined || !complete) {
       return [];
     }
 
@@ -471,10 +430,9 @@ export const featuresOf = (pairs: Pair[], cache: Cache): Features[] => {
         ...pair,
         rigid,
         shifts,
-        thirds,
+        windows,
         ...(mislisting === undefined ? {} : { mislisting }),
         ...(timing === undefined ? {} : { timing }),
-        ...(split === undefined ? {} : { split }),
       },
     ];
   });
