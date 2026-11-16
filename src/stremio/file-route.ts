@@ -30,7 +30,7 @@ import {
   type OpenTimings,
   type Shared,
 } from "./open-timings.ts";
-import { anchorFor, type Anchor } from "./anchors.ts";
+import { anchorDecided, anchorFor, type Anchor } from "./anchors.ts";
 import { recalledFileHash, withFileHash } from "./file-hashes.ts";
 import { candidateKey, decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
@@ -141,6 +141,40 @@ const preparedAnchor = (shared: Shared | undefined) => async (track: Track) => {
   const fixed = await sharedFix(track.cues, shared);
 
   return fixed?.kind === "shared-fix" ? { ...track, cues: fixed.cues } : track;
+};
+
+type AnchorDeps = Pick<RouteDeps, "state" | "singleFlight" | "openTimings">;
+type FileRef = Pick<SubtitleRef, "q" | "a" | "x" | "w" | "d">;
+
+const sharedFor = ({ openTimings, state }: AnchorDeps, config: Config, { w, d }: FileRef) =>
+  openTimings === undefined || w === undefined || !config.useShared
+    ? Promise.resolve(undefined)
+    : fileShared(
+        openTimings,
+        state,
+        { hash: w.h, size: w.z },
+        viewerOf(config, openTimings.installSalt),
+        d,
+      );
+
+const fileAnchor = (
+  { state, singleFlight }: AnchorDeps,
+  ref: FileRef,
+  download: Download,
+  shared: Shared | undefined,
+) => anchorFor({ state, singleFlight, prepared: preparedAnchor(shared) }, ref, download);
+
+export const warmAnchor = async (
+  deps: AnchorDeps,
+  config: Config,
+  ref: FileRef,
+  download: Download,
+) => {
+  if (config.timing === "off" || (await anchorDecided(deps.state, ref))) {
+    return;
+  }
+
+  await fileAnchor(deps, ref, download, await sharedFor(deps, config, ref));
 };
 
 export const downloader = (sources: SourceSet, signal?: AbortSignal): Download => {
@@ -388,23 +422,11 @@ export const fileRoute =
       openTimings === undefined ? undefined : viewerOf(config, openTimings.installSalt);
     const shares: Share[] = [];
     const produce = async () => {
-      const shared =
-        openTimings === undefined || video === undefined || !config.useShared
-          ? undefined
-          : await fileShared(openTimings, state, video, viewer, ref.d);
+      const shared = await sharedFor({ state, singleFlight, openTimings }, config, ref);
       const download = downloader(sourcesFor(config, context.get("tokens")));
       const attempts = await recordAttempts(
         resolveAttempts(ref, config, download, undefined, shared, {
-          anchorOf: () =>
-            anchorFor(
-              {
-                state,
-                singleFlight,
-                prepared: preparedAnchor(shared),
-              },
-              ref,
-              download,
-            ),
+          anchorOf: () => fileAnchor({ state, singleFlight, openTimings }, ref, download, shared),
         }),
       );
       const fresh = servedOf(attempts, config, ref.t === "dialogue");

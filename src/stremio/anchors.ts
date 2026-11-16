@@ -61,6 +61,17 @@ const decisionOf = (cached: string | undefined, guards: number) => {
     : undefined;
 };
 
+const anchorKey = ({ q, a = [] }: Pick<SubtitleRef, "q" | "a">) =>
+  `anchor:${createHash("sha256")
+    .update(JSON.stringify([q, a.map(keyOf)]))
+    .digest("base64url")}`;
+
+export const anchorDecided = async (state: SharedState, ref: Pick<SubtitleRef, "q" | "a">) =>
+  decisionOf(
+    await orMiss(() => state.get(anchorKey(ref)), undefined),
+    Math.max((ref.a?.length ?? 0) - 1, 0),
+  ) !== undefined;
+
 export const anchorFor = async (
   { state, singleFlight, prepared }: AnchorDeps,
   { q, a = [], x }: Pick<SubtitleRef, "q" | "a" | "x">,
@@ -72,9 +83,7 @@ export const anchorFor = async (
     return undefined;
   }
 
-  const key = `anchor:${createHash("sha256")
-    .update(JSON.stringify([q, a.map(keyOf)]))
-    .digest("base64url")}`;
+  const key = anchorKey({ q, a });
   const decided = decisionOf(await orMiss(() => state.get(key), undefined), guards.length);
 
   if (decided === untrusted) {

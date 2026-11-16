@@ -22,6 +22,7 @@ import { anchorWithGuardsOf, asGoodAsAnchor } from "../timing/anchor.ts";
 import { freeFirst, pickReferences } from "../timing/references.ts";
 import { errorName, hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
+import { downloader, warmAnchor } from "./file-route.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 import {
   recalledReleaseFamily,
@@ -127,7 +128,7 @@ const readExtras = (context: Context<AppEnv>) => {
 };
 
 export const subtitlesRoute =
-  ({ sourcesFor, refKey, publicURL, state, openTimings, defer }: RouteDeps) =>
+  ({ sourcesFor, refKey, publicURL, state, singleFlight, openTimings, defer }: RouteDeps) =>
   async (context: Context<AppEnv>) => {
     const config = context.get("config");
     const extra = context.req.param("extra");
@@ -216,9 +217,23 @@ export const subtitlesRoute =
         : [recordReleaseFamily(state, familyKey, found.observedFamily)]),
     ];
 
-    if (recording.length > 0) {
+    const warming =
+      listed === undefined || anchors.length === 0
+        ? []
+        : [
+            warmAnchor(
+              { state, singleFlight, openTimings },
+              config,
+              { q, a: anchors, x: references, w: { h: listed.hash, z: listed.size }, d: hiddenKey },
+              downloader(sourcesFor(config, context.get("tokens"))),
+            ).catch((error: unknown) =>
+              console.error(`Anchor warm-up failed: ${errorName(error)}`),
+            ),
+          ];
+
+    if (recording.length > 0 || warming.length > 0) {
       try {
-        defer(Promise.all(recording));
+        defer(Promise.all([...recording, ...warming]));
       } catch (error) {
         console.error(`Listing record failed: ${errorName(error)}`);
       }

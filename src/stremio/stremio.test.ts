@@ -1161,6 +1161,43 @@ describe("timing anchor", () => {
     expect(source.download.mock.calls.filter(([ref]) => ref === "eng-again")).toHaveLength(1);
   });
 
+  it("decides the anchor after the listing, before any subtitle is fetched", async () => {
+    const state = memorySharedState();
+    const set = vi.spyOn(state, "set");
+    const deferred: Promise<unknown>[] = [];
+    const app = appWith(
+      { listed: [hashAnchored()], references: [] },
+      { state, defer: (work) => deferred.push(work) },
+    );
+
+    await list(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+    await Promise.all(deferred);
+
+    expect(
+      set.mock.calls
+        .filter(([key]) => key.startsWith("anchor:"))
+        .map(([, value, seconds]) => [value, seconds]),
+    ).toEqual([["2", 2_592_000]]);
+  });
+
+  it("downloads nothing after a listing once the file's anchor is decided", async () => {
+    const source = hashAnchored();
+    const deferred: Promise<unknown>[] = [];
+    const app = appWith(
+      { listed: [source], references: [] },
+      { defer: (work) => deferred.push(work) },
+    );
+
+    await list(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+    await Promise.all(deferred);
+    source.download.mockClear();
+
+    await list(app, sealed({ languages: ["hrv"] }), anchored(fileName));
+    await Promise.all(deferred);
+
+    expect(source.download).not.toHaveBeenCalled();
+  });
+
   it("hides a candidate that mismatches the file's hash reference under a trusted anchor", async () => {
     const source = fakeSource("OpenSubtitles", [
       { ref: "hrv-wrong", lang: "hrv", cues: unrelated },

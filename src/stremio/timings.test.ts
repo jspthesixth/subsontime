@@ -143,14 +143,24 @@ describe("a timing anchor next to Open Timings", () => {
       },
     ]);
 
-  it("checks no guard when a confirmed fix decides the timing", async () => {
+  it("checks no guard on the subtitle request when a confirmed fix decides the timing", async () => {
     const store = memoryStore();
     const source = anchoredSources();
     const { token } = installed();
 
+    const deferred: Promise<unknown>[] = [];
+    const app = appWith({ listed: [source], references: [] }, store, {
+      defer: (work) => deferred.push(work),
+    });
+
     await confirmFix(store, track);
 
-    const { text } = await play(appWith({ listed: [source], references: [] }, store), token);
+    const url = await firstURL(app, token);
+
+    await Promise.all(deferred);
+    source.download.mockClear();
+
+    const text = await (await app.request(url)).text();
 
     expect(text).toBe(writeSRT(track));
     expect(source.download.mock.calls.map(([ref]) => ref)).not.toContain("fre-again");
@@ -354,13 +364,13 @@ describe("reading Open Timings", () => {
 
     const cues = parseSubtitle(text);
 
-    await defer.mock.calls[0]?.[0];
+    await Promise.allSettled(defer.mock.calls.map(([work]) => work));
 
     const logged = errors.mock.calls.map((call) => call.join(" "));
 
     expect(response.status).toBe(200);
     expect(Math.abs((cues[0]?.start ?? 0) - (track[0]?.start ?? 0))).toBeLessThan(200);
-    expect(defer).toHaveBeenCalledTimes(1);
+    expect(defer).toHaveBeenCalledTimes(2);
     expect(logged.some((line) => line.startsWith("Open Timings write failed"))).toBe(true);
     expect(logged.every((line) => line.includes("TypeError"))).toBe(true);
     expect(
@@ -528,10 +538,10 @@ describe("sharing to Open Timings", () => {
     const deferredAtListing = defer.mock.calls.length;
 
     await app.request(url);
-    await defer.mock.calls[0]?.[0];
+    await Promise.all(defer.mock.calls.map(([work]) => work));
 
-    expect(deferredAtListing).toBe(0);
-    expect(defer).toHaveBeenCalledTimes(1);
+    expect(deferredAtListing).toBe(1);
+    expect(defer).toHaveBeenCalledTimes(2);
     expect(await store.fixesFor(video)).toHaveLength(1);
   });
 
@@ -626,10 +636,13 @@ describe("sharing to Open Timings", () => {
     const defer = deferSpy();
     const { token } = installed(overrides);
 
-    const { response } = await play(appWith(sources, memoryStore(), { defer }), token);
+    const app = appWith(sources, memoryStore(), { defer });
+    const url = await firstURL(app, token);
+    const deferredAtListing = defer.mock.calls.length;
+    const response = await app.request(url);
 
     expect(response.status).toBe(200);
-    expect(defer).not.toHaveBeenCalled();
+    expect(defer).toHaveBeenCalledTimes(deferredAtListing);
   });
 
   it("shares nothing without a video fingerprint", async () => {
