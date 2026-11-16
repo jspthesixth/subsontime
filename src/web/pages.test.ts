@@ -239,13 +239,11 @@ describe("GET /integrations", () => {
     );
   });
 
-  it("installs the Bazarr+ provider as a zip of its two files", async () => {
+  it("installs the Bazarr+ provider from the zip on the latest release", async () => {
     const page = (await (await hosted.request("/integrations")).text()).replace(/\s+/g, " ");
 
-    expect(page).toContain("provider.json");
-    expect(page).toContain("provider.py");
     expect(page).toContain(
-      'href="https://github.com/jspthesixth/subsontime/tree/main/plugins/bazarr-plus"',
+      '<a href="https://github.com/jspthesixth/subsontime/releases/latest/download/subsontime-bazarr-plus.zip" >subsontime-bazarr-plus.zip</a >',
     );
   });
 

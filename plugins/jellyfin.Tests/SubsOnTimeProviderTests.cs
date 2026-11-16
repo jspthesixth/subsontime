@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -182,7 +183,7 @@ public sealed class SubsOnTimeProviderTests : IDisposable
     public async Task KeepsEntriesFromAServerBehindAProxy()
     {
         server.Listing = """
-            {"subtitles":[{"id":"eng-1","lang":"eng","label":"OpenSubtitles","url":"http://subsontime.internal:3000/SEALED/sub/REF6.srt?v=1"}]}
+            {"subtitles":[{"id":"eng-1","lang":"eng","label":"OpenSubtitles","url":"http://subsontime.internal:3000/SEALED/sub/REF6.srt"}]}
             """;
 
         var provider = Provider();
@@ -190,7 +191,28 @@ public sealed class SubsOnTimeProviderTests : IDisposable
 
         await provider.GetSubtitles(result.Id, CancellationToken.None);
 
-        Assert.Equal("https://subsontime.example/SEALED/sub/REF6.srt?v=1", server.Requests.Last());
+        Assert.Equal("https://subsontime.example/SEALED/sub/REF6.srt", server.Requests.Last());
+    }
+
+    [Fact]
+    public async Task KeepsTheIdOfALongDualSubtitleUnder8KiB()
+    {
+        var candidates = string.Join(",", Enumerable.Range(0, 22).Select(index =>
+            $$"""{"n":"OpenSubtitles","r":"https://subs.example.com/download/eng-{{index}}/{{new string('x', 160)}}","l":"eng"}"""));
+        var payload = Base64Url.EncodeToString(Encoding.UTF8.GetBytes($$"""{"v":1,"q":{"t":"movie","i":"tt0063350"},"c":[{{candidates}}]}"""));
+        var signature = Base64Url.EncodeToString(Enumerable.Range(200, 32).Select(value => (byte)value).ToArray());
+        var url = $"https://subsontime.example/SEALED/sub/{payload}.{signature}.srt";
+
+        server.Listing = $$"""{"subtitles":[{"id":"eng+hrv-dual","lang":"eng","label":"OpenSubtitles (with Croatian)","url":"{{url}}"}]}""";
+
+        var provider = Provider();
+        var result = Assert.Single(await provider.Search(MovieRequest(), CancellationToken.None));
+
+        await provider.GetSubtitles(result.Id, CancellationToken.None);
+
+        Assert.InRange(url.Length, 6 * 1024, 8 * 1024);
+        Assert.InRange(result.Id.Length, 1, (8 * 1024) - 1);
+        Assert.Equal(url, server.Requests.Last());
     }
 
     [Fact]

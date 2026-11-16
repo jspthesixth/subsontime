@@ -1,6 +1,4 @@
-using System.Buffers.Text;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MediaBrowser.Controller.Entities.TV;
@@ -83,8 +81,8 @@ public partial class SubsOnTimeProvider : ISubtitleProvider
         var basePath = new Uri(addonBase).AbsolutePath;
         var wanted = (listing?.Subtitles ?? []).Where(subtitle => accepted.Contains(LanguageOf(subtitle))).ToList();
         var placed = wanted
-            .Select(subtitle => (Subtitle: subtitle, Path: PathUnder(basePath, subtitle.Url)))
-            .Where(entry => entry.Path is not null)
+            .Select(subtitle => (Subtitle: subtitle, Ref: RefUnder(basePath, subtitle.Url)))
+            .Where(entry => entry.Ref is not null)
             .ToList();
 
         if (placed.Count < wanted.Count)
@@ -99,7 +97,7 @@ public partial class SubsOnTimeProvider : ISubtitleProvider
 
                 return new RemoteSubtitleInfo
                 {
-                    Id = $"{request.Language}-{(forced ? "forced" : "full")}-{Base64Url.EncodeToString(Encoding.UTF8.GetBytes(entry.Path!))}",
+                    Id = $"{request.Language}-{(forced ? "forced" : "full")}-{entry.Ref}",
                     ProviderName = Name,
                     Name = $"{languageName} - {entry.Subtitle.Label}",
                     ThreeLetterISOLanguageName = request.Language,
@@ -115,16 +113,15 @@ public partial class SubsOnTimeProvider : ISubtitleProvider
         var addonBase = InstallLink.Normalize(installLink())
             ?? throw new InvalidOperationException("Add the install link in the Subs On Time plugin settings.");
         var parts = id.Split('-', 3);
-        var path = parts.Length == 3 ? Encoding.UTF8.GetString(Base64Url.DecodeFromChars(parts[2])) : string.Empty;
 
-        if (!path.StartsWith('/'))
+        if (parts.Length != 3 || !SubtitleRef().IsMatch(parts[2]))
         {
             throw new ArgumentException("Unknown subtitle id.", nameof(id));
         }
 
         using var http = createClient();
 
-        var bytes = await http.GetByteArrayAsync(addonBase + path, cancellationToken);
+        var bytes = await http.GetByteArrayAsync($"{addonBase}/sub/{parts[2]}.srt", cancellationToken);
 
         return new SubtitleResponse
         {
@@ -189,9 +186,17 @@ public partial class SubsOnTimeProvider : ISubtitleProvider
     [GeneratedRegex("^([a-z]{3})[-+]")]
     private static partial Regex LanguageCode();
 
-    private static string? PathUnder(string basePath, string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.AbsolutePath.StartsWith(basePath + "/", StringComparison.Ordinal)
-            ? uri.PathAndQuery[basePath.Length..]
+    [GeneratedRegex("^[A-Za-z0-9_.-]+$")]
+    private static partial Regex SubtitleRef();
+
+    [GeneratedRegex(@"^/sub/([A-Za-z0-9_.-]+)\.srt$")]
+    private static partial Regex SubtitlePath();
+
+    private static string? RefUnder(string basePath, string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && uri.PathAndQuery.StartsWith(basePath + "/", StringComparison.Ordinal)
+            && SubtitlePath().Match(uri.PathAndQuery[basePath.Length..]) is { Success: true } match
+            ? match.Groups[1].Value
             : null;
 
     private sealed record AddonListing(List<AddonSubtitle> Subtitles);

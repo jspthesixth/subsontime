@@ -79,11 +79,12 @@ const content = (base: string) => {
         <ol class="ol">
           <li>
             <span class="body ink"
-              >Zip <span class="mono">provider.json</span> and
-              <span class="mono">provider.py</span> from
-              <a href="https://github.com/jspthesixth/subsontime/tree/main/plugins/bazarr-plus"
-                >plugins/bazarr-plus</a
-              >.</span
+              >Download
+              <a
+                href="https://github.com/jspthesixth/subsontime/releases/latest/download/subsontime-bazarr-plus.zip"
+                >subsontime-bazarr-plus.zip</a
+              >
+              from the latest release.</span
             >
           </li>
           <li>
