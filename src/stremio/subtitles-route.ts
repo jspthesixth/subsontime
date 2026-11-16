@@ -207,19 +207,20 @@ export const subtitlesRoute =
       recalled === undefined ? ref : { ...ref, h: undefined };
     const references = found.references.map(toCandidateRef);
 
+    const hashMatches = config.languages.flatMap((lang) =>
+      found
+        .ranked(lang)
+        .filter(({ hashMatch }) => hashMatch)
+        .map(({ sourceName, ref }): [string, string] => [sourceName, ref]),
+    );
     const recording = [
       ...(listed === undefined || fileKey === undefined
         ? []
         : [
             recordFileHash(state, fileKey, {
               w: { h: listed.hash, z: listed.size },
-              x: references,
-              m: config.languages.flatMap((lang) =>
-                found
-                  .ranked(lang)
-                  .filter(({ hashMatch }) => hashMatch)
-                  .map(({ sourceName, ref }): [string, string] => [sourceName, ref]),
-              ),
+              x: hashMatches.length > 0 ? references : [],
+              m: hashMatches,
               d: hiddenKey,
             }),
           ]),

@@ -1238,6 +1238,52 @@ describe("timing families", () => {
     expect(median(shifts.slice(-60))).toBeLessThan(3800);
   }, 60_000);
 
+  it("keeps a family entry's references when the hashed listing matches nothing", async () => {
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "broadcast",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.HDTV.XviD-LOL",
+        cues: broadcast,
+      },
+      {
+        ref: "broadcast-again",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.720p.HDTV.X264-DIMENSION",
+        cues: broadcast,
+      },
+      {
+        ref: "disc",
+        lang: "hrv",
+        releaseName: "modern.family.s01e24.dvdrip.xvid-clerks",
+        cues: disc,
+      },
+      {
+        ref: "disc-again",
+        lang: "hrv",
+        releaseName: "Modern.Family.S01E24.DVDRip.XviD-REWARD",
+        cues: disc,
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+    const token = sealed({ languages: ["hrv"] });
+    const name = encodeURIComponent(
+      "Modern Family S01E24 Family Portrait  (1080p x265 10bit Joy).mkv",
+    );
+    const first = await list(app, token, `series/tt1442437:1:24/filename=${name}.json`);
+
+    await list(
+      app,
+      token,
+      `series/tt1442437:1:24/filename=${name}&videoSize=224510816&videoHash=b3a7165fd6717684.json`,
+    );
+
+    const television = first.body.subtitles.find(({ label }) => label.endsWith("TV timing"));
+    const served = parseSubtitle(await (await app.request(television?.url ?? "")).text());
+
+    expect(served.map(({ start }) => start)).toEqual(broadcast.map(({ start }) => start));
+  });
+
   it("keeps one entry when every candidate agrees", async () => {
     const source = fakeSource("OpenSubtitles", [
       {
