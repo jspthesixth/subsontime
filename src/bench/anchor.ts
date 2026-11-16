@@ -96,7 +96,7 @@ const atLeastTwo = (cluster: Member[] | undefined) =>
 
 export type Strategy = {
   name: string;
-  anchor: (clusters: Member[][], filename: string) => Member[] | undefined;
+  anchor: (clusters: Member[][], filename: string, members: Member[]) => Member[] | undefined;
   sameLanguageMember?: boolean;
 };
 
@@ -127,6 +127,19 @@ export const strategies: Strategy[] = [
       atLeastTwo(byRelease(clusters, filename)) ??
       atLeastTwo(largest(clusters)),
     sameLanguageMember: true,
+  },
+  {
+    name: "E hash or release candidate, no clustering",
+    anchor: (_clusters, filename, members) => {
+      const hashed = members.find(({ hashMatch }) => hashMatch);
+      const best = Math.max(0, ...members.map((member) => releaseScore(member, filename)));
+      const released = members.find(
+        (member) => best > 0 && releaseScore(member, filename) === best,
+      );
+      const anchor = hashed ?? released;
+
+      return anchor === undefined ? undefined : [anchor];
+    },
   },
 ];
 
@@ -176,7 +189,7 @@ export const simulateFile = async ({
   const byKey = new Map(members.map((member) => [keyOf(member), member]));
 
   const simulateRun = async (strategy: Strategy, run: Run): Promise<Simulated> => {
-    const anchor = strategy.anchor(clusters, result.filename);
+    const anchor = strategy.anchor(clusters, result.filename, members);
     const served =
       run.servedRef === undefined
         ? undefined
