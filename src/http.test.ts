@@ -160,6 +160,40 @@ describe("fetchWithTimeout lookups", () => {
       "Blocked address",
     );
   });
+
+  it.each([[["127.0.0.1"]], [["93.184.215.14", "10.0.0.5"]]])(
+    "blocks a host that resolves to %j before connecting",
+    async (addresses) => {
+      const { port, requests } = await listen((_, response) => response.end("secret"));
+
+      const resolving = createGuard({
+        allowLocal: false,
+        resolve: (_hostname, _options, callback) =>
+          callback(
+            null,
+            addresses.map((address) => ({ address, family: 4 })),
+          ),
+      });
+
+      await expect(
+        fetchWithTimeout(`https://example.test:${port}/`, {}, 1000, resolving),
+      ).rejects.toThrow("Blocked address");
+      expect(requests).toEqual([]);
+    },
+  );
+
+  it("connects to the address the lookup gives for a hostname", async () => {
+    const { port } = await listen((_, response) => response.end("local"));
+
+    const resolving = createGuard({
+      allowLocal: true,
+      resolve: (_hostname, _options, callback) =>
+        callback(null, [{ address: "127.0.0.1", family: 4 }]),
+    });
+    const response = await fetchWithTimeout(`http://localhost:${port}/`, {}, 1000, resolving);
+
+    expect(await response.text()).toBe("local");
+  });
 });
 
 describe("fetchWithTimeout redirects", () => {
