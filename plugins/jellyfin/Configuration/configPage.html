@@ -1,62 +1,91 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8">
+  <head>
+    <meta charset="utf-8" />
     <title>Subs On Time</title>
-</head>
-<body>
-    <div id="SubsOnTimeConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
-        <div data-role="content">
-            <div class="content-primary">
-                <form id="SubsOnTimeConfigForm">
-                    <div class="verticalSection">
-                        <h2 class="sectionTitle">Subs On Time</h2>
-                        <p>Subtitles timed to each file in your library, from the sources you picked on the setup page.</p>
-                    </div>
-                    <div class="inputContainer">
-                        <input is="emby-input" type="password" id="InstallLink" label="Install link" autocomplete="off" spellcheck="false" />
-                        <div class="fieldDescription">Paste the install link from the <a is="emby-linkbutton" class="button-link" href="https://subsontime.com/stremio" target="_blank" rel="noopener">setup page</a>. Languages, sources and timing are set there.</div>
-                    </div>
-                    <div class="checkboxContainer">
-                        <label>
-                            <input is="emby-checkbox" type="checkbox" id="ShowInstallLink" />
-                            <span>Show the install link</span>
-                        </label>
-                    </div>
-                    <div>
-                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-                            <span>Save</span>
-                        </button>
-                    </div>
-                </form>
+  </head>
+  <body>
+    <div
+      id="SubsOnTimeConfigPage"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage"
+      data-require="emby-input,emby-button,emby-checkbox"
+    >
+      <div data-role="content">
+        <div class="content-primary">
+          <form id="SubsOnTimeConfigForm">
+            <div class="verticalSection">
+              <h2 class="sectionTitle">Subs On Time</h2>
+              <p>
+                Subtitles timed to each file in your library, from the sources you picked on the
+                setup page.
+              </p>
             </div>
+            <div class="inputContainer">
+              <input
+                is="emby-input"
+                type="password"
+                id="InstallLink"
+                label="Install link"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div class="fieldDescription">
+                Paste the install link from the
+                <a
+                  is="emby-linkbutton"
+                  class="button-link"
+                  href="https://subsontime.com/stremio"
+                  target="_blank"
+                  rel="noopener"
+                  >setup page</a
+                >. Languages, sources and timing are set there.
+              </div>
+            </div>
+            <div class="checkboxContainer">
+              <label>
+                <input is="emby-checkbox" type="checkbox" id="ShowInstallLink" />
+                <span>Show the install link</span>
+              </label>
+            </div>
+            <div>
+              <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                <span>Save</span>
+              </button>
+            </div>
+          </form>
         </div>
-        <script type="text/javascript">
-            const subsOnTimePluginId = '25644ac2-fc95-4f1f-9beb-21e679183dff';
-            const subsOnTimePage = document.querySelector('#SubsOnTimeConfigPage');
-            const installLinkInput = subsOnTimePage.querySelector('#InstallLink');
+      </div>
+      <script type="text/javascript">
+        const subsOnTimePluginId = "25644ac2-fc95-4f1f-9beb-21e679183dff";
+        const subsOnTimePage = document.querySelector("#SubsOnTimeConfigPage");
+        const installLinkInput = subsOnTimePage.querySelector("#InstallLink");
 
-            subsOnTimePage.addEventListener('pageshow', () => {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(subsOnTimePluginId).then((config) => {
-                    installLinkInput.value = config.InstallLink;
-                    Dashboard.hideLoadingMsg();
-                });
-            });
+        subsOnTimePage.addEventListener("pageshow", () => {
+          Dashboard.showLoadingMsg();
+          ApiClient.getPluginConfiguration(subsOnTimePluginId).then((config) => {
+            installLinkInput.value = config.InstallLink;
+            Dashboard.hideLoadingMsg();
+          });
+        });
 
-            subsOnTimePage.querySelector('#ShowInstallLink').addEventListener('change', (event) => {
-                installLinkInput.type = event.target.checked ? 'text' : 'password';
-            });
+        subsOnTimePage.querySelector("#ShowInstallLink").addEventListener("change", (event) => {
+          installLinkInput.type = event.target.checked ? "text" : "password";
+        });
 
-            subsOnTimePage.querySelector('#SubsOnTimeConfigForm').addEventListener('submit', (event) => {
-                event.preventDefault();
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(subsOnTimePluginId).then((config) => {
-                    config.InstallLink = installLinkInput.value.trim();
-                    ApiClient.updatePluginConfiguration(subsOnTimePluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
-                });
+        subsOnTimePage
+          .querySelector("#SubsOnTimeConfigForm")
+          .addEventListener("submit", (event) => {
+            event.preventDefault();
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(subsOnTimePluginId).then((config) => {
+              config.InstallLink = installLinkInput.value.trim();
+              ApiClient.updatePluginConfiguration(subsOnTimePluginId, config).then(
+                Dashboard.processPluginConfigurationUpdateResult,
+              );
             });
-        </script>
+          });
+      </script>
     </div>
-</body>
+  </body>
 </html>
