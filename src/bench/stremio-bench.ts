@@ -44,6 +44,7 @@ export type Run = {
   cpuMs: number;
   candidates: Listed[];
   servedRef?: Pick<CandidateRef, "n" | "r">;
+  choices?: { id: string; truth?: Truth }[];
 };
 
 export type Listed = Pick<
@@ -399,7 +400,7 @@ const cuesOf = (srt: string): Cue[] => {
   }
 };
 
-type Listing = { subtitles: { lang: string; url: string }[] };
+type Listing = { subtitles: { id: string; lang: string; url: string }[] };
 
 export const benchFile = async ({
   file,
@@ -491,6 +492,23 @@ export const benchFile = async ({
     const [first] = ref.c;
 
     const judged = await truthOf(served, lang, file.verified, textShare);
+    const choices = await Promise.all(
+      subtitles
+        .filter(
+          (subtitle) =>
+            subtitle.lang === lang && subtitle !== entry && /-(bluray|web|dvd)$/.test(subtitle.id),
+        )
+        .map(async ({ id, url }) => {
+          const choice = await app.request(new URL(url).pathname);
+          const cues = cuesOf(choice.status === 200 ? await choice.text() : "");
+
+          return {
+            id,
+            truth:
+              cues.length === 0 ? undefined : await truthOf(cues, lang, file.verified, textShare),
+          };
+        }),
+    );
 
     return {
       lang,
@@ -500,6 +518,7 @@ export const benchFile = async ({
       truth: judged,
       served: createHash("sha256").update(srt).digest("hex"),
       servedRef: first === undefined ? undefined : { n: first.n, r: first.r },
+      choices: choices.length === 0 ? undefined : choices,
       ...measured,
     };
   };
