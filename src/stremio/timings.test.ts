@@ -204,7 +204,7 @@ describe("reading Open Timings", () => {
 
     expect(text).toBe(writeSRT(track));
     expect(vi.mocked(retime)).not.toHaveBeenCalled();
-    expect(defer).not.toHaveBeenCalled();
+    expect(defer).toHaveBeenCalledTimes(1);
   });
 
   it("ignores a confirmed fix for a subtitle that shares only part of its lines", async () => {
@@ -723,7 +723,7 @@ describe("sharing to Open Timings", () => {
     await app.request(subtitles[0]?.url ?? "");
 
     expect(vi.mocked(lookUp)).not.toHaveBeenCalled();
-    expect(defer).not.toHaveBeenCalled();
+    expect(defer).toHaveBeenCalledTimes(1);
   });
 });
 

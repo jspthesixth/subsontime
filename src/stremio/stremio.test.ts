@@ -137,6 +137,42 @@ describe("manifest", () => {
 });
 
 describe("subtitle list", () => {
+  it("counts each listing by app and by what it sent about the file", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 10, 18, 12));
+
+    const state = memorySharedState();
+    const deferred: Promise<unknown>[] = [];
+    const app = appWith(
+      { listed: [], references: [] },
+      { state, defer: (work) => deferred.push(work) },
+    );
+    const token = sealed();
+    const samsung =
+      "Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.5 TV Safari/537.36";
+    const chrome =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+    const asked = (path: string, userAgent: string) =>
+      app.request(`/${token}/subtitles/${path}`, { headers: { "user-agent": userAgent } });
+
+    await asked("movie/tt0111161.json", samsung);
+    await asked("movie/tt0111161/filename=Movie.mkv.json", samsung);
+    await asked("movie/tt0111161/videoHash=0123456789abcdef&videoSize=1.json", chrome);
+    await Promise.all(deferred);
+    vi.useRealTimers();
+
+    expect(
+      await Promise.all(
+        [
+          "count:2026-11-18:samsung:neither",
+          "count:2026-11-18:samsung:filename",
+          "count:2026-11-18:browser:hash",
+          "count:2026-11-18:browser:neither",
+        ].map((key) => state.get(key)),
+      ),
+    ).toEqual(["1", "1", "1", undefined]);
+  });
+
   it("rejects an unsupported video id", async () => {
     const { response, body } = await list(
       appWith({ listed: [], references: [] }),

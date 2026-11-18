@@ -10,6 +10,7 @@ import { canBeTimed, downloader } from "./attempts.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
 import { warmAnchor } from "./file-route.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
+import { clientOf, countListing, fileSentOf } from "./request-counts.ts";
 import {
   recalledReleaseFamily,
   recordReleaseFamily,
@@ -120,6 +121,11 @@ export const subtitlesRoute =
     const anchors = found.anchors.map(toCandidateRef);
 
     const recording = [
+      countListing(
+        state,
+        clientOf(context.req.header("user-agent")),
+        fileSentOf(listed !== undefined, filename !== undefined),
+      ),
       ...(listed === undefined || fileKey === undefined
         ? []
         : [
@@ -158,12 +164,10 @@ export const subtitlesRoute =
             ),
           ];
 
-    if (recording.length > 0 || warming.length > 0) {
-      try {
-        defer(Promise.all([...recording, ...warming]));
-      } catch (error) {
-        console.error(`Listing record failed: ${errorName(error)}`);
-      }
+    try {
+      defer(Promise.all([...recording, ...warming]));
+    } catch (error) {
+      console.error(`Listing record failed: ${errorName(error)}`);
     }
 
     const candidateRefsOf = (candidates: Candidate[]) =>
