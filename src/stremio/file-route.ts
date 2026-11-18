@@ -38,6 +38,7 @@ import {
   type Share,
 } from "./attempts.ts";
 import { recalledFileHash, withFileHash } from "./file-hashes.ts";
+import { recordPick } from "./timing-choices.ts";
 import { candidateKey, decodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 
 export type SubtitleCache = {
@@ -255,6 +256,11 @@ export const fileRoute =
         ? await recalledFileHash(state, decoded.k)
         : undefined;
     const ref = recalled === undefined ? decoded : withFileHash(decoded, recalled);
+
+    if (ref.f !== undefined && ref.q.s !== undefined) {
+      defer(recordPick(state, config.installId, ref.q.i, ref.q.s, ref.f));
+    }
+
     const id = createHash("sha256")
       .update(`${context.req.param("config") ?? ""}/${context.req.param("file") ?? ""}`)
       .update(recalled === undefined ? "" : `#${recalled.w.h}`)

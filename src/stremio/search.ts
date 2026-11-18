@@ -12,6 +12,7 @@ import {
   parseRelease,
   releaseFamilyOf,
   sourceFitsFile,
+  type Release,
   type ReleaseFamily,
 } from "../subtitles/release.ts";
 import { minimumScoreOf, rankingOf, scoreOf } from "../subtitles/score.ts";
@@ -76,65 +77,74 @@ export const searchVideo = async (
   ]);
 
   const listed = found.filter((candidate) => !isForeignPartsOnly(candidate));
-  const fileRelease = parseRelease(query.filename ?? "");
-  const family =
-    learned !== undefined && sourceFitsFile(learned.source, fileRelease) ? learned : undefined;
   const everything = [
     ...listed,
     ...referenceOnly.filter((candidate) => !isForeignPartsOnly(candidate)),
   ];
   const all = everything.filter(({ lang }) => query.languages.includes(lang));
-  const inFamily = ({ release }: Candidate) =>
-    family !== undefined && inReleaseFamily(release, family);
-  const picked = pickReferences(all, fileRelease, family);
-  const ripGuess = family === undefined && looksLikeRip(query.filename ?? "");
-  const guessed = ({ release }: Candidate) =>
-    ripGuess && isDiscOrWeb(release) && sourceFitsFile(release.source, fileRelease);
-  const fromGuess = picked.length === 0 && ripGuess;
-  const references = fromGuess ? freeOnly(all.filter(guessed)) : picked;
-  const scoreContext = { video: query, fileRelease, family, ripGuess };
-  const ranking = rankingOf(scoreContext);
 
-  const free = everything.filter(({ metered }) => metered !== true).toSorted(ranking);
-  const anchors = anchorWithGuardsOf(free, scoreContext);
-  const [anchor] = anchors;
+  const arrangedFor = (fileRelease: Release, filename = query.filename) => {
+    const family =
+      learned !== undefined && sourceFitsFile(learned.source, fileRelease) ? learned : undefined;
+    const inFamily = ({ release }: Candidate) =>
+      family !== undefined && inReleaseFamily(release, family);
+    const picked = pickReferences(all, fileRelease, family);
+    const ripGuess = family === undefined && looksLikeRip(filename ?? "");
+    const guessed = ({ release }: Candidate) =>
+      ripGuess && isDiscOrWeb(release) && sourceFitsFile(release.source, fileRelease);
+    const fromGuess = picked.length === 0 && ripGuess;
+    const references = fromGuess ? freeOnly(all.filter(guessed)) : picked;
+    const scoreContext = { video: { ...query, filename }, fileRelease, family, ripGuess };
+    const ranking = rankingOf(scoreContext);
+
+    const free = everything.filter(({ metered }) => metered !== true).toSorted(ranking);
+    const anchors = anchorWithGuardsOf(free, scoreContext);
+    const [anchor] = anchors;
+
+    return {
+      references,
+      anchors,
+      pool: free.slice(0, guardChecks + 1),
+      asGoodAsAnchor: (candidate: Candidate) =>
+        anchor !== undefined && asGoodAsAnchor(candidate, anchor, scoreContext),
+      referencesFor: (candidates: Candidate[]) => {
+        const first = candidates[0];
+        const allInFamily = candidates.every(
+          (candidate) => !candidate.hashMatch && inFamily(candidate),
+        );
+        const guessedFirst = fromGuess && first !== undefined && guessed(first);
+
+        return allInFamily || guessedFirst ? [] : references;
+      },
+      observedFamily: all
+        .filter(
+          ({ hashMatch, sourceName, release }) =>
+            hashMatch && familySources.has(sourceName) && release.source !== undefined,
+        )
+        .map(({ release }) => releaseFamilyOf(release))
+        .find((observed) => observed !== undefined),
+      ranked: (lang: string) =>
+        listed.filter((candidate) => candidate.lang === lang).toSorted(ranking),
+      foreignPartsOnly: (lang: string) =>
+        found
+          .filter((candidate) => isForeignPartsOnly(candidate) && candidate.lang === lang)
+          .toSorted(ranking),
+      passing: (candidates: Candidate[]) => {
+        const minimum = minimumScoreOf(query.type);
+        const kept = candidates.filter((candidate) => scoreOf(candidate, scoreContext) >= minimum);
+
+        return kept.length > 0 ? kept : candidates;
+      },
+    };
+  };
 
   return {
-    references,
-    anchors,
-    pool: free.slice(0, guardChecks + 1),
-    asGoodAsAnchor: (candidate: Candidate) =>
-      anchor !== undefined && asGoodAsAnchor(candidate, anchor, scoreContext),
-    referencesFor: (candidates: Candidate[]) => {
-      const first = candidates[0];
-      const allInFamily = candidates.every(
-        (candidate) => !candidate.hashMatch && inFamily(candidate),
-      );
-      const guessedFirst = fromGuess && first !== undefined && guessed(first);
-
-      return allInFamily || guessedFirst ? [] : references;
-    },
-    observedFamily: all
-      .filter(
-        ({ hashMatch, sourceName, release }) =>
-          hashMatch && familySources.has(sourceName) && release.source !== undefined,
-      )
-      .map(({ release }) => releaseFamilyOf(release))
-      .find((observed) => observed !== undefined),
-    ranked: (lang: string) =>
-      listed.filter((candidate) => candidate.lang === lang).toSorted(ranking),
-    foreignPartsOnly: (lang: string) =>
-      found
-        .filter((candidate) => isForeignPartsOnly(candidate) && candidate.lang === lang)
-        .toSorted(ranking),
-    passing: (candidates: Candidate[]) => {
-      const minimum = minimumScoreOf(query.type);
-      const kept = candidates.filter((candidate) => scoreOf(candidate, scoreContext) >= minimum);
-
-      return kept.length > 0 ? kept : candidates;
-    },
+    ...arrangedFor(parseRelease(query.filename ?? "")),
+    arrangedFor: (fileRelease: Release) => arrangedFor(fileRelease, undefined),
   };
 };
 
-export const bestGroupsOf = (found: Awaited<ReturnType<typeof searchVideo>>, lang: string) =>
+export type Arranged = ReturnType<Awaited<ReturnType<typeof searchVideo>>["arrangedFor"]>;
+
+export const bestGroupsOf = (found: Arranged, lang: string) =>
   bySource(found.passing(found.ranked(lang)), found.ranked(lang));

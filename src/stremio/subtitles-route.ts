@@ -11,6 +11,7 @@ import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
 import { warmAnchor } from "./file-route.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
 import { clientOf, countListing, fileSentOf } from "./request-counts.ts";
+import { recalledPick, releaseChoices, type TimingChoice } from "./timing-choices.ts";
 import {
   recalledReleaseFamily,
   recordReleaseFamily,
@@ -22,6 +23,7 @@ import {
   bySource,
   labelOf,
   searchVideo,
+  type Arranged,
   toCandidateRef,
   withFree,
 } from "./search.ts";
@@ -107,12 +109,19 @@ export const subtitlesRoute =
           ? config.languages
           : [...new Set([...config.languages, dualLanguage])],
     };
+    const sent = fileSentOf(fingerprint !== undefined, filename !== undefined);
+    const offerChoices = sent === "neither" && config.timing !== "off";
+    const pick =
+      offerChoices && video.season !== undefined
+        ? recalledPick(state, config.installId, video.imdbId, video.season)
+        : undefined;
     const sources = sourcesFor(config, context.get("tokens"));
-    const [found, hiddenKey] = await Promise.all([
+    const [found, hiddenKey, picked] = await Promise.all([
       searchVideo(sources, query, family),
       openTimings === undefined || listed === undefined || !config.useShared
         ? undefined
         : hiddenKeyFor(openTimings, state, listed, viewerOf(config, openTimings.installSalt)),
+      pick,
     ]);
 
     const unflagged = (ref: CandidateRef) =>
@@ -121,11 +130,7 @@ export const subtitlesRoute =
     const anchors = found.anchors.map(toCandidateRef);
 
     const recording = [
-      countListing(
-        state,
-        clientOf(context.req.header("user-agent")),
-        fileSentOf(listed !== undefined, filename !== undefined),
-      ),
+      countListing(state, clientOf(context.req.header("user-agent")), sent),
       ...(listed === undefined || fileKey === undefined
         ? []
         : [
@@ -170,28 +175,44 @@ export const subtitlesRoute =
       console.error(`Listing record failed: ${errorName(error)}`);
     }
 
-    const candidateRefsOf = (candidates: Candidate[]) =>
+    const candidateRefsOf = (candidates: Candidate[], arranged: Arranged = found) =>
       candidates.map((candidate) => ({
         ...unflagged(toCandidateRef(candidate)),
-        e: found.asGoodAsAnchor(candidate) ? (1 as const) : undefined,
+        e: arranged.asGoodAsAnchor(candidate) ? (1 as const) : undefined,
       }));
     const refOf = (
       candidates: Candidate[],
-      { t, second }: { t?: SubtitleRef["t"]; second?: Candidate[] } = {},
+      {
+        t,
+        second,
+        arranged = found,
+        f,
+      }: {
+        t?: SubtitleRef["t"];
+        second?: Candidate[];
+        arranged?: Arranged;
+        f?: TimingChoice;
+      } = {},
     ): SubtitleRef => ({
       v: 1,
       q,
-      c: candidateRefsOf(candidates),
-      x: ([candidates, second ?? []].map(found.referencesFor).find((each) => each.length > 0) ?? [])
+      c: candidateRefsOf(candidates, arranged),
+      x: (
+        [candidates, second ?? []].map(arranged.referencesFor).find((each) => each.length > 0) ?? []
+      )
         .map(toCandidateRef)
         .map(unflagged),
-      a: anchors.length === 0 ? undefined : anchors,
+      a: arranged.anchors.length === 0 ? undefined : arranged.anchors.map(toCandidateRef),
       w: listed === undefined ? undefined : { h: listed.hash, z: listed.size },
       k: listed === undefined ? fileKey : undefined,
       d: hiddenKey,
       t,
       s: second === undefined ? undefined : candidateRefsOf(second),
-      g: anchors.length > 0 || found.pool.length === 0 ? undefined : found.pool.map(toCandidateRef),
+      g:
+        arranged.anchors.length > 0 || arranged.pool.length === 0
+          ? undefined
+          : arranged.pool.map(toCandidateRef),
+      f,
     });
     const urlOf = (ref: SubtitleRef) =>
       `${baseURL(context, publicURL, trustProxy)}/${context.req.param("config")}/sub/${encodeRef(ref, refKey)}.srt`;
@@ -217,6 +238,41 @@ export const subtitlesRoute =
             },
           ];
     };
+    const choiceEntriesOf = (lang: string, best: Candidate[]) => {
+      if (!offerChoices || best.length === 0) {
+        return [];
+      }
+
+      const bestKey = JSON.stringify([refOf(best).c[0], anchors[0]]);
+      const offered = releaseChoices.map(({ choice, label, release }) => {
+        const arranged = found.arrangedFor(release);
+        const [group = []] = bestGroupsOf(arranged, lang);
+
+        const ref = refOf(group, { arranged, f: choice });
+
+        return { choice, label, group, ref, key: JSON.stringify([ref.c[0], ref.a?.[0]]) };
+      });
+
+      return offered
+        .filter(
+          ({ group, key }, index) =>
+            group.length > 0 &&
+            key !== bestKey &&
+            offered.findIndex((other) => other.key === key) === index,
+        )
+        .map(({ choice, label, group, ref }) => ({
+          id: `${lang}-${choice}`,
+          lang,
+          label: labelOf(group, label),
+          url: urlOf(ref),
+        }));
+    };
+    const byPick = <T extends { id: string }>(entries: T[]) =>
+      picked === undefined || picked === "best"
+        ? entries
+        : entries.toSorted(
+            (a, b) => Number(b.id.endsWith(`-${picked}`)) - Number(a.id.endsWith(`-${picked}`)),
+          );
     const entriesOf = (lang: string) => {
       const candidates = found.ranked(lang);
 
@@ -232,13 +288,13 @@ export const subtitlesRoute =
             id: bestIdOf(lang, index),
             lang,
             label: labelOf(group),
-            url: subURL(group),
+            url: subURL(group, { f: offerChoices ? "best" : undefined }),
           }))
         : candidates.slice(0, perLanguageLimit).map((candidate, index) => ({
             id: `${lang}-${index + 1}`,
             lang,
             label: labelOf([candidate]),
-            url: subURL([candidate]),
+            url: subURL([candidate], { f: offerChoices ? "best" : undefined }),
           }));
 
       const extraEntries = [
@@ -255,7 +311,7 @@ export const subtitlesRoute =
         ...(lang === config.languages[0] ? dualEntriesOf(lang, best) : []),
       ];
 
-      return entries.toSpliced(1, 0, ...extraEntries);
+      return byPick(entries.toSpliced(1, 0, ...choiceEntriesOf(lang, best), ...extraEntries));
     };
     const foreignPartsEntriesOf = (lang: string) => {
       const flagged = config.extras.foreignParts ? found.foreignPartsOnly(lang) : [];

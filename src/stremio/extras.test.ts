@@ -95,6 +95,7 @@ describe("dialogue only", () => {
     ]);
     expect(refOf(urlOf(subtitles, "eng-dialogue"))).toEqual({
       ...refOf(urlOf(subtitles, "eng-best")),
+      f: undefined,
       t: "dialogue",
     });
   });
@@ -386,6 +387,7 @@ describe("dual subtitles", () => {
     ]);
     expect(refOf(urlOf(subtitles, "eng+hrv-dual"))).toEqual({
       ...refOf(urlOf(subtitles, "eng-best")),
+      f: undefined,
       s: [{ n: "Fake", r: "h", l: "hrv" }],
     });
   });

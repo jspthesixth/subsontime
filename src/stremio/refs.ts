@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import * as v from "valibot";
+import { timingChoices } from "./timing-choices.ts";
 
 const signatureLength = 16;
 
@@ -30,6 +31,7 @@ const subtitleRefSchema = v.object({
   t: v.optional(v.literal("dialogue")),
   s: v.optional(v.array(candidateRefSchema)),
   g: v.optional(v.array(candidateRefSchema)),
+  f: v.optional(v.picklist(timingChoices)),
 });
 
 export const candidateKey = (sourceName: string, ref: string) => JSON.stringify([sourceName, ref]);

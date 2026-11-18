@@ -478,6 +478,7 @@ describe("subtitle list", () => {
         { n: "Reference", r: "r", l: "eng", h: 1 },
         { n: "Fake", r: "a", l: "eng" },
       ],
+      f: "best",
     });
   });
 });
@@ -1313,6 +1314,33 @@ const hashAnchored = () =>
     { ref: "eng-again", lang: "eng", cues: transform(track, (time) => time + 40) },
   ]);
 
+const seventiesTwoSource = () =>
+  fakeSource("OpenSubtitles", [
+    {
+      ref: "nld-bluray",
+      lang: "nld",
+      releaseName: "That.70s.Show.S02E07.1080p.Bluray.x265-HiQVE.srt",
+      fps: 24,
+      cues: seventiesTwoSpans("nldBluRay"),
+    },
+    {
+      ref: "eng-pal",
+      lang: "eng",
+      releaseName: "That 70s Show - 2x07 - I Love Cake.720p.BluRay.HQC.en.srt",
+      fps: 25,
+      cues: seventiesTwoSpans("engPal"),
+    },
+    {
+      ref: "eng-dvd",
+      lang: "eng",
+      releaseName: "That.70s.Show.S02E07.DVDRip.XviD-FFNDVD-eng.srt",
+      fps: 23.976,
+      cues: seventiesTwoSpans("engDvd"),
+    },
+  ]);
+const entriesOf = (body: Listing) =>
+  body.subtitles.map(({ id, label, url }) => [id, label, refOf(url).c[0]?.r, refOf(url).f]);
+
 describe("timing anchor", () => {
   it("builds the sources once for a listing that warms the anchor", async () => {
     const sources = { listed: [hashAnchored()], references: [] };
@@ -2115,6 +2143,60 @@ describe("timing anchor", () => {
     expect(ref.c.map(({ r }) => r)).toEqual(["eng-pal", "eng-dvd"]);
     expect(startsOf(await servedAt(app, url))).toEqual(startsOf(engDvd));
   }, 60_000);
+
+  describe("timing choices when Stremio sends nothing about the file", () => {
+    it("offers each release type's timing that serves a different subtitle", async () => {
+      const app = appWith({ listed: [seventiesTwoSource()], references: [] });
+
+      const { body } = await list(app, sealed(), "series/tt0165598:2:7.json");
+
+      expect(entriesOf(body)).toEqual([
+        ["eng-best", "OpenSubtitles", "eng-pal", "best"],
+        ["eng-bluray", "OpenSubtitles (BluRay timing)", "eng-pal", "bluray"],
+        ["eng-dvd", "OpenSubtitles (DVD timing)", "eng-dvd", "dvd"],
+      ]);
+    });
+
+    it("offers no choices when Stremio sends the filename", async () => {
+      const app = appWith({ listed: [seventiesTwoSource()], references: [] });
+
+      const { body } = await list(
+        app,
+        sealed(),
+        `series/tt0165598:2:7/filename=${encodeURIComponent("That.'70s.Show.S02E07.I.Love.Cake.1080p.Bluray.10bit.x265.HEVC.DDP.5.1-PHOCiS.mkv")}.json`,
+      );
+
+      expect(entriesOf(body)).toEqual([["eng-best", "OpenSubtitles", "eng-pal", undefined]]);
+    });
+
+    it("lists the timing a viewer picked first for the next episode of the season", async () => {
+      const deferred: Promise<unknown>[] = [];
+      const app = appWith(
+        { listed: [seventiesTwoSource()], references: [] },
+        { defer: (work) => deferred.push(work) },
+      );
+      const token = sealed();
+
+      const { body } = await list(app, token, "series/tt0165598:2:7.json");
+
+      await app.request(body.subtitles.find(({ id }) => id === "eng-dvd")?.url ?? "");
+      await Promise.all(deferred);
+
+      const next = await list(app, token, "series/tt0165598:2:8.json");
+      const otherInstall = await list(app, sealed(), "series/tt0165598:2:8.json");
+
+      expect(next.body.subtitles.map(({ id }) => id)).toEqual([
+        "eng-dvd",
+        "eng-best",
+        "eng-bluray",
+      ]);
+      expect(otherInstall.body.subtitles.map(({ id }) => id)).toEqual([
+        "eng-best",
+        "eng-bluray",
+        "eng-dvd",
+      ]);
+    });
+  });
 
   it("keeps the songs-only Miracle on 34th Street subtitle whole instead of splitting it against the dialogue", async () => {
     const engSongs = miracleSpans("engSongs");
