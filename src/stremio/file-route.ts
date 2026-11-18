@@ -25,6 +25,7 @@ import {
 import { anchorDecided, anchorFor, type Anchor } from "./anchors.ts";
 import {
   downloader,
+  offSpeed,
   recordAttempts,
   resolveAttempts,
   servedCues,
@@ -167,11 +168,13 @@ const casedFor =
   };
 
 const firstServed = (attempts: Attempt[], config: Config, cuesOf = servedCues) =>
-  attempts.flatMap((attempt) => {
-    const cues = cuesOf(attempt, config);
+  attempts
+    .toSorted((a, b) => Number(offSpeed(a)) - Number(offSpeed(b)))
+    .flatMap((attempt) => {
+      const cues = cuesOf(attempt, config);
 
-    return cues === undefined ? [] : [{ candidate: attempt.candidate, cues }];
-  })[0];
+      return cues === undefined ? [] : [{ candidate: attempt.candidate, cues }];
+    })[0];
 
 const servedOf = async (
   attempts: Attempt[],

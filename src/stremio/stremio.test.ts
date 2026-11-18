@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJSON from "../../package.json" with { type: "json" };
 import gilmoreFixture from "../../test/fixtures/subtitles/gilmore-s05e17.json" with { type: "json" };
 import familyFixture from "../../test/fixtures/subtitles/act-breaks-s01e24.json" with { type: "json" };
+import miracleFixture from "../../test/fixtures/subtitles/miracle-on-34th-street-songs.json" with { type: "json" };
 import santaFixture from "../../test/fixtures/subtitles/santa-clause-2-pal.json" with { type: "json" };
+import seventiesTwoFixture from "../../test/fixtures/subtitles/that-70s-show-s02e07.json" with { type: "json" };
+import seventiesFixture from "../../test/fixtures/subtitles/that-70s-show-s01e15.json" with { type: "json" };
 import restHashFixture from "../../test/fixtures/sources/opensubtitles-rest-hash-search.json" with { type: "json" };
 import v3HashFixture from "../../test/fixtures/sources/opensubtitles-v3-hash-movie.json" with { type: "json" };
 import { createApp, type AppDeps } from "../app.ts";
@@ -1259,6 +1262,13 @@ const santaSpans = (key: keyof typeof santaFixture) => timed(santaFixture[key]);
 
 const gilmoreSpans = (key: keyof typeof gilmoreFixture) => timed(gilmoreFixture[key]);
 
+const seventiesSpans = (key: keyof typeof seventiesFixture) => timed(seventiesFixture[key]);
+
+const seventiesTwoSpans = (key: keyof typeof seventiesTwoFixture) =>
+  timed(seventiesTwoFixture[key]);
+
+const miracleSpans = (key: keyof typeof miracleFixture) => timed(miracleFixture[key]);
+
 const hashAnchored = () =>
   fakeSource("OpenSubtitles", [
     { ref: "hrv-shifted", lang: "hrv", cues: shifted },
@@ -1991,6 +2001,121 @@ describe("timing anchor", () => {
     expect(median(shifts.slice(-60))).toBeGreaterThan(2700);
     expect(median(shifts.slice(-60))).toBeLessThan(3800);
     expect(startsOf(eng ?? [])).toEqual(startsOf(gilmoreSpans("engDvdHearingImpaired")));
+  }, 60_000);
+
+  it("retimes That '70s Show S01E15 made for 25 fps to its BluRay anchor in pieces", async () => {
+    const engPal = seventiesSpans("engPal");
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "nld-bluray",
+        lang: "nld",
+        releaseName: "That.70s.Show.S01E15.1080p.BluRay.x264-FilmHD.srt",
+        cues: seventiesSpans("nldBluRay"),
+      },
+      {
+        ref: "eng-pal",
+        lang: "eng",
+        releaseName: "That 70s Show - 1x15 - That Wrestling Show.720p.BluRay.HQC.en.srt",
+        cues: engPal,
+      },
+      {
+        ref: "fra-bluray",
+        lang: "fra",
+        releaseName: "That '70s Show S01E15 That Wrestling Show 720p BluRay x264-PSYCHD.srt",
+        cues: seventiesSpans("fraBluRay"),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["eng"] }),
+      `series/tt0165598:1:15/filename=${encodeURIComponent("That.'70s.Show.S01E15.That.Wrestling.Show.1080p.Bluray.10bit.x265.HEVC.DDP.5.1-PHOCiS.mkv")}.json`,
+    );
+
+    const served = await servedAt(app, url);
+    const shifts = served.map((cue, index) => cue.start - (engPal[index]?.start ?? 0));
+
+    expect(ref.a?.[0]?.r).toBe("nld-bluray");
+    expect(median(shifts.slice(0, 40))).toBeGreaterThan(3500);
+    expect(median(shifts.slice(0, 40))).toBeLessThan(5500);
+    expect(median(shifts.slice(-40))).toBeGreaterThan(50_000);
+    expect(median(shifts.slice(-40))).toBeLessThan(52_500);
+  }, 60_000);
+
+  it("passes over That '70s Show S02E07 made for 25 fps for an English subtitle at the anchor's speed", async () => {
+    const engDvd = seventiesTwoSpans("engDvd");
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "nld-bluray",
+        lang: "nld",
+        releaseName: "That.70s.Show.S02E07.1080p.Bluray.x265-HiQVE.srt",
+        fps: 24,
+        cues: seventiesTwoSpans("nldBluRay"),
+      },
+      {
+        ref: "eng-pal",
+        lang: "eng",
+        releaseName: "That 70s Show - 2x07 - I Love Cake.720p.BluRay.HQC.en.srt",
+        fps: 25,
+        cues: seventiesTwoSpans("engPal"),
+      },
+      {
+        ref: "eng-dvd",
+        lang: "eng",
+        releaseName: "That.70s.Show.S02E07.DVDRip.XviD-FFNDVD-eng.srt",
+        fps: 23.976,
+        cues: engDvd,
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["eng"] }),
+      `series/tt0165598:2:7/filename=${encodeURIComponent("That.'70s.Show.S02E07.I.Love.Cake.1080p.Bluray.10bit.x265.HEVC.DDP.5.1-PHOCiS.mkv")}.json`,
+    );
+
+    expect(ref.c.map(({ r }) => r)).toEqual(["eng-pal", "eng-dvd"]);
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(engDvd));
+  }, 60_000);
+
+  it("keeps the songs-only Miracle on 34th Street subtitle whole instead of splitting it against the dialogue", async () => {
+    const engSongs = miracleSpans("engSongs");
+    const source = fakeSource("OpenSubtitles", [
+      {
+        ref: "pol-bluray",
+        lang: "pol",
+        releaseName: "Miracle on 34th Street 1994 (1080p x265 10bit Tigole).srt",
+        fps: 23.976,
+        cues: miracleSpans("polBluRay"),
+      },
+      {
+        ref: "eng-songs",
+        lang: "eng",
+        releaseName: "Miracle on 34th Street.1994.BDRip.1080p.Eng-Songs.srt",
+        fps: 23.976,
+        cues: engSongs,
+      },
+      {
+        ref: "eng-full",
+        lang: "eng",
+        releaseName: "Miracle on 34th Street.1994.BDRip.1080p.Eng-Full.srt",
+        fps: 23.976,
+        cues: miracleSpans("engFull"),
+      },
+    ]);
+    const app = appWith({ listed: [source], references: [] });
+
+    const { url, ref } = await firstRefAt(
+      app,
+      sealed({ languages: ["eng"] }),
+      `movie/tt0110527/filename=${encodeURIComponent("Miracle on 34th Street 1994 (1080p 6CH BR-HEVC Tigole).mkv")}.json`,
+    );
+
+    expect(ref.a?.[0]?.r).toBe("pol-bluray");
+    expect(ref.c[0]?.r).toBe("eng-songs");
+    expect(startsOf(await servedAt(app, url))).toEqual(startsOf(engSongs));
   }, 60_000);
 });
 

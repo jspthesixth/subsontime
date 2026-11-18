@@ -8,8 +8,21 @@ import { decodeSubtitle } from "../subtitles/decode.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { alignOffset } from "../timing/alass.ts";
-import { atSpeedOfMost, retimeToAnchor, sameVideo, type AlignedAt } from "../timing/anchor.ts";
-import { retime, sameSpeed, type RetimeResult, type Track } from "../timing/retime.ts";
+import {
+  atSpeedOfMost,
+  retimeToAnchor,
+  rigidlyAligned,
+  sameVideo,
+  type AlignedAt,
+} from "../timing/anchor.ts";
+import {
+  mismatchMaximumScore,
+  retime,
+  sameSpeed,
+  tooFewLinesToCompare,
+  type RetimeResult,
+  type Track,
+} from "../timing/retime.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { toFixCues } from "../timings/fingerprint.ts";
 import type { Anchor } from "./anchors.ts";
@@ -170,6 +183,22 @@ const atReleaseAnchorSpeed = async (
   return sped === undefined ? undefined : { ...sped, unconfirmed: true as const };
 };
 
+const offReleaseAnchorSpeed = async (track: Track, { releaseAnchor }: Timing) => {
+  const anchor = await releaseAnchor();
+
+  if (
+    anchor === undefined ||
+    trackKeyOf(anchor) === trackKeyOf(track) ||
+    tooFewLinesToCompare(track.cues, anchor.cues)
+  ) {
+    return false;
+  }
+
+  const { speedRatio, score } = rigidlyAligned(anchor.cues, track.cues);
+
+  return !sameSpeed(speedRatio, 1) && score >= mismatchMaximumScore;
+};
+
 const agreeingFirst = 3;
 
 const aloneAmong = async (track: Track, { othersThan, alignedAt }: Timing) => {
@@ -229,7 +258,7 @@ const timeTrack = async (
 
   signal?.throwIfAborted();
 
-  const retimed = await retime(track, ready);
+  const retimed = await retime(track, anchor === undefined ? ready : [anchor.track, ...ready]);
 
   if (retimed.kind !== "not-retimed") {
     return retimed;
@@ -241,8 +270,12 @@ const timeTrack = async (
     return sped;
   }
 
-  return (await timing.verdict(track, () => aloneAmong(track, timing))) === true
-    ? { kind: "mismatch", alone: true }
+  if ((await timing.verdict(track, () => aloneAmong(track, timing))) === true) {
+    return { kind: "mismatch", alone: true };
+  }
+
+  return anchorable && (await offReleaseAnchorSpeed(track, timing))
+    ? { ...retimed, offSpeed: true }
     : retimed;
 };
 
@@ -283,6 +316,9 @@ export const downloader = (
     has: (candidate: CandidateRef) => downloads.has(candidateKey(candidate.n, candidate.r)),
   });
 };
+
+export const offSpeed = ({ result }: Attempt) =>
+  result?.kind === "not-retimed" && result.offSpeed === true;
 
 export const servedCues = ({ track, result }: Attempt, config: Config): Cue[] | undefined => {
   if (track === undefined || result === undefined) {
@@ -457,7 +493,7 @@ export async function* resolveAttempts(
 
     yield attempt;
 
-    if (cuesOf(attempt, config) !== undefined) {
+    if (cuesOf(attempt, config) !== undefined && !offSpeed(attempt)) {
       return;
     }
   }

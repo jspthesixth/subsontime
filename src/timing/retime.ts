@@ -29,7 +29,7 @@ export type RetimeResult =
       unconfirmed?: true;
     }
   | { kind: "shared-fix"; cues: Cue[]; agreeing: number; fromAudio: boolean }
-  | { kind: "not-retimed"; cues: Cue[]; noFit?: true }
+  | { kind: "not-retimed"; cues: Cue[]; noFit?: true; offSpeed?: true }
   | { kind: "mismatch"; alone?: true };
 
 export type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
@@ -37,6 +37,10 @@ export type Retimed = Extract<RetimeResult, { kind: "retimed" }>;
 export const retimedMinimumScore = 0.6;
 export const mismatchMaximumScore = 0.2;
 export const splitWorthScore = 0.85;
+const comparableLineShare = 1 / 3;
+
+export const tooFewLinesToCompare = (subtitle: Cue[], reference: Cue[]) =>
+  subtitle.length < reference.length * comparableLineShare;
 
 export const agreementMs = 150;
 const cutMs = 1000;
@@ -93,7 +97,7 @@ const speedRatioFor = (subtitle: Track, reference: Track) => {
 const bestAlignment = async (subtitle: Track, reference: Track, speedRatio: number) => {
   const offset = alignOffset(reference.cues, subtitle.cues, { speedRatio });
 
-  if (offset.score >= splitWorthScore) {
+  if (offset.score >= splitWorthScore || tooFewLinesToCompare(subtitle.cues, reference.cues)) {
     return { ...offset, offsetScore: offset.score };
   }
 
