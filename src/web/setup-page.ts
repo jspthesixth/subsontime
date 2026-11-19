@@ -210,7 +210,10 @@ const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
     <div class="stack gap-12">
       <div class="list" id="stream-addon-list"></div>
       <form class="field" id="stream-addon-form">
-        <label class="label" for="stream-addon">Stream addons you play from</label>
+        <label class="label" for="stream-addon"
+          >Stream addons you play from
+          <span class="tag tag-accent" style="margin-left: 6px;">best results</span></label
+        >
         <div class="input-row">
           <input
             id="stream-addon"
@@ -226,9 +229,10 @@ const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
           <button type="submit" class="btn btn-ghost">Add stream addon</button>
         </div>
         <p class="hint">
-          Paste the install link of each addon you play from: Torrentio, Comet, MediaFusion,
-          AIOStreams, with any debrid service. Subs On Time finds the file you play and reads its
-          subtitle index, under 1 MB of it, so every subtitle is timed to that exact file.
+          For the best results, paste the install link of each addon you play from: Torrentio,
+          Comet, MediaFusion, AIOStreams, with any debrid service. Subs On Time finds the file you
+          play and reads its subtitle index, under 1 MB of it, so every subtitle is timed to that
+          exact file. Without them, it can only use timing someone else already found.
         </p>
       </form>
     </div>

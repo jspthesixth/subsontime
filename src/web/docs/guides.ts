@@ -35,6 +35,13 @@ export const guides = (base: string): Doc[] => [
               login or API key, checked before it is saved. Any other Stremio subtitle addon can be
               added by its address.
             </p>`,
+          html`<p class="body ink">Add the stream addons you play from.</p>
+            <p class="small">
+              For the best results, paste the install link of Torrentio, Comet, MediaFusion,
+              AIOStreams or whichever addon you play from. Subs On Time then finds the file you play
+              and times every subtitle to the subtitle track inside it. Without them, it can only
+              use timing someone else already found for the same file.
+            </p>`,
           html`<p class="body ink">Choose <span class="ink">Install in Stremio</span>.</p>
             <p class="small">
               Stremio opens and asks to install. On a TV or a second device, scan the QR code or
@@ -46,9 +53,10 @@ export const guides = (base: string): Doc[] => [
         id: "timing",
         title: "Timing",
         body: html`<p class="body">
-            With timing on, each subtitle gets a shared fix from Open Timings when one exists for
-            your exact file. Otherwise it is retimed against a subtitle made for the same release.
-            Turn timing off to get subtitles as the sources have them.
+            With timing on and your stream addons added, each subtitle is lined up with the subtitle
+            track inside the file you play. Without that track, a subtitle gets a shared fix from
+            Open Timings when one exists for your exact file, or is retimed against a subtitle made
+            for the same release. Turn timing off to get subtitles as the sources have them.
           </p>
           <p class="body">
             <a href="/docs/retiming">How retiming works</a> explains the order in which this

@@ -53,6 +53,12 @@ export const concepts: Doc[] = [
             <p class="small">
               OpenSubtitles marks subtitles uploaded for a file with the same fingerprint as yours.
             </p>`,
+          html`<p class="body ink">The subtitle track inside your file.</p>
+            <p class="small">
+              With your stream addons added, Subs On Time finds the file you play and reads its
+              subtitle index, under 1 MB of it. Every subtitle is lined up with that track, which
+              was timed to this exact file. A file read once serves everyone who plays it.
+            </p>`,
           html`<p class="body ink">A shared fix from Open Timings, when one exists.</p>
             <p class="small">
               Someone with the same file already fitted the same subtitle. The fix is applied line
@@ -97,11 +103,12 @@ export const concepts: Doc[] = [
       },
       {
         id: "stremio",
-        title: "Why Stremio cannot hear the audio",
+        title: "Why Stremio needs your stream addons",
         body: html`<p class="body">
-            Stremio sends an addon the title, and for some streams the file name and fingerprint.
-            Never the video. So the addon can only fit a subtitle to other subtitles and to fixes
-            shared by people who have the file.
+            Stremio sends an addon the title, and for most streams the file name. Never the video or
+            its address. With your stream addons added, Subs On Time finds the same stream itself
+            and reads the subtitle track inside the file. Without them, it can only fit a subtitle
+            to other subtitles and to fixes shared by people who have the file.
           </p>
           <p class="body">
             Every fix made from the soundtrack, on the command line or in Bazarr, can reach Stremio
