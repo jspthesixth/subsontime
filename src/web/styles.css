@@ -1152,7 +1152,7 @@ svg {
 
 .qr {
   width: 100%;
-  max-width: 240px;
+  max-width: 320px;
   padding: 12px;
   background: var(--ink);
   border-radius: 8px;
