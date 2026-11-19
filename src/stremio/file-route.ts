@@ -97,8 +97,8 @@ export const warmAnchor = async (
 };
 
 export const subtitleCache = (state: SharedState): SubtitleCache => ({
-  get: (id) => orMiss(() => state.get(`srt:${id}`), undefined),
-  set: (id, srt) => orMiss(() => state.set(`srt:${id}`, srt, srtSeconds), undefined),
+  get: (id) => orMiss(() => state.get(`served:${id}`), undefined),
+  set: (id, srt) => orMiss(() => state.set(`served:${id}`, srt, srtSeconds), undefined),
 });
 
 const encodeServed = ({ found, srt }: Served) => JSON.stringify([found, srt]);

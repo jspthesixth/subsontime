@@ -112,6 +112,29 @@ describe("parseSubtitle", () => {
     ]);
   });
 
+  it("reads MicroDVD frames at the frame rate the file declares", () => {
+    const text =
+      "{1}{1}23.976\r\n{3352}{3400}www.titlovi.com\r\n{3500}{3560}Još dva dana|a promet\r\n{140000}{140050}Kraj\r\n";
+
+    expect(parseSubtitle(text)).toEqual([
+      { start: 139806, end: 141808, text: "www.titlovi.com" },
+      { start: 145979, end: 148482, text: "Još dva dana\na promet" },
+      { start: 5839173, end: 5841258, text: "Kraj" },
+    ]);
+  });
+
+  it("reads MicroDVD frames at 23.976 fps when the file declares none", () => {
+    expect(parseSubtitle("{3352}{3400}{y:i}Hello.\n")).toEqual([
+      { start: 139806, end: 141808, text: "Hello." },
+    ]);
+  });
+
+  it("reads MicroDVD frames at 25 fps when the file declares it", () => {
+    expect(parseSubtitle("{0}{0}25\n{250}{300}Hello.\n")).toEqual([
+      { start: 10000, end: 12000, text: "Hello." },
+    ]);
+  });
+
   it("throws when nothing parses", () => {
     expect(() => parseSubtitle("not a subtitle")).toThrow(SubtitleError);
   });

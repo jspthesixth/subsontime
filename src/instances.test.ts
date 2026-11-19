@@ -339,7 +339,7 @@ describe("two instances on one shared state", () => {
 
     await Promise.all(
       written.map((key) =>
-        key.startsWith("srt:") ? state.delete(key) : state.set(key, "{malformed", 60),
+        key.startsWith("served:") ? state.delete(key) : state.set(key, "{malformed", 60),
       ),
     );
 
