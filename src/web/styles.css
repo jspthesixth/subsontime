@@ -1426,6 +1426,9 @@ form[data-over] .input {
 .doc-table td:first-child {
   color: var(--ink);
 }
+.doc-table tbody tr:last-child td {
+  border-bottom: 0;
+}
 .doc-endpoint {
   display: flex;
   align-items: center;
