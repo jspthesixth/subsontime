@@ -6,7 +6,7 @@ import { fileSource } from "../sources/file-source.ts";
 import { fakeSource } from "../sources/test-sources.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { transform } from "../timing/test-tracks.ts";
-import { appWith, installed, track, type Listing } from "./test-app.ts";
+import { appWith, fetchAt, installed, track, type Listing } from "./test-app.ts";
 
 const streamAddon = "https://streams.example/realdebrid=key/manifest.json";
 const filename = "Movie.1994.2160p.BDRemux.mkv";
@@ -22,7 +22,7 @@ const stubDebrid = async (streams: object[], ignoresRange = false, failedLookups
 
   vi.stubGlobal(
     "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+    fetchAt(async (input, init) => {
       const url = String(input);
       const range = new Headers(init?.headers).get("range");
 

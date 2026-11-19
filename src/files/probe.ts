@@ -27,7 +27,14 @@ const namedSchema = v.object({ file: v.string(), hash: v.string() });
 
 export type Probe = v.InferOutput<typeof probeSchema>;
 
-export type ProbeOutcome = "read" | "shared" | "known" | "named" | "not-found" | "no-link";
+export type ProbeOutcome =
+  | "read"
+  | "shared"
+  | "known"
+  | "named"
+  | "not-found"
+  | "unreadable"
+  | "no-link";
 
 type Played = Pick<VideoQuery, "type" | "imdbId" | "season" | "episode" | "filename" | "videoSize">;
 
@@ -77,11 +84,11 @@ const usableOf = ({ codec, cues, changes }: FileSubtitleTrack) => {
     : undefined;
 };
 
-const read = async (url: string, signal: AbortSignal): Promise<Probe> => {
+const read = async (url: string, signal: AbortSignal): Promise<Probe | undefined> => {
   const file = await remoteFileOf(url, signal);
 
-  if (file === undefined) {
-    return { tracks: [] };
+  if (file === undefined || new URL(file.url).host === new URL(url).host) {
+    return undefined;
   }
 
   const [hash, tracks] = await Promise.all([
@@ -175,6 +182,10 @@ const lookedUp = async (
   const file = fileKeyOf(query, stream);
   const shared = await parsed(state, file, probeSchema);
   const probe = shared ?? (await read(stream.url, signal));
+
+  if (probe === undefined) {
+    return { outcome: "unreadable" };
+  }
 
   if (shared === undefined) {
     await kept(

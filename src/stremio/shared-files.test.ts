@@ -6,14 +6,14 @@ import { fileSource } from "../sources/file-source.ts";
 import { fakeSource } from "../sources/test-sources.ts";
 import { parseSubtitle } from "../subtitles/parse.ts";
 import { transform } from "../timing/test-tracks.ts";
-import { appWith, installed, track, type Listing } from "./test-app.ts";
+import { appWith, fetchAt, installed, track, type Listing } from "./test-app.ts";
 
 const filename = "Movie.1994.2160p.BDRemux.mkv";
 const torrent = "2f0b59a88c1f70bd325b57cb3df3833ea5ecc275";
 const late = transform(track, (time) => time + 3850);
 const fixtures = join(import.meta.dirname, "../../test/fixtures/files");
 
-const debridWith = async (files: Record<string, string>) => {
+const debridWith = async (files: Record<string, string>, servedByAddon: string[] = []) => {
   const bytes = new Map(
     await Promise.all(
       Object.entries(files).map(
@@ -25,7 +25,7 @@ const debridWith = async (files: Record<string, string>) => {
 
   vi.stubGlobal(
     "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+    fetchAt(async (input, init) => {
       const url = new URL(String(input));
       const range = new Headers(init?.headers).get("range");
 
@@ -37,6 +37,13 @@ const debridWith = async (files: Record<string, string>) => {
               url: `https://${url.host}${path}`,
               behaviorHints: { filename },
             })),
+        });
+      }
+
+      if (url.host !== "cdn.example" && !servedByAddon.includes(url.pathname)) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: `https://cdn.example${url.pathname}` },
         });
       }
 
@@ -145,5 +152,19 @@ describe("a file read once for everyone", () => {
 
     expect(await firstCueFor(state, ["https://addon.example/one/manifest.json"])).toBe(1993);
     expect(await firstCueFor(state, [])).toBe(5843);
+  });
+
+  it("keeps nothing from a video the stream addon serves itself", async () => {
+    const path = `/one/${torrent}/0`;
+    const streamAddons = ["https://torrentio.strem.fun/one/manifest.json"];
+    const state = memorySharedState();
+
+    await debridWith({ [path]: "two-subtitles.mkv" }, [path]);
+
+    const whileUncached = await firstCueFor(state, streamAddons);
+
+    await debridWith({ [path]: "synthetic-track.mkv" });
+
+    expect([whileUncached, await firstCueFor(state, streamAddons)]).toEqual([5843, 1993]);
   });
 });

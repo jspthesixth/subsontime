@@ -110,7 +110,7 @@ const rangeOf = async (url: string, start: number, length: number, signal: Abort
 export const remoteFileOf = async (
   url: string,
   signal: AbortSignal,
-): Promise<RangeReader | undefined> => {
+): Promise<(RangeReader & { url: string }) | undefined> => {
   const first = await rangeOf(url, 0, firstReadBytes, signal);
   const { size } = first.range;
 
@@ -120,7 +120,8 @@ export const remoteFileOf = async (
   return Number.isSafeInteger(size)
     ? {
         size,
-        read: async (start, length) => {
+        url: fileURL,
+        read: async (start: number, length: number) => {
           const end = Math.min(start + length, size);
 
           return end <= head.length

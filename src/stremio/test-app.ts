@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import { createApp, type AppDeps } from "../app.ts";
 import type { Config } from "../config/config.ts";
 import { defaultConfig } from "../config/default-config.ts";
@@ -64,3 +65,8 @@ export const retimedSources = () => ({
   listed: [fakeSource("Fake", [{ ref: "a", cues: shifted }])],
   references: [fakeSource("Reference", [{ ref: "r", hashMatch: true, cues: track }])],
 });
+
+export const fetchAt = (respond: (input: string, init?: RequestInit) => Promise<Response>) =>
+  vi.fn<typeof fetch>(async (input, init) =>
+    Object.defineProperty(await respond(String(input), init), "url", { value: String(input) }),
+  );
