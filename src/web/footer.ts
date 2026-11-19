@@ -8,7 +8,6 @@ export const footer = (analytics: boolean) =>
         ${logo}
         <div class="stack gap-16">
           <p class="small">Open source under GPL-3.0.</p>
-          <p class="small">Subtitles only, never video. No accounts.</p>
           ${analytics ? html`<p class="small">Anonymous visit counts, no cookies.</p>` : ""}
         </div>
       </div>

@@ -50,7 +50,7 @@ describe.each(["/", "/stremio", "/check", "/timings", "/integrations", "/docs", 
       expect(page).not.toContain(notice);
     });
 
-    it("splits the footer text into three short lines on Vercel and two elsewhere", async () => {
+    it("splits the footer text into two short lines on Vercel and one elsewhere", async () => {
       const onVercel = createApp({
         secret: "a-test-secret-that-is-long-enough-1234",
         analytics: true,
@@ -58,12 +58,10 @@ describe.each(["/", "/stremio", "/check", "/timings", "/integrations", "/docs", 
 
       expect(footerLines(await (await onVercel.request(path)).text())).toEqual([
         "Open source under GPL-3.0.",
-        "Subtitles only, never video. No accounts.",
         "Anonymous visit counts, no cookies.",
       ]);
       expect(footerLines(await (await app.request(path)).text())).toEqual([
         "Open source under GPL-3.0.",
-        "Subtitles only, never video. No accounts.",
       ]);
     });
   },
