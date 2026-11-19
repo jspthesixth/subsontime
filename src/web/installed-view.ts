@@ -56,10 +56,14 @@ export const installedView = html`<main
       </div>
     </div>
 
-    <aside class="panel panel-pad stack gap-16" aria-labelledby="tv-title">
+    <aside
+      class="panel panel-pad stack gap-16"
+      style="align-items: center; text-align: center;"
+      aria-labelledby="tv-title"
+    >
       <h2 class="h4" id="tv-title">On a TV or another phone</h2>
       <div class="qr" id="install-qr" role="img" aria-label="QR code for the install link"></div>
-      <p class="small" style="max-width: 320px;">
+      <p class="small" style="max-width: 280px;">
         Scan it on the device signed in to the same Stremio account. The addon then follows your
         account everywhere.
       </p>
