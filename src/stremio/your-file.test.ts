@@ -101,7 +101,12 @@ const served = async (
   );
   const cues = parseSubtitle(await response.text());
 
-  return { cues, requests, searched: listed.search.mock.calls[0]?.[0] };
+  return {
+    cues,
+    requests,
+    labels: subtitles.map(({ label }) => label),
+    searched: listed.search.mock.calls[0]?.[0],
+  };
 };
 
 afterEach(() => {
@@ -208,5 +213,22 @@ describe("timing to the file itself", () => {
     };
 
     expect([await firstCueOf(), await firstCueOf()]).toEqual([5843, 1993]);
+  });
+
+  it("notes in the menu which subtitles are synced to the played file", async () => {
+    const found = await served([
+      { url: "https://streams.example/resolve/played", behaviorHints: { filename } },
+    ]);
+    const missing = await served([
+      {
+        url: "https://streams.example/resolve/other",
+        behaviorHints: { filename: "Movie.1994.1080p.WEB.mkv" },
+      },
+    ]);
+
+    expect([found.labels, missing.labels]).toEqual([
+      ["English · Fake · synced to your file"],
+      ["English · Fake"],
+    ]);
   });
 });

@@ -350,12 +350,15 @@ export const subtitlesRoute =
       ...foreignPartsEntriesOf(lang),
     ]);
 
+    const synced = (probe?.tracks.length ?? 0) > 0;
+    const syncNote = (label: string) =>
+      synced && !label.includes("made for this file") ? " · synced to your file" : "";
     const named = subtitles.map((entry) => ({
       ...entry,
       lang: config.extras.sourceInLanguage
         ? `${nativeNameOf(entry.lang)} - ${entry.label}`
         : entry.lang,
-      label: `${englishNameOf(entry.lang)} · ${entry.label}`,
+      label: `${englishNameOf(entry.lang)} · ${entry.label}${syncNote(entry.label)}`,
     }));
 
     return context.json({ subtitles: named }, 200, { "cache-control": "public, max-age=3600" });
