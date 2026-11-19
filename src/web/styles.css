@@ -1285,6 +1285,12 @@ form[data-over] .input {
 .docs-article {
   max-width: 720px;
 }
+.docs-wide {
+  grid-template-columns: 208px minmax(0, 1fr);
+}
+.docs-wide .docs-article {
+  max-width: none;
+}
 .docs-head {
   display: flex;
   flex-direction: column;

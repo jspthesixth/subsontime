@@ -74,12 +74,12 @@ const shell = (
   docs: Doc[],
   current: Doc | undefined,
   article: ReturnType<typeof html>,
-  toc = html``,
+  toc?: ReturnType<typeof html>,
 ) =>
-  html`<main class="wrap docs">
+  html`<main class="wrap docs${toc === undefined ? " docs-wide" : ""}">
     <aside class="docs-side">${sidebar(docs, current?.slug)}</aside>
     <div class="docs-main">${mobileNav(docs, current)} ${article}</div>
-    <aside class="docs-toc">${toc}</aside>
+    ${toc === undefined ? "" : html`<aside class="docs-toc">${toc}</aside>`}
   </main>`;
 
 const docArticle = (docs: Doc[], doc: Doc) =>
