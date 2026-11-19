@@ -32,7 +32,7 @@ const debridWith = async (files: Record<string, string>) => {
       if (url.pathname.endsWith(".json")) {
         return Response.json({
           streams: Object.keys(files)
-            .filter((path) => path.startsWith(`/${url.host.split(".")[0]}/`))
+            .filter((path) => path.startsWith(`/${url.pathname.split(/[/-]/)[1]}/`))
             .map((path) => ({
               url: `https://${url.host}${path}`,
               behaviorHints: { filename },
@@ -87,9 +87,9 @@ describe("a file read once for everyone", () => {
     const reads = await debridWith({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
     const state = memorySharedState();
 
-    const first = await firstCueFor(state, ["https://one.example/key-a/manifest.json"]);
+    const first = await firstCueFor(state, ["https://torrentio.strem.fun/one-a/manifest.json"]);
     const readsByFirst = reads.length;
-    const second = await firstCueFor(state, ["https://one.example/key-b/manifest.json"]);
+    const second = await firstCueFor(state, ["https://torrentio.strem.fun/one-b/manifest.json"]);
 
     expect([first, second, readsByFirst, reads.length - readsByFirst]).toEqual([1993, 1993, 1, 0]);
   });
@@ -99,7 +99,7 @@ describe("a file read once for everyone", () => {
 
     const state = memorySharedState();
 
-    await firstCueFor(state, ["https://one.example/key-a/manifest.json"]);
+    await firstCueFor(state, ["https://torrentio.strem.fun/one-a/manifest.json"]);
 
     expect(await firstCueFor(state, [])).toBe(1993);
   });
@@ -112,8 +112,8 @@ describe("a file read once for everyone", () => {
 
     const state = memorySharedState();
 
-    await firstCueFor(state, ["https://one.example/manifest.json"]);
-    await firstCueFor(state, ["https://two.example/manifest.json"]);
+    await firstCueFor(state, ["https://torrentio.strem.fun/one/manifest.json"]);
+    await firstCueFor(state, ["https://torrentio.strem.fun/two/manifest.json"]);
 
     expect(await firstCueFor(state, [])).toBe(5843);
   });
@@ -124,10 +124,10 @@ describe("a file read once for everyone", () => {
     const state = memorySharedState();
     const day = new Date().toISOString().slice(0, 10);
 
-    await firstCueFor(state, ["https://one.example/key-a/manifest.json"]);
-    await firstCueFor(state, ["https://one.example/key-b/manifest.json"]);
+    await firstCueFor(state, ["https://torrentio.strem.fun/one-a/manifest.json"]);
+    await firstCueFor(state, ["https://torrentio.strem.fun/one-b/manifest.json"]);
     await firstCueFor(state, []);
-    await firstCueFor(state, ["https://one.example/key-a/manifest.json"]);
+    await firstCueFor(state, ["https://torrentio.strem.fun/one-a/manifest.json"]);
 
     expect(
       await Promise.all(
@@ -136,5 +136,14 @@ describe("a file read once for everyone", () => {
         ),
       ),
     ).toEqual(["1", "1", "1", "1"]);
+  });
+
+  it("keeps a file read through any other stream addon host to that install", async () => {
+    await debridWith({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
+
+    const state = memorySharedState();
+
+    expect(await firstCueFor(state, ["https://addon.example/one/manifest.json"])).toBe(1993);
+    expect(await firstCueFor(state, [])).toBe(5843);
   });
 });

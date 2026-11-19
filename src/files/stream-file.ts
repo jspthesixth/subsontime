@@ -24,6 +24,12 @@ type Stream = v.InferOutput<typeof streamsSchema>["streams"][number];
 export type PlayedStream = { url: string; torrent?: string };
 
 const infoHashPattern = /(?<![A-Za-z0-9])[a-f0-9]{40}(?![A-Za-z0-9])/;
+const sharedHosts = new Set(["torrentio.strem.fun"]);
+
+const torrentOf = ({ url = "", infoHash }: Stream) =>
+  URL.canParse(url) && sharedHosts.has(new URL(url).hostname)
+    ? (infoHash ?? infoHashPattern.exec(url)?.[0])?.toLowerCase()
+    : undefined;
 
 const streamsURL = (manifestURL: string, { type, imdbId, season, episode }: VideoQuery) =>
   `${manifestURL.replace(/\/manifest\.json$/, "")}/stream/${type}/${
@@ -54,12 +60,7 @@ const playedIn = async (manifestURL: string, query: VideoQuery, signal: AbortSig
     ? parsed.output.streams.find((each) => each.url !== undefined && playedOf(query)(each))
     : undefined;
 
-  return stream?.url === undefined
-    ? undefined
-    : {
-        url: stream.url,
-        torrent: (stream.infoHash ?? infoHashPattern.exec(stream.url)?.[0])?.toLowerCase(),
-      };
+  return stream?.url === undefined ? undefined : { url: stream.url, torrent: torrentOf(stream) };
 };
 
 export const playedStreamOf = async (
