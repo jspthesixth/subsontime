@@ -1240,7 +1240,7 @@ form[data-over] .input {
 .docs-nav-link {
   position: relative;
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: 0 6px 6px 0;
   font-size: 14px;
   color: var(--ink-2);
   text-decoration: none;
@@ -1253,16 +1253,33 @@ form[data-over] .input {
   font-weight: 500;
   background: var(--bg-3);
 }
-.docs-nav-link[aria-current="page"]::before {
+.docs-nav-link::before {
   content: "";
   position: absolute;
-  top: 50%;
+  top: 0;
+  bottom: 0;
   left: 0;
-  width: 3px;
-  height: 14px;
-  border-radius: 0 3px 3px 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ink-2);
+  opacity: 0.5;
+  transform: scaleY(0);
+  transform-origin: top;
+}
+.docs-nav-link[aria-current="page"]::before {
   background: var(--accent);
-  transform: translateY(-50%);
+  opacity: 1;
+  transform: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .docs-nav-link:hover::before {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .docs-nav-link::before {
+    transition: transform 150ms ease;
+  }
 }
 .docs-toc-in {
   display: flex;
