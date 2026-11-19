@@ -11,6 +11,7 @@ const streamsSchema = v.object({
   streams: v.array(
     v.object({
       url: v.optional(v.string()),
+      infoHash: v.optional(v.string()),
       behaviorHints: v.optional(
         v.object({ filename: v.optional(v.string()), videoSize: v.optional(v.number()) }),
       ),
@@ -18,12 +19,26 @@ const streamsSchema = v.object({
   ),
 });
 
+type Stream = v.InferOutput<typeof streamsSchema>["streams"][number];
+
+export type PlayedStream = { url: string; torrent?: string };
+
+const infoHashPattern = /(?<![A-Za-z0-9])[a-f0-9]{40}(?![A-Za-z0-9])/;
+
 const streamsURL = (manifestURL: string, { type, imdbId, season, episode }: VideoQuery) =>
   `${manifestURL.replace(/\/manifest\.json$/, "")}/stream/${type}/${
     season === undefined ? imdbId : `${imdbId}:${season}:${episode}`
   }.json`;
 
-const streamURLOf = async (manifestURL: string, query: VideoQuery, signal: AbortSignal) => {
+const playedOf = (query: VideoQuery) => (stream: Stream) => {
+  const { filename, videoSize } = stream.behaviorHints ?? {};
+
+  return query.filename === undefined
+    ? query.videoSize !== undefined && videoSize === query.videoSize
+    : filename === query.filename;
+};
+
+const playedIn = async (manifestURL: string, query: VideoQuery, signal: AbortSignal) => {
   const response = await fetchWithTimeout(
     streamsURL(manifestURL, query),
     { signal, maxBytes: maximumSearchBytes },
@@ -35,17 +50,36 @@ const streamURLOf = async (manifestURL: string, query: VideoQuery, signal: Abort
   }
 
   const parsed = v.safeParse(streamsSchema, await response.json().catch(() => undefined));
-
-  const isPlayed = ({ filename, videoSize }: { filename?: string; videoSize?: number } = {}) =>
-    query.filename === undefined
-      ? query.videoSize !== undefined && videoSize === query.videoSize
-      : filename === query.filename;
-
-  return parsed.success
-    ? parsed.output.streams.find(
-        ({ url, behaviorHints }) => url !== undefined && isPlayed(behaviorHints),
-      )?.url
+  const stream = parsed.success
+    ? parsed.output.streams.find((each) => each.url !== undefined && playedOf(query)(each))
     : undefined;
+
+  return stream?.url === undefined
+    ? undefined
+    : {
+        url: stream.url,
+        torrent: (stream.infoHash ?? infoHashPattern.exec(stream.url)?.[0])?.toLowerCase(),
+      };
+};
+
+export const playedStreamOf = async (
+  manifestURLs: string[],
+  query: VideoQuery,
+  signal: AbortSignal,
+): Promise<PlayedStream | undefined> => {
+  const lookups = await Promise.allSettled(
+    manifestURLs.map((manifestURL) => playedIn(manifestURL, query, signal)),
+  );
+  const played = lookups
+    .map((lookup) => (lookup.status === "fulfilled" ? lookup.value : undefined))
+    .find((each) => each !== undefined);
+  const failed = lookups.find((lookup) => lookup.status === "rejected");
+
+  if (played === undefined && failed !== undefined) {
+    throw failed.reason;
+  }
+
+  return played;
 };
 
 const contentRangeOf = (response: Response) => {
@@ -72,27 +106,10 @@ const rangeOf = async (url: string, start: number, length: number, signal: Abort
   return { range, url: response.url, bytes: new Uint8Array(await response.arrayBuffer()) };
 };
 
-export const streamFileOf = async (
-  manifestURLs: string[],
-  query: VideoQuery,
+export const remoteFileOf = async (
+  url: string,
   signal: AbortSignal,
 ): Promise<RangeReader | undefined> => {
-  const lookups = await Promise.allSettled(
-    manifestURLs.map((manifestURL) => streamURLOf(manifestURL, query, signal)),
-  );
-  const url = lookups
-    .map((lookup) => (lookup.status === "fulfilled" ? lookup.value : undefined))
-    .find((each) => each !== undefined);
-  const failed = lookups.find((lookup) => lookup.status === "rejected");
-
-  if (url === undefined && failed !== undefined) {
-    throw failed.reason;
-  }
-
-  if (url === undefined) {
-    return undefined;
-  }
-
   const first = await rangeOf(url, 0, firstReadBytes, signal);
   const { size } = first.range;
 

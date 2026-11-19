@@ -2330,7 +2330,7 @@ describe("sourcesFromConfig", () => {
       "SubDL",
       "SubSource",
     ]);
-    expect(sources.references).toEqual([]);
+    expect(names(sources.references)).toEqual(["Your file"]);
   });
 
   it("adds the OpenSubtitles API as a reference when the v3 addon is not listed", () => {
@@ -2339,7 +2339,7 @@ describe("sourcesFromConfig", () => {
       { tokens: memoryTokenCache(), state: memorySharedState(), openSubtitlesAppKey: "app-key" },
     );
 
-    expect(names(sources.references)).toEqual(["OpenSubtitles API"]);
+    expect(names(sources.references)).toEqual(["OpenSubtitles API", "Your file"]);
   });
 
   it("lists OpenSubtitles once next to a login", () => {
@@ -2356,7 +2356,7 @@ describe("sourcesFromConfig", () => {
     );
 
     expect(names(sources.listed)).toEqual(["OpenSubtitles", "SubDL"]);
-    expect(sources.references).toEqual([]);
+    expect(names(sources.references)).toEqual(["Your file"]);
   });
 
   it("lists OpenSubtitles for a login alone", () => {
@@ -2366,7 +2366,7 @@ describe("sourcesFromConfig", () => {
     );
 
     expect(names(sources.listed)).toEqual(["OpenSubtitles"]);
-    expect(sources.references).toEqual([]);
+    expect(names(sources.references)).toEqual(["Your file"]);
   });
 
   it("lists an install link sealed before the API through the API", async () => {
@@ -2399,7 +2399,8 @@ describe("sourcesFromConfig", () => {
       { tokens: memoryTokenCache(), state: memorySharedState() },
     );
 
-    expect(sources).toEqual({ listed: [], references: [] });
+    expect(names(sources.listed)).toEqual([]);
+    expect(names(sources.references)).toEqual(["Your file"]);
   });
 
   it("asks only the v3 addon for a hashed file without an app key", async () => {

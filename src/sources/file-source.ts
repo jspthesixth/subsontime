@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { probed, probeFile, probeKeyOf } from "../files/probe.ts";
+import { knownTiming, probeFile } from "../files/probe.ts";
 import type { SharedState } from "../jobs/shared-state.ts";
 import { parseRelease } from "../subtitles/release.ts";
 import { writeSRT } from "../subtitles/write.ts";
@@ -32,7 +32,7 @@ export const fileSource = (manifestURLs: string[], state: SharedState): Source =
   async search(query) {
     const { type, imdbId, season, episode, filename, videoSize, languages } = query;
 
-    const tracks = (await probed(state, probeKeyOf(manifestURLs, query)))?.tracks ?? [];
+    const tracks = (await knownTiming(manifestURLs, query, state))?.probe.tracks ?? [];
 
     return tracks.length === 0
       ? []
@@ -63,7 +63,9 @@ export const fileSource = (manifestURLs: string[], state: SharedState): Source =
   async download(ref, signal) {
     const played = refOf(ref);
     const probe =
-      played === undefined ? undefined : await probeFile(manifestURLs, played, state, signal);
+      played === undefined
+        ? undefined
+        : (await probeFile(manifestURLs, played, state, signal)).probe;
     const track = played === undefined ? undefined : probe?.tracks[played.track];
 
     if (track === undefined) {

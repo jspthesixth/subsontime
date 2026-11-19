@@ -11,7 +11,7 @@ import { canBeTimed, downloader } from "./attempts.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
 import { warmAnchor } from "./file-route.ts";
 import { encodeRef, type CandidateRef, type SubtitleRef } from "./refs.ts";
-import { clientOf, countListing, fileSentOf } from "./request-counts.ts";
+import { clientOf, countListing, countProbe, fileSentOf } from "./request-counts.ts";
 import { recalledPick, releaseChoices, type TimingChoice } from "./timing-choices.ts";
 import {
   recalledReleaseFamily,
@@ -88,10 +88,8 @@ export const subtitlesRoute =
         ? config.languages
         : [...new Set([...config.languages, dualLanguage])];
     const sentSize = Number.isFinite(videoSize) ? videoSize : undefined;
-    const probe =
-      config.streamAddons.length === 0 ||
-      config.timing === "off" ||
-      (filename === undefined && sentSize === undefined)
+    const probed =
+      config.timing === "off" || (filename === undefined && sentSize === undefined)
         ? undefined
         : await probeFile(
             config.streamAddons,
@@ -101,8 +99,9 @@ export const subtitlesRoute =
           ).catch((error: unknown) => {
             console.error(`File probe failed: ${errorName(error)}`);
 
-            return undefined;
+            return { probe: undefined, outcome: "failed" as const };
           });
+    const probe = probed?.probe;
     const listed = videoKeyOf(extras.get("videoHash") ?? undefined, sentSize) ?? probe?.video;
     const familyKey =
       video.season === undefined || filename === undefined
@@ -148,6 +147,7 @@ export const subtitlesRoute =
 
     const recording = [
       countListing(state, clientOf(context.req.header("user-agent")), sent),
+      ...(probed === undefined ? [] : [countProbe(state, probed.outcome, probe)]),
       ...(listed === undefined || fileKey === undefined
         ? []
         : [

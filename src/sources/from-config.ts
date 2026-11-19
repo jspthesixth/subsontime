@@ -106,7 +106,7 @@ export const sourcesFromConfig = (config: Config, deps: SourceDeps): SourceSet =
     ],
     references: [
       ...(covered || openSubtitles === undefined ? [] : [openSubtitles.reference]),
-      ...(config.streamAddons.length === 0 ? [] : [fileSource(config.streamAddons, deps.state)]),
+      fileSource(config.streamAddons, deps.state),
     ],
   };
 };
