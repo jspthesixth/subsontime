@@ -1,8 +1,10 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 import * as v from "valibot";
 import { ConfigError, configSchema, type Config } from "./config.ts";
 
-const currentVersion = 1;
+const plainVersion = 1;
+const currentVersion = 2;
 const ivLength = 12;
 const tagLength = 16;
 const invalidMessage = "This install link is not valid";
@@ -19,7 +21,7 @@ export function seal(config: Config, secret: string): string {
   const iv = randomBytes(ivLength);
   const cipher = createCipheriv("aes-256-gcm", deriveKey(secret), iv);
   const body = Buffer.concat([
-    cipher.update(JSON.stringify(valid), "utf8"),
+    cipher.update(deflateRawSync(JSON.stringify(valid))),
     cipher.final(),
     cipher.getAuthTag(),
   ]);
@@ -38,7 +40,9 @@ export function unseal(token: string, secret: string): Config {
     throw new ConfigError(newerLinkMessage);
   }
 
-  if (bytes[0] !== currentVersion) {
+  const version = bytes[0];
+
+  if (version !== currentVersion && version !== plainVersion) {
     throw new ConfigError(invalidMessage);
   }
 
@@ -50,7 +54,8 @@ export function unseal(token: string, secret: string): Config {
   decipher.setAuthTag(tag);
 
   try {
-    const json = Buffer.concat([decipher.update(body), decipher.final()]).toString("utf8");
+    const opened = Buffer.concat([decipher.update(body), decipher.final()]);
+    const json = (version === plainVersion ? opened : inflateRawSync(opened)).toString("utf8");
 
     return v.parse(configSchema, JSON.parse(json));
   } catch {

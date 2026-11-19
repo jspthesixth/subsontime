@@ -22,6 +22,18 @@ describe("seal", () => {
     expect(unseal(seal(config, secret), secret)).toEqual(config);
   });
 
+  it("seals a config with a stream addon into a third shorter link than before", () => {
+    const config = {
+      ...defaultConfig(["hrv", "eng"]),
+      installId: "3f2b8c1e-9a4d-4e7f-8b6a-2c5d1e0f9a7b",
+      streamAddons: [
+        "https://streams.example/sort=qualitysize|key=ABCDEFGHIJKLMNOPQRSTUVWXYZ234567/manifest.json",
+      ],
+    };
+
+    expect([sealedPayload(config).length, seal(config, secret).length]).toEqual([647, 458]);
+  });
+
   it("rejects a token with a flipped byte", () => {
     const bytes = Buffer.from(seal(defaultConfig(["eng"]), secret), "base64url");
 
@@ -33,7 +45,7 @@ describe("seal", () => {
   it("rejects a newer version", () => {
     const bytes = Buffer.from(seal(defaultConfig(["eng"]), secret), "base64url");
 
-    bytes[0] = 2;
+    bytes[0] = 3;
 
     expect(() => unseal(bytes.toString("base64url"), secret)).toThrow(
       "This install link is from a newer version",

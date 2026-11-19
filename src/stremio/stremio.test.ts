@@ -102,7 +102,7 @@ describe("manifest", () => {
   });
 
   it("rejects an install link from a newer version", async () => {
-    const token = Buffer.from([2, ...Array.from({ length: 40 }, () => 0)]).toString("base64url");
+    const token = Buffer.from([3, ...Array.from({ length: 40 }, () => 0)]).toString("base64url");
 
     const response = await appWith({ listed: [], references: [] }).request(
       `/${token}/manifest.json`,
