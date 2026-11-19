@@ -82,6 +82,8 @@ body {
 }
 a {
   color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
 }
 a:hover {
   color: #ffe680;
@@ -1612,6 +1614,7 @@ form[data-over] .input {
 }
 .int-more {
   align-self: flex-start;
+  gap: 8px;
   margin-top: auto;
 }
 .int-more svg {
@@ -1629,7 +1632,7 @@ form[data-over] .input {
   border-color: var(--accent);
 }
 .int-card:hover .int-more svg {
-  transform: translateX(3px);
+  transform: translateX(2px);
 }
 .code .hljs-string {
   color: #e8cf6a;
