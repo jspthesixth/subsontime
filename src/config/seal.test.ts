@@ -93,6 +93,7 @@ describe("seal", () => {
         foreignParts: false,
         sourceInLanguage: false,
       },
+      streamAddons: [],
       useShared: true,
       share: true,
     });

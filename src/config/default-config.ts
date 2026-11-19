@@ -13,6 +13,7 @@ export const defaultForm = (languages: string[]): ConfigForm => ({
     foreignParts: false,
     sourceInLanguage: false,
   },
+  streamAddons: [],
   useShared: true,
   share: true,
 });
@@ -23,6 +24,7 @@ export const formOf = ({
   timing,
   sources,
   extras,
+  streamAddons,
   useShared,
   share,
 }: ConfigForm): ConfigForm => ({
@@ -31,6 +33,7 @@ export const formOf = ({
   timing,
   sources,
   extras,
+  streamAddons,
   useShared,
   share,
 });

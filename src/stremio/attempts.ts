@@ -11,6 +11,7 @@ import { alignOffset } from "../timing/alass.ts";
 import {
   atSpeedOfMost,
   retimeToAnchor,
+  retimeToFile,
   rigidlyAligned,
   sameVideo,
   type AlignedAt,
@@ -25,6 +26,7 @@ import {
 } from "../timing/retime.ts";
 import type { VideoKey } from "../timings/db.ts";
 import { toFixCues } from "../timings/fingerprint.ts";
+import { fileSourceName, isFileChanges } from "../sources/file-source.ts";
 import type { Anchor } from "./anchors.ts";
 import { hashesOf, hiddenMatch, sharedFix, type Hidden, type Shared } from "./open-timings.ts";
 import { candidateKey, type CandidateRef, type SubtitleRef } from "./refs.ts";
@@ -151,6 +153,7 @@ export const settledTracks = async (tracks: Promise<Track>[]) =>
 type Others = { tracks: Track[]; failed: number };
 
 type Timing = {
+  fromFile: boolean;
   references: () => Promise<Track[]>;
   anchor: () => Promise<Anchor | undefined>;
   othersThan: (track: Track, start: number, end?: number) => Promise<Others>;
@@ -234,6 +237,12 @@ const timeTrack = async (
 
   if (config.timing === "off") {
     return { kind: "not-retimed", cues: track.cues };
+  }
+
+  const file = anchorable && timing.fromFile ? await timing.anchor() : undefined;
+
+  if (file !== undefined) {
+    return retimeToFile(track, file.track, isFileChanges(file.track.candidate.ref));
   }
 
   const fixed = await sharedFix(track.cues, shared);
@@ -404,6 +413,7 @@ export async function* resolveAttempts(
   const alignments = new Map<string, ReturnType<typeof alignOffset>>();
 
   const timing: Timing = {
+    fromFile: ref.a?.[0]?.n === fileSourceName,
     references: () => {
       downloaded ??=
         config.timing === "off"

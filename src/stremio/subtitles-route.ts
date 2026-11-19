@@ -5,6 +5,7 @@ import type { AppEnv, RouteDeps } from "../app.ts";
 import type { Candidate } from "../sources/source.ts";
 import { parseStremioId } from "../sources/stremio-addon.ts";
 import { errorName } from "../error-name.ts";
+import { probeFile } from "../files/probe.ts";
 import { hiddenKeyFor, videoKeyOf, viewerOf } from "./open-timings.ts";
 import { canBeTimed, downloader } from "./attempts.ts";
 import { fileKeyOf, recalledFileHash, recordFileHash } from "./file-hashes.ts";
@@ -29,6 +30,7 @@ import {
 } from "./search.ts";
 
 const perLanguageLimit = 10;
+const probeBudgetMs = 8000;
 
 const bestIdOf = (lang: string, index: number) =>
   index === 0 ? `${lang}-best` : `${lang}-best-${index + 1}`;
@@ -79,10 +81,29 @@ export const subtitlesRoute =
       filename === undefined
         ? undefined
         : fileKeyOf(context.req.param("config") ?? "", q, filename);
-    const listed = videoKeyOf(
-      extras.get("videoHash") ?? undefined,
-      Number.isFinite(videoSize) ? videoSize : undefined,
-    );
+    const { dualLanguage } = config.extras;
+
+    const languages =
+      dualLanguage === undefined
+        ? config.languages
+        : [...new Set([...config.languages, dualLanguage])];
+    const sentSize = Number.isFinite(videoSize) ? videoSize : undefined;
+    const probe =
+      config.streamAddons.length === 0 ||
+      config.timing === "off" ||
+      (filename === undefined && sentSize === undefined)
+        ? undefined
+        : await probeFile(
+            config.streamAddons,
+            { ...video, filename, videoSize: sentSize, languages },
+            state,
+            AbortSignal.timeout(probeBudgetMs),
+          ).catch((error: unknown) => {
+            console.error(`File probe failed: ${errorName(error)}`);
+
+            return undefined;
+          });
+    const listed = videoKeyOf(extras.get("videoHash") ?? undefined, sentSize) ?? probe?.video;
     const familyKey =
       video.season === undefined || filename === undefined
         ? undefined
@@ -97,17 +118,13 @@ export const subtitlesRoute =
         : await recalledFileHash(state, fileKey);
     const fingerprint =
       listed ?? (recalled === undefined ? undefined : { hash: recalled.w.h, size: recalled.w.z });
-    const { dualLanguage } = config.extras;
 
     const query = {
       ...video,
       videoHash: fingerprint?.hash ?? extras.get("videoHash") ?? undefined,
       videoSize: fingerprint?.size ?? (Number.isFinite(videoSize) ? videoSize : undefined),
       filename,
-      languages:
-        dualLanguage === undefined
-          ? config.languages
-          : [...new Set([...config.languages, dualLanguage])],
+      languages,
     };
     const sent = fileSentOf(fingerprint !== undefined, filename !== undefined);
     const offerChoices = sent === "neither" && config.timing !== "off";

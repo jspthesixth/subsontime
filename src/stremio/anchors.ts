@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { orMiss, type SharedState } from "../jobs/shared-state.ts";
 import type { SingleFlight } from "../jobs/single-flight.ts";
+import { fileSourceName } from "../sources/file-source.ts";
 import { firstAgreeing } from "../timing/anchor.ts";
 import type { Track } from "../timing/retime.ts";
 import type { Download } from "./attempts.ts";
@@ -84,7 +85,10 @@ export const anchorFor = async (
   }
 
   const key = anchorKey({ q, a });
-  const decided = decisionOf(await orMiss(() => state.get(key), undefined), guards.length);
+  const fromFile = first.n === fileSourceName;
+  const decided = fromFile
+    ? undefined
+    : decisionOf(await orMiss(() => state.get(key), undefined), guards.length);
 
   if (decided === untrusted) {
     return undefined;
@@ -95,6 +99,10 @@ export const anchorFor = async (
 
   if (track === undefined) {
     return undefined;
+  }
+
+  if (fromFile) {
+    return { track, sharing: new Set([keyOf(first)]) };
   }
 
   const partner =

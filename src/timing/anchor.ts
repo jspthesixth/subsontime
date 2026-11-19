@@ -9,7 +9,9 @@ import {
   median,
   mismatchMaximumScore,
   retimedMinimumScore,
+  shiftOf,
   type Retimed,
+  type RetimeResult,
   type Track,
 } from "./retime.ts";
 
@@ -131,6 +133,85 @@ export const retimeToAnchor = (subtitle: Track, anchor: Track): Retimed | undefi
         references: [anchor],
       }
     : undefined;
+};
+
+const stretchMs = 10 * 60 * 1000;
+const stretchLines = 20;
+const marginMs = 20_000;
+const visibleStepMs = 500;
+
+const steady = (file: Cue[], aligned: Cue[]) => {
+  const shifts = [...Map.groupBy(aligned, ({ start }) => Math.floor(start / stretchMs)).values()]
+    .filter((stretch) => stretch.length >= stretchLines)
+    .flatMap((stretch) => {
+      const from = (stretch[0]?.start ?? 0) - marginMs;
+      const to = (stretch.at(-1)?.end ?? 0) + marginMs;
+      const near = file.filter(({ start, end }) => start >= from && end <= to);
+
+      return near.length < stretchLines / 2 ? [] : [alignOffset(near, stretch).offsetMs];
+    });
+
+  return Math.max(...shifts) - Math.min(...shifts) <= visibleStepMs;
+};
+
+export const changeMarkMs = 400;
+
+const lineScores = { fits: retimedMinimumScore, mismatch: mismatchMaximumScore };
+const changeScores = { fits: 0.3, mismatch: 0.15 };
+
+const marksOf = (cues: Cue[]) =>
+  cues
+    .flatMap(({ start, end }) => [start, end])
+    .toSorted((a, b) => a - b)
+    .map((time) => ({ start: time, end: time + changeMarkMs, text: "" }));
+
+const movedBy = (cues: Cue[], marks: Cue[], moved: Cue[]) => {
+  const to = new Map(marks.map((mark, index) => [mark.start, moved[index]?.start ?? mark.start]));
+
+  return cues.map((cue) => {
+    const start = to.get(cue.start) ?? cue.start;
+
+    return { ...cue, start, end: Math.max(start, to.get(cue.end) ?? cue.end) };
+  });
+};
+
+export const retimeToFile = async (
+  subtitle: Track,
+  file: Track,
+  changes = false,
+): Promise<RetimeResult> => {
+  const compared = changes ? marksOf(subtitle.cues) : subtitle.cues;
+  const { fits, mismatch } = changes ? changeScores : lineScores;
+
+  const atOne = alignOffset(file.cues, compared);
+  const speedRatio = atOne.score >= fits ? 1 : bestSpeedRatio(file.cues, compared, speedRatios);
+  const rigid = speedRatio === 1 ? atOne : alignOffset(file.cues, compared, { speedRatio });
+  const split =
+    rigid.score >= fits && steady(file.cues, rigid.cues)
+      ? undefined
+      : await alignCues(file.cues, compared, { speedRatio });
+  const best = split !== undefined && split.score > rigid.score ? split : rigid;
+
+  if (best.score < fits) {
+    return rigid.score < mismatch
+      ? { kind: "mismatch" }
+      : { kind: "not-retimed", cues: subtitle.cues, noFit: true };
+  }
+
+  const cues = changes ? movedBy(subtitle.cues, compared, best.cues) : best.cues;
+  const { offsetMs, cuts } = shiftOf(subtitle.cues, cues, speedRatio);
+
+  return {
+    kind: "retimed",
+    cues,
+    offsetMs,
+    cuts,
+    speedRatio,
+    byReleaseName: false,
+    score: best.score,
+    reference: file,
+    references: [file],
+  };
 };
 
 export const timingAnchorOf = <T extends Candidate>(ranked: T[], context: ScoreContext) => {

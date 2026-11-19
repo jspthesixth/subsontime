@@ -21,6 +21,7 @@ const form = {
     foreignParts: false,
     sourceInLanguage: false,
   },
+  streamAddons: [],
   useShared: true,
   share: true,
 };

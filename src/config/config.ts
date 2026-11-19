@@ -52,6 +52,10 @@ const configObject = v.object({
     sourceInLanguage: v.optional(v.boolean(), false),
     dualLanguage: v.optional(languageCode),
   }),
+  streamAddons: v.optional(
+    v.pipe(v.array(manifestURL), v.maxLength(5, "Add at most 5 stream addons")),
+    [],
+  ),
   useShared: v.optional(v.boolean(), true),
   share: v.optional(v.boolean(), true),
 });

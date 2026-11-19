@@ -2,6 +2,7 @@ import type { Config, SourceSettings } from "../config/config.ts";
 import { openSubtitlesAddonURL } from "../config/default-config.ts";
 import { defaultDailyDownloads } from "../config/env.ts";
 import type { SharedState } from "../jobs/shared-state.ts";
+import { fileSource } from "./file-source.ts";
 import { openSubtitlesSource } from "./opensubtitles.ts";
 import {
   budgetedDownloads,
@@ -103,6 +104,9 @@ export const sourcesFromConfig = (config: Config, deps: SourceDeps): SourceSet =
         ),
       ),
     ],
-    references: covered || openSubtitles === undefined ? [] : [openSubtitles.reference],
+    references: [
+      ...(covered || openSubtitles === undefined ? [] : [openSubtitles.reference]),
+      ...(config.streamAddons.length === 0 ? [] : [fileSource(config.streamAddons, deps.state)]),
+    ],
   };
 };
