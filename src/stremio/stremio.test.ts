@@ -266,7 +266,7 @@ describe("subtitle list", () => {
     ]);
   });
 
-  it("labels each candidate with its source and keeps the language code", async () => {
+  it("labels each candidate with its language and source and keeps the language code", async () => {
     const api = fakeSource("OpenSubtitles API", [{ ref: "hash", hashMatch: true }]);
     const subdl = fakeSource("SubDL", [{ ref: "plain" }]);
     const addon = fakeSource("subs.example.com", [{ ref: "addon" }]);
@@ -278,9 +278,9 @@ describe("subtitle list", () => {
     );
 
     expect(body.subtitles.map((entry) => [entry.lang, entry.label])).toEqual([
-      ["eng", "OpenSubtitles (made for this file)"],
-      ["eng", "SubDL"],
-      ["eng", "subs.example.com"],
+      ["eng", "English · OpenSubtitles (made for this file)"],
+      ["eng", "English · SubDL"],
+      ["eng", "English · subs.example.com"],
     ]);
   });
 
@@ -300,8 +300,8 @@ describe("subtitle list", () => {
     expect(
       body.subtitles.map(({ id, label, url }) => [id, label, refOf(url).c.map(({ r }) => r)]),
     ).toEqual([
-      ["eng-best", "OpenSubtitles", ["a", "b"]],
-      ["eng-best-2", "SubDL", ["c"]],
+      ["eng-best", "English · OpenSubtitles", ["a", "b"]],
+      ["eng-best-2", "English · SubDL", ["c"]],
     ]);
   });
 
@@ -320,9 +320,9 @@ describe("subtitle list", () => {
     );
 
     expect(body.subtitles.map(({ id, label }) => [id, label])).toEqual([
-      ["eng-best", "SubDL (made for this file)"],
-      ["eng-best-2", "OpenSubtitles"],
-      ["eng-best-3", "Titlovi.com"],
+      ["eng-best", "English · SubDL (made for this file)"],
+      ["eng-best-2", "English · OpenSubtitles"],
+      ["eng-best-3", "English · Titlovi.com"],
     ]);
   });
 
@@ -341,7 +341,7 @@ describe("subtitle list", () => {
 
     expect(
       body.subtitles.map(({ id, label, url }) => [id, label, refOf(url).c.map(({ r }) => r)]),
-    ).toEqual([["eng-best", "OpenSubtitles", ["1", "a"]]]);
+    ).toEqual([["eng-best", "English · OpenSubtitles", ["1", "a"]]]);
   });
 
   it("keeps a free subtitle behind an entry and its extras that would be all metered", async () => {
@@ -1282,7 +1282,7 @@ describe("minimum score", () => {
       episodePath,
     );
 
-    expect(body.subtitles.map(({ label }) => label)).toEqual(["OpenSubtitles"]);
+    expect(body.subtitles.map(({ label }) => label)).toEqual(["English · OpenSubtitles"]);
     expect(refOf(body.subtitles[0]?.url ?? "").c.map(({ r }) => r)).toEqual(["other-episode"]);
   });
 });
@@ -2151,9 +2151,9 @@ describe("timing anchor", () => {
       const { body } = await list(app, sealed(), "series/tt0165598:2:7.json");
 
       expect(entriesOf(body)).toEqual([
-        ["eng-best", "OpenSubtitles", "eng-pal", "best"],
-        ["eng-bluray", "OpenSubtitles (BluRay timing)", "eng-pal", "bluray"],
-        ["eng-dvd", "OpenSubtitles (DVD timing)", "eng-dvd", "dvd"],
+        ["eng-best", "English · OpenSubtitles", "eng-pal", "best"],
+        ["eng-bluray", "English · OpenSubtitles (BluRay timing)", "eng-pal", "bluray"],
+        ["eng-dvd", "English · OpenSubtitles (DVD timing)", "eng-dvd", "dvd"],
       ]);
     });
 
@@ -2166,7 +2166,9 @@ describe("timing anchor", () => {
         `series/tt0165598:2:7/filename=${encodeURIComponent("That.'70s.Show.S02E07.I.Love.Cake.1080p.Bluray.10bit.x265.HEVC.DDP.5.1-PHOCiS.mkv")}.json`,
       );
 
-      expect(entriesOf(body)).toEqual([["eng-best", "OpenSubtitles", "eng-pal", undefined]]);
+      expect(entriesOf(body)).toEqual([
+        ["eng-best", "English · OpenSubtitles", "eng-pal", undefined],
+      ]);
     });
 
     it("lists the timing a viewer picked first for the next episode of the season", async () => {
@@ -2386,8 +2388,8 @@ describe("sourcesFromConfig", () => {
       "https://opensubtitles-v3.strem.io/subtitles/movie/tt0046183.json",
     ]);
     expect(body.subtitles.map(({ id, label }) => [id, label])).toEqual([
-      ["eng-best", "OpenSubtitles"],
-      ["hrv-best", "OpenSubtitles"],
+      ["eng-best", "English · OpenSubtitles"],
+      ["hrv-best", "Croatian · OpenSubtitles"],
     ]);
   });
 

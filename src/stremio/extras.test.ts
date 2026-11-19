@@ -110,10 +110,10 @@ describe("dialogue only", () => {
 
     expect(subtitles.map((entry) => entry.id)).toEqual(["eng-1", "eng-dialogue", "eng-2", "eng-3"]);
     expect(subtitles.map((entry) => entry.label)).toEqual([
-      "Fake",
-      "Fake (dialogue only)",
-      "Fake",
-      "Fake",
+      "English · Fake",
+      "English · Fake (dialogue only)",
+      "English · Fake",
+      "English · Fake",
     ]);
     expect(refOf(urlOf(subtitles, "eng-dialogue")).c).toEqual([
       { n: "Fake", r: "a", l: "eng" },
@@ -123,8 +123,16 @@ describe("dialogue only", () => {
   });
 
   it.each([
-    [true, ["eng-best", "OpenSubtitles", ["a", "b"]], ["eng-best-2", "SubDL", ["c"]]],
-    [false, ["eng-1", "OpenSubtitles", ["a"]], ["eng-2", "OpenSubtitles", ["b"]]],
+    [
+      true,
+      ["eng-best", "English · OpenSubtitles", ["a", "b"]],
+      ["eng-best-2", "English · SubDL", ["c"]],
+    ],
+    [
+      false,
+      ["eng-1", "English · OpenSubtitles", ["a"]],
+      ["eng-2", "English · OpenSubtitles", ["b"]],
+    ],
   ])(
     "gives the extras the first source's candidates when best-only is %s",
     async (bestOnly, first, second) => {
@@ -157,16 +165,16 @@ describe("dialogue only", () => {
           .map(({ id, label, url }) => [id, label, refOf(url).c.map(({ r }) => r)]),
       ).toEqual([
         first,
-        ["eng-dialogue", "OpenSubtitles (dialogue only)", ["a", "b"]],
-        ["eng+hrv-dual", "OpenSubtitles (with Croatian)", ["a", "b"]],
+        ["eng-dialogue", "English · OpenSubtitles (dialogue only)", ["a", "b"]],
+        ["eng+hrv-dual", "English · OpenSubtitles (with Croatian)", ["a", "b"]],
         second,
-        ...(bestOnly ? [] : [["eng-3", "SubDL", ["c"]]]),
+        ...(bestOnly ? [] : [["eng-3", "English · SubDL", ["c"]]]),
       ]);
       expect(
         subtitles
           .filter(({ id }) => id === "eng-forced")
           .map(({ label, url }) => [label, refOf(url).c.map(({ r }) => r)]),
-      ).toEqual([["OpenSubtitles (foreign parts only)", ["fa"]]]);
+      ).toEqual([["English · OpenSubtitles (foreign parts only)", ["fa"]]]);
     },
   );
 
@@ -240,9 +248,9 @@ describe("foreign parts only", () => {
     );
 
     expect(subtitles.map((entry) => [entry.id, entry.lang, entry.label])).toEqual([
-      ["eng-best", "eng", "Fake"],
-      ["eng-forced", "eng", "Fake (foreign parts only)"],
-      ["hrv-best", "hrv", "Fake"],
+      ["eng-best", "eng", "English · Fake"],
+      ["eng-forced", "eng", "English · Fake (foreign parts only)"],
+      ["hrv-best", "hrv", "Croatian · Fake"],
     ]);
     expect(refOf(urlOf(subtitles, "eng-best")).c).toEqual([{ n: "Fake", r: "a", l: "eng" }]);
     expect(refOf(urlOf(subtitles, "eng-forced")).c).toEqual([
@@ -376,11 +384,11 @@ describe("dual subtitles", () => {
     );
 
     expect(subtitles.map((entry) => [entry.id, entry.lang, entry.label])).toEqual([
-      ["eng-best", "eng", "Fake"],
-      ["eng-dialogue", "eng", "Fake (dialogue only)"],
-      ["eng+hrv-dual", "eng", "Fake (with Croatian)"],
-      ["fra-best", "fra", "Fake"],
-      ["fra-dialogue", "fra", "Fake (dialogue only)"],
+      ["eng-best", "eng", "English · Fake"],
+      ["eng-dialogue", "eng", "English · Fake (dialogue only)"],
+      ["eng+hrv-dual", "eng", "English · Fake (with Croatian)"],
+      ["fra-best", "fra", "French · Fake"],
+      ["fra-dialogue", "fra", "French · Fake (dialogue only)"],
     ]);
     expect(source.search.mock.calls.map(([query]) => query.languages)).toEqual([
       ["eng", "fra", "hrv"],
@@ -652,11 +660,19 @@ describe("source in the language name", () => {
     );
 
     expect(subtitles.map(({ id, lang, label }) => [id, lang, label])).toEqual([
-      ["hrv-best", "Hrvatski - OpenSubtitles", "OpenSubtitles"],
-      ["hrv-dialogue", "Hrvatski - OpenSubtitles (dialogue only)", "OpenSubtitles (dialogue only)"],
-      ["hrv-best-2", "Hrvatski - Titlovi.com", "Titlovi.com"],
-      ["eng-best", "English - OpenSubtitles", "OpenSubtitles"],
-      ["eng-dialogue", "English - OpenSubtitles (dialogue only)", "OpenSubtitles (dialogue only)"],
+      ["hrv-best", "Hrvatski - OpenSubtitles", "Croatian · OpenSubtitles"],
+      [
+        "hrv-dialogue",
+        "Hrvatski - OpenSubtitles (dialogue only)",
+        "Croatian · OpenSubtitles (dialogue only)",
+      ],
+      ["hrv-best-2", "Hrvatski - Titlovi.com", "Croatian · Titlovi.com"],
+      ["eng-best", "English - OpenSubtitles", "English · OpenSubtitles"],
+      [
+        "eng-dialogue",
+        "English - OpenSubtitles (dialogue only)",
+        "English · OpenSubtitles (dialogue only)",
+      ],
     ]);
   });
 

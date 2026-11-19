@@ -350,12 +350,13 @@ export const subtitlesRoute =
       ...foreignPartsEntriesOf(lang),
     ]);
 
-    const named = config.extras.sourceInLanguage
-      ? subtitles.map((entry) => ({
-          ...entry,
-          lang: `${nativeNameOf(entry.lang)} - ${entry.label}`,
-        }))
-      : subtitles;
+    const named = subtitles.map((entry) => ({
+      ...entry,
+      lang: config.extras.sourceInLanguage
+        ? `${nativeNameOf(entry.lang)} - ${entry.label}`
+        : entry.lang,
+      label: `${englishNameOf(entry.lang)} · ${entry.label}`,
+    }));
 
     return context.json({ subtitles: named }, 200, { "cache-control": "public, max-age=3600" });
   };
