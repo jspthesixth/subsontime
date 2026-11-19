@@ -5,66 +5,69 @@ const app = createApp({
   secret: "a-test-secret-that-is-long-enough-1234",
 });
 
-describe.each(["/", "/stremio", "/check", "/timings", "/integrations"])("GET %s", (path) => {
-  it("returns an English HTML page with one h1 and the stylesheet", async () => {
-    const response = await app.request(path);
-    const page = await response.text();
+describe.each(["/", "/stremio", "/check", "/timings", "/integrations", "/docs", "/docs/api"])(
+  "GET %s",
+  (path) => {
+    it("returns an English HTML page with one h1 and the stylesheet", async () => {
+      const response = await app.request(path);
+      const page = await response.text();
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/html");
-    expect(page).toContain('<html lang="en">');
-    expect(page.match(/<h1[\s>]/g)).toHaveLength(1);
-    expect(page).toMatch(/<link rel="stylesheet" href="\/styles\.css"/);
-  });
-
-  it("links Integrations from the header and the footer", async () => {
-    const page = await (await app.request(path)).text();
-
-    expect(page).toMatch(/<header[\s\S]*href="\/integrations"[\s\S]*<\/header>/);
-    expect(page).toMatch(/<footer[\s\S]*href="\/integrations"[\s\S]*<\/footer>/);
-  });
-
-  it("links Open Timings from the header and the footer", async () => {
-    const page = await (await app.request(path)).text();
-
-    expect(page.match(/href="\/timings"/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(page).toMatch(/<header[\s\S]*href="\/timings"[\s\S]*<\/header>/);
-    expect(page).toMatch(/<footer[\s\S]*href="\/timings"[\s\S]*<\/footer>/);
-  });
-
-  it("loads Vercel Web Analytics and says so only on Vercel", async () => {
-    const insights = '<script type="module" src="/client/insights.js"></script>';
-    const notice = "Anonymous visit counts, no cookies.";
-    const onVercel = createApp({
-      secret: "a-test-secret-that-is-long-enough-1234",
-      analytics: true,
-    });
-    const vercelPage = await (await onVercel.request(path)).text();
-    const page = await (await app.request(path)).text();
-
-    expect(vercelPage).toContain(insights);
-    expect(vercelPage).toContain(notice);
-    expect(page).not.toContain("/client/insights.js");
-    expect(page).not.toContain(notice);
-  });
-
-  it("splits the footer text into three short lines on Vercel and two elsewhere", async () => {
-    const onVercel = createApp({
-      secret: "a-test-secret-that-is-long-enough-1234",
-      analytics: true,
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(page).toContain('<html lang="en">');
+      expect(page.match(/<h1[\s>]/g)).toHaveLength(1);
+      expect(page).toMatch(/<link rel="stylesheet" href="\/styles\.css"/);
     });
 
-    expect(footerLines(await (await onVercel.request(path)).text())).toEqual([
-      "Open source under GPL-3.0.",
-      "Subtitles only, never video. No accounts.",
-      "Anonymous visit counts, no cookies.",
-    ]);
-    expect(footerLines(await (await app.request(path)).text())).toEqual([
-      "Open source under GPL-3.0.",
-      "Subtitles only, never video. No accounts.",
-    ]);
-  });
-});
+    it("links Integrations from the header and the footer", async () => {
+      const page = await (await app.request(path)).text();
+
+      expect(page).toMatch(/<header[\s\S]*href="\/integrations"[\s\S]*<\/header>/);
+      expect(page).toMatch(/<footer[\s\S]*href="\/integrations"[\s\S]*<\/footer>/);
+    });
+
+    it("links Open Timings from the header and the footer", async () => {
+      const page = await (await app.request(path)).text();
+
+      expect(page.match(/href="\/timings"/g)?.length).toBeGreaterThanOrEqual(2);
+      expect(page).toMatch(/<header[\s\S]*href="\/timings"[\s\S]*<\/header>/);
+      expect(page).toMatch(/<footer[\s\S]*href="\/timings"[\s\S]*<\/footer>/);
+    });
+
+    it("loads Vercel Web Analytics and says so only on Vercel", async () => {
+      const insights = '<script type="module" src="/client/insights.js"></script>';
+      const notice = "Anonymous visit counts, no cookies.";
+      const onVercel = createApp({
+        secret: "a-test-secret-that-is-long-enough-1234",
+        analytics: true,
+      });
+      const vercelPage = await (await onVercel.request(path)).text();
+      const page = await (await app.request(path)).text();
+
+      expect(vercelPage).toContain(insights);
+      expect(vercelPage).toContain(notice);
+      expect(page).not.toContain("/client/insights.js");
+      expect(page).not.toContain(notice);
+    });
+
+    it("splits the footer text into three short lines on Vercel and two elsewhere", async () => {
+      const onVercel = createApp({
+        secret: "a-test-secret-that-is-long-enough-1234",
+        analytics: true,
+      });
+
+      expect(footerLines(await (await onVercel.request(path)).text())).toEqual([
+        "Open source under GPL-3.0.",
+        "Subtitles only, never video. No accounts.",
+        "Anonymous visit counts, no cookies.",
+      ]);
+      expect(footerLines(await (await app.request(path)).text())).toEqual([
+        "Open source under GPL-3.0.",
+        "Subtitles only, never video. No accounts.",
+      ]);
+    });
+  },
+);
 
 const footerLines = (text: string) =>
   [
@@ -223,64 +226,138 @@ describe("GET /", () => {
 });
 
 describe("GET /integrations", () => {
-  const hosted = createApp({
-    secret: "a-test-secret-that-is-long-enough-1234",
-    publicURL: "https://subsontime.com/",
-  });
-
   it("marks Integrations as the current page", async () => {
     const page = await (await app.request("/integrations")).text();
 
     expect(page).toMatch(/<a\s+class="nav-link"\s+href="\/integrations"\s+aria-current="page"/);
   });
 
-  it("gives the Bazarr post-processing command the command line expects", async () => {
-    const page = await (await hosted.request("/integrations")).text();
-
-    expect(page).toContain(
-      '<pre class="code">subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}}</pre>',
+  it("links every integration to its guide", async () => {
+    const page = await (await app.request("/integrations")).text();
+    const guides = [...page.matchAll(/<a class="int-card" href="([^"]+)"/g)].map(
+      ([, href]) => href,
     );
+
+    expect(guides).toEqual([
+      "/docs/stremio",
+      "/docs/bazarr",
+      "/docs/bazarr-plus",
+      "/docs/jellyfin",
+      "/docs/cli",
+      "/docs/api",
+    ]);
+  });
+});
+
+const codeBlocks = (page: string) =>
+  [...page.matchAll(/<pre class="code" data-copy>([\s\S]*?)<\/pre>/g)].map(([, text]) =>
+    (text ?? "").replace(/<[^>]+>/g, ""),
+  );
+
+describe("GET /docs", () => {
+  const hosted = createApp({
+    secret: "a-test-secret-that-is-long-enough-1234",
+    publicURL: "https://subsontime.com/",
+  });
+  const textOf = async (path: string) => (await hosted.request(path)).text();
+
+  it("links a page for every sidebar entry, and each one renders with one h1", async () => {
+    const overview = await textOf("/docs");
+    const sidebar = overview.match(/<nav class="docs-nav"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    const links = [...sidebar.matchAll(/href="([^"]+)"/g)].map(([, href]) => href ?? "");
+
+    expect(links).toEqual([
+      "/docs",
+      "/docs/stremio",
+      "/docs/bazarr",
+      "/docs/bazarr-plus",
+      "/docs/jellyfin",
+      "/docs/cli",
+      "/docs/retiming",
+      "/docs/open-timings",
+      "/docs/api",
+      "/docs/data",
+      "/docs/self-hosting",
+      "/docs/troubleshooting",
+    ]);
+
+    const pages = await Promise.all(links.map((link) => hosted.request(link)));
+
+    expect(pages.map(({ status }) => status)).toEqual(links.map(() => 200));
     expect(
-      page.match(
-        /<pre class="code">curl -fsSL https:\/\/subsontime\.com\/install\.sh \| sh<\/pre>/g,
+      (await Promise.all(pages.map((page) => page.text()))).map(
+        (page) => page.match(/<h1[\s>]/g)?.length,
       ),
-    ).toHaveLength(2);
+    ).toEqual(links.map(() => 1));
+  });
+
+  it("answers 404 for a page that does not exist", async () => {
+    expect((await hosted.request("/docs/nope")).status).toBe(404);
+  });
+
+  it("marks Docs and the open page as current", async () => {
+    const page = await textOf("/docs/jellyfin");
+
+    expect(page).toMatch(/<a\s+class="nav-link"\s+href="\/docs"\s+aria-current="page"/);
+    expect(page).toMatch(/href="\/docs\/jellyfin"\s+aria-current="page"/);
+  });
+
+  it("gives the Bazarr post-processing command the command line expects", async () => {
+    expect(codeBlocks(await textOf("/docs/bazarr"))).toEqual([
+      "curl -fsSL https://subsontime.com/install.sh | sh",
+      "subsontime bazarr --video {{episode}} --subtitle {{subtitles}} --lang {{subtitles_language_code3}}",
+      "SUBSONTIME_CONFIG_DIR=/config/subsontime",
+      "subsontime: synced to the audio +1.20 s · contrast 9.4 · not shared, audio check not reliable enough yet",
+    ]);
   });
 
   it("gives the Jellyfin repository on the server's own address", async () => {
-    const hostedPage = await (await hosted.request("/integrations")).text();
-    const selfHosted = await (
-      await createApp({
-        secret: "a-test-secret-that-is-long-enough-1234",
-        trustProxy: true,
-      }).request("/integrations", {
+    const selfHosted = createApp({
+      secret: "a-test-secret-that-is-long-enough-1234",
+      trustProxy: true,
+    });
+    const page = await (
+      await selfHosted.request("/docs/jellyfin", {
         headers: { "x-forwarded-proto": "https", "x-forwarded-host": "subs.example.org" },
       })
     ).text();
 
-    expect(hostedPage).toContain(
-      '<pre class="code">https://subsontime.com/jellyfin/manifest.json</pre>',
-    );
-    expect(selfHosted).toContain(
-      '<pre class="code">https://subs.example.org/jellyfin/manifest.json</pre>',
-    );
+    expect(codeBlocks(await textOf("/docs/jellyfin"))).toEqual([
+      "https://subsontime.com/jellyfin/manifest.json",
+    ]);
+    expect(codeBlocks(page)).toEqual(["https://subs.example.org/jellyfin/manifest.json"]);
   });
 
   it("installs the Bazarr+ provider from the zip on the latest release", async () => {
-    const page = (await (await hosted.request("/integrations")).text()).replace(/\s+/g, " ");
-
-    expect(page).toContain(
-      '<a href="https://github.com/jspthesixth/subsontime/releases/latest/download/subsontime-bazarr-plus.zip" >subsontime-bazarr-plus.zip</a >',
+    expect(await textOf("/docs/bazarr-plus")).toContain(
+      'href="https://github.com/jspthesixth/subsontime/releases/latest/download/subsontime-bazarr-plus.zip"',
     );
   });
 
   it("sends Jellyfin and Bazarr+ to the setup page for the install link", async () => {
-    const page = await (await hosted.request("/integrations")).text();
-    const sectionOf = (id: string) =>
-      page.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))?.[0] ?? "";
+    expect(await textOf("/docs/jellyfin")).toMatch(/install link[\s\S]*href="\/stremio"/);
+    expect(await textOf("/docs/bazarr-plus")).toMatch(/install link[\s\S]*href="\/stremio"/);
+  });
 
-    expect(sectionOf("jellyfin")).toMatch(/install link[\s\S]*href="\/stremio"/);
-    expect(sectionOf("bazarr-plus")).toMatch(/install link[\s\S]*href="\/stremio"/);
+  it("documents every public Open Timings endpoint", async () => {
+    const endpoints = [
+      ...(await textOf("/docs/api")).matchAll(/doc-method-(get|post)">\w+<\/span><code>([^<]+)</g),
+    ].map(([, method, path]) => `${method} ${path}`);
+
+    expect(endpoints).toEqual([
+      "get /api/v1/fixes?video={hash}:{size}",
+      "get /api/v1/fixes/{hash}:{size}/{id}/cues",
+      "post /api/v1/fixes",
+      "post /api/v1/mismatches",
+      "post /api/v1/reports",
+      "get /api/v1/stats",
+    ]);
+  });
+
+  it("shows API requests on the server's own address", async () => {
+    expect(codeBlocks(await textOf("/docs/api"))).toContain(
+      "curl &quot;https://subsontime.com/api/v1/fixes?video=335e59b519b80aa0:1051521287&quot;",
+    );
   });
 });
 

@@ -1,12 +1,13 @@
 import { html } from "hono/html";
 import { menuIcon } from "./icons.ts";
 
-export type NavPage = "home" | "stremio" | "integrations" | "timings" | "check";
+export type NavPage = "home" | "stremio" | "integrations" | "timings" | "docs" | "check";
 
 const navLinks: { page: NavPage; href: string; label: string }[] = [
   { page: "stremio", href: "/stremio", label: "Stremio" },
-  { page: "integrations", href: "/integrations", label: "Sonarr, Radarr, Jellyfin" },
+  { page: "integrations", href: "/integrations", label: "Integrations" },
   { page: "timings", href: "/timings", label: "Open Timings" },
+  { page: "docs", href: "/docs", label: "Docs" },
   { page: "check", href: "/check", label: "Check a file" },
 ];
 

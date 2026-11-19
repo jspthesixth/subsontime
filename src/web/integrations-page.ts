@@ -1,175 +1,149 @@
 import { html } from "hono/html";
-import { bazarrCommand } from "../cli/bazarr-command.ts";
-import { statusIcon } from "./icons.ts";
+import { guideIcons, moreArrow, noIcon, yesIcon } from "./icons.ts";
 import { layout } from "./layout.ts";
 
-const onThisPage = [
-  { id: "bazarr", label: "Bazarr" },
-  { id: "bazarr-plus", label: "Bazarr+" },
-  { id: "jellyfin", label: "Jellyfin" },
-  { id: "cli", label: "Any player" },
-  { id: "own", label: "Build your own" },
-];
-
-const bazarrDoes = [
-  "Applies confirmed fixes",
-  "Syncs against the audio with ffmpeg",
-  "Leaves subtitles for another video as they are",
-];
-
-const installLinkNote = html`<span class="small"
-  >Get the install link from the <a href="/stremio">setup page</a>.</span
->`;
-
-const content = (base: string) => {
-  const install = html`<pre class="code">curl -fsSL ${base}/install.sh | sh</pre>`;
-
-  return html`<main class="wrap" style="padding-top: 80px; padding-bottom: 112px;">
-    <div class="stack gap-24" style="padding-bottom: 64px;">
-      <p class="eyebrow eyebrow-accent">Your library</p>
-      <h1 class="h1" style="max-width: 14ch;">Your files make everyone's subtitles better.</h1>
-      <p class="lede">
-        You have the video, so your subtitles can be fitted to the exact file. Share the fixes and
-        everyone streaming the same file gets them. Use the fixes others found and your library
-        needs less syncing.
-      </p>
-      <nav class="row-wrap gap-8" aria-label="On this page">
-        ${onThisPage.map(
-          ({ id, label }) =>
-            html`<a
-              class="tag"
-              href="#${id}"
-              style="padding: 8px 14px; font-size: 13px; text-decoration: none;"
-              >${label}</a
-            >`,
-        )}
-      </nav>
-    </div>
-
-    <div class="stack gap-64">
-      <section id="bazarr" class="integration" aria-labelledby="i1">
-        <div class="stack gap-12">
-          <h2 class="h3" id="i1">Sonarr and Radarr, through Bazarr</h2>
-          <p class="body">A post-processing command. Works with the Bazarr you already run.</p>
-          <div class="stack gap-8" style="padding-top: 8px;">
-            ${bazarrDoes.map((line) => html`<span class="status">${statusIcon}${line}</span>`)}
-          </div>
-        </div>
-        <ol class="ol">
-          <li>
-            <span class="body ink"
-              >Install the command on the machine or container that runs Bazarr.</span
-            >${install}
-          </li>
-          <li>
-            <span class="body ink"
-              >In Bazarr, open Settings, Subtitles, Post-Processing. Turn on custom post-processing
-              and paste:</span
-            >
-            <pre class="code">${bazarrCommand}</pre>
-          </li>
-        </ol>
-      </section>
-
-      <section id="bazarr-plus" class="integration" aria-labelledby="i2">
-        <div class="stack gap-12">
-          <h2 class="h3" id="i2">Bazarr+</h2>
-          <p class="body">A provider for its Provider Hub. No command to install.</p>
-        </div>
-        <ol class="ol">
-          <li>
-            <span class="body ink"
-              >Download
-              <a
-                href="https://github.com/jspthesixth/subsontime/releases/latest/download/subsontime-bazarr-plus.zip"
-                >subsontime-bazarr-plus.zip</a
-              >
-              from the latest release.</span
-            >
-          </li>
-          <li>
-            <span class="body ink">In Provider Hub, upload the zip and restart Bazarr+.</span>
-          </li>
-          <li>
-            <span class="body ink"
-              >Turn on Subs On Time and paste your install link in its settings.</span
-            >${installLinkNote}
-          </li>
-        </ol>
-      </section>
-
-      <section id="jellyfin" class="integration" aria-labelledby="i3">
-        <div class="stack gap-12">
-          <h2 class="h3" id="i3">Jellyfin</h2>
-          <p class="body">
-            A plugin that finds subtitles for your library and applies shared fixes file by file.
-          </p>
-        </div>
-        <ol class="ol">
-          <li>
-            <span class="body ink">In the Dashboard, open Plugins, Repositories, and add:</span>
-            <pre class="code">${base}/jellyfin/manifest.json</pre>
-          </li>
-          <li>
-            <span class="body ink"
-              >Install Subs On Time from the Catalog and restart Jellyfin.</span
-            >
-          </li>
-          <li>
-            <span class="body ink">Paste your install link in the plugin settings.</span
-            >${installLinkNote}
-          </li>
-        </ol>
-      </section>
-
-      <section id="cli" class="integration" aria-labelledby="i4">
-        <div class="stack gap-12">
-          <h2 class="h3" id="i4">Any player</h2>
-          <p class="body">
-            For mpv, VLC, Kodi or a folder of files. One command writes a fitted subtitle next to
-            the video.
-          </p>
-        </div>
-        <ol class="ol">
-          <li><span class="body ink">Install the command.</span>${install}</li>
-          <li>
-            <span class="body ink">Fix one file, or a whole folder.</span>
-            <pre class="code">
-subsontime fix "Example.Movie.2024.mkv" --lang hr,en
-subsontime fix ~/Movies --lang hr</pre>
-          </li>
-          <li>
-            <span class="body ink"
-              >Add <span class="mono">--audio</span> to sync against the soundtrack.</span
-            ><span class="small"
-              >Needs ffmpeg. Add --private to make no contact with Open Timings.</span
-            >
-          </li>
-        </ol>
-      </section>
-
-      <section id="own" class="integration" aria-labelledby="i5">
-        <div class="stack gap-12">
-          <h2 class="h3" id="i5">Build your own</h2>
-          <p class="body">Open Timings has a public API. Plug it into any player or tool.</p>
-        </div>
-        <div class="stack gap-16">
-          <pre class="code">
-<span class="c"># every known fix for one video file</span>
-GET ${base}/api/v1/fixes?video=<span class="a">8e245d9679d31e12</span>:4703284372</pre>
-          <div><a class="btn btn-ghost" href="/timings#api">API and data</a></div>
-        </div>
-      </section>
-    </div>
-  </main>`;
+type Integration = {
+  slug: string;
+  name: string;
+  kind: string;
+  body: string;
+  action: string;
+  runsOn: string;
+  audio: boolean;
 };
 
-export const integrationsPage = (base: string, analytics?: boolean) =>
+const integrations: Integration[] = [
+  {
+    slug: "stremio",
+    name: "Stremio",
+    kind: "Addon",
+    body: "Subtitles for whatever you stream, retimed to the stream. Works with every debrid service.",
+    runsOn: "The Subs On Time server",
+    action: "Set up",
+    audio: false,
+  },
+  {
+    slug: "bazarr",
+    name: "Sonarr and Radarr",
+    kind: "Bazarr post-processing",
+    body: "After Bazarr downloads a subtitle for your library, it gets fitted to the file and its soundtrack.",
+    runsOn: "Your machine, next to the file",
+    action: "Set up",
+    audio: true,
+  },
+  {
+    slug: "bazarr-plus",
+    name: "Bazarr+",
+    kind: "Provider",
+    body: "A Provider Hub provider. Bazarr+ searches Subs On Time and gets subtitles already fitted.",
+    runsOn: "The Subs On Time server",
+    action: "Set up",
+    audio: false,
+  },
+  {
+    slug: "jellyfin",
+    name: "Jellyfin",
+    kind: "Plugin",
+    body: "Subtitle search for your Jellyfin library, with shared fixes applied file by file.",
+    runsOn: "The Subs On Time server",
+    action: "Set up",
+    audio: false,
+  },
+  {
+    slug: "cli",
+    name: "Any player",
+    kind: "Command line",
+    body: "For mpv, VLC, Kodi or a folder of files. Writes a fitted subtitle next to each video.",
+    runsOn: "Your machine, next to the file",
+    action: "Set up",
+    audio: true,
+  },
+  {
+    slug: "api",
+    name: "Build your own",
+    kind: "API",
+    body: "Open Timings has a public API and a daily download. Plug it into any player or tool.",
+    runsOn: "",
+    action: "Read the API",
+    audio: false,
+  },
+];
+
+const card = ({ slug, name, kind, body, action }: Integration) =>
+  html`<a class="int-card" href="/docs/${slug}">
+    <span class="int-head">
+      <span class="int-glyph" aria-hidden="true">${guideIcons[slug]}</span>
+      <span class="stack" style="gap: 2px;">
+        <span class="h4">${name}</span><span class="small">${kind}</span>
+      </span>
+    </span>
+    <span class="body">${body}</span>
+    <span class="int-more">${action} ${moreArrow}</span>
+  </a>`;
+
+const comparison = html`<section class="wrap section-tight" aria-labelledby="which">
+  <div class="stack gap-32">
+    <div class="stack gap-12 measure">
+      <h2 class="h3" id="which">Which one?</h2>
+      <p class="body">
+        Every one gets fixes others shared for your exact file. The ones that run next to the file
+        can also listen to its soundtrack, which fixes subtitles no other subtitle can.
+      </p>
+    </div>
+    <div class="doc-table-wrap">
+      <table class="doc-table int-table">
+        <thead>
+          <tr>
+            <th scope="col">Integration</th>
+            <th scope="col">Timing runs on</th>
+            <th scope="col">Syncs to the soundtrack</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${integrations
+            .filter(({ slug }) => slug !== "api")
+            .map(
+              ({ slug, name, runsOn, audio }) =>
+                html`<tr>
+                  <td><a href="/docs/${slug}">${name}</a></td>
+                  <td>${runsOn}</td>
+                  <td>
+                    <span class="status ${audio ? "" : "status-muted"}"
+                      >${audio ? yesIcon : noIcon}${audio ? "Yes, with ffmpeg" : "No"}</span
+                    >
+                  </td>
+                </tr>`,
+            )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>`;
+
+const content = html`<main>
+  <section class="wrap" style="padding-top: 80px; padding-bottom: 56px;">
+    <div class="stack gap-24">
+      <p class="eyebrow eyebrow-accent">Integrations</p>
+      <h1 class="h1" style="max-width: 13ch;">Works where you watch.</h1>
+      <p class="lede">
+        Stream in Stremio, keep a library in Sonarr, Radarr or Jellyfin, or play files from a
+        folder. Each one fits subtitles to the exact file, and the fixes you share make everyone's
+        subtitles better.
+      </p>
+    </div>
+  </section>
+  <section class="wrap" aria-label="Integrations" style="padding-bottom: 32px;">
+    <div class="int-grid">${integrations.map(card)}</div>
+  </section>
+  ${comparison}
+</main>`;
+
+export const integrationsPage = (analytics?: boolean) =>
   layout({
     analytics,
     title: "Integrations",
     description:
-      "Subs On Time for Sonarr and Radarr through Bazarr, Bazarr+, Jellyfin and any player.",
+      "Subs On Time for Stremio, Sonarr and Radarr through Bazarr, Bazarr+, Jellyfin, any player and your own tools.",
     active: "integrations",
-    content: content(base),
+    content,
   });

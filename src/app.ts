@@ -42,6 +42,7 @@ import { episodesRoute, titlesRoute } from "./web/catalog.ts";
 import { checkReportRoute, checkRoute } from "./web/check-route.ts";
 import { createConfigRoute, openConfigRoute } from "./web/config-route.ts";
 import { homePage } from "./web/home-page.ts";
+import { docsPage } from "./web/docs/docs-page.ts";
 import { integrationsPage } from "./web/integrations-page.ts";
 import { jellyfinManifestRoute } from "./web/jellyfin-manifest.ts";
 import { setupPage } from "./web/setup-page.ts";
@@ -186,11 +187,16 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     context.html(setupPage(deps.analytics, deps.openSubtitlesAppKey !== undefined)),
   );
   app.get("/check", (context) => context.html(checkPage(deps.analytics)));
-  app.get("/integrations", (context) =>
-    context.html(
-      integrationsPage(baseURL(context, deps.publicURL, deps.trustProxy), deps.analytics),
-    ),
-  );
+  app.get("/integrations", (context) => context.html(integrationsPage(deps.analytics)));
+  app.get("/docs/:slug?", (context) => {
+    const page = docsPage(
+      baseURL(context, deps.publicURL, deps.trustProxy),
+      context.req.param("slug"),
+      deps.analytics,
+    );
+
+    return page === undefined ? context.notFound() : context.html(page);
+  });
   app.get("/jellyfin/manifest.json", jellyfinManifestRoute(jellyfinReleases));
   app.get("/timings", async (context) => {
     const stats =

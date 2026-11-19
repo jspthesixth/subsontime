@@ -1,5 +1,6 @@
 import { html } from "hono/html";
 import type { StoreStats } from "../timings/db.ts";
+import { moreArrow } from "./icons.ts";
 import { layout } from "./layout.ts";
 
 const numberFormat = new Intl.NumberFormat("en");
@@ -116,7 +117,10 @@ const stepsBlock = html`<section class="wrap section">
   <div class="stack gap-48">
     <div class="stack gap-12 measure">
       <h2 class="h2">How a fix becomes confirmed</h2>
-      <p class="body">One submission is a hint. Agreement makes it the answer.</p>
+      <p class="body">
+        One submission is a hint. Agreement makes it the answer.
+        <a class="accent" href="/docs/open-timings">The exact rules</a>.
+      </p>
     </div>
     <div class="steps">
       ${steps.map(
@@ -164,23 +168,37 @@ const apiBlock = (dumpDate: string | undefined) =>
     <div class="stack gap-32">
       <div class="stack gap-12 measure">
         <h2 class="h2">Use the data</h2>
-        <p class="body">A public API, and a daily download of the whole record.</p>
+        <p class="body">
+          Everything here is open: query it from your own player or tool, or take the whole record.
+        </p>
       </div>
-      <pre class="code">
-<span class="c"># every known fix for one video file</span>
-GET /api/v1/fixes?video=<span class="a">8e245d9679d31e12</span>:4703284372
-
-<span class="c"># the timed lines of one fix, by its id</span>
-GET /api/v1/fixes/<span class="a">8e245d9679d31e12</span>:4703284372/<span class="a">id</span>/cues
-
-<span class="c"># share a fix, flag a subtitle made for another video, report a problem</span>
-POST /api/v1/fixes
-POST /api/v1/mismatches
-POST /api/v1/reports</pre>
+      <div class="grid-2">
+        <a class="int-card" href="/docs/api">
+          <span class="int-head">
+            <span class="stack" style="gap: 2px;">
+              <span class="h4">API</span><span class="small">JSON, no key, any origin</span>
+            </span>
+          </span>
+          <span class="doc-endpoint"
+            ><span class="doc-method doc-method-get">GET</span
+            ><code>/api/v1/fixes?video={hash}:{size}</code></span
+          >
+          <span class="int-more">Read the API ${moreArrow}</span>
+        </a>
+        <a class="int-card" href="/docs/data">
+          <span class="int-head">
+            <span class="stack" style="gap: 2px;">
+              <span class="h4">Daily download</span
+              ><span class="small">Gzipped JSON Lines, CC0-1.0</span>
+              ${dumpDate === undefined ? "" : html`<span class="small">Updated ${dumpDate}</span>`}
+            </span>
+          </span>
+          <span class="body">Every file, every fix and every hidden subtitle, in one file.</span>
+          <span class="int-more">See the format ${moreArrow}</span>
+        </a>
+      </div>
       <div class="row-wrap gap-12">
         <a class="btn btn-ghost" href="/api/v1/dump">Download the data</a>
-        <span class="small">Daily, gzipped JSON Lines, CC0-1.0</span>
-        ${dumpDate === undefined ? "" : html`<span class="small">Updated ${dumpDate}</span>`}
       </div>
     </div>
   </section>`;
