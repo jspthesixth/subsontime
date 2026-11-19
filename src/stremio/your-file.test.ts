@@ -62,8 +62,7 @@ const stubDebrid = async (streams: object[], ignoresRange = false) => {
   return requests;
 };
 
-const served = async (streams: object[], ignoresRange = false, addons = [streamAddon]) => {
-  const requests = await stubDebrid(streams, ignoresRange);
+const appFor = (addons: string[]) => {
   const state = memorySharedState();
   const listed = fakeSource("Fake", [
     { ref: "a", cues: late, releaseName: "Movie.1994.1080p.BluRay.x264-OTHER" },
@@ -71,6 +70,19 @@ const served = async (streams: object[], ignoresRange = false, addons = [streamA
   const app = appWith({ listed: [listed], references: [fileSource(addons, state)] }, undefined, {
     state,
   });
+
+  return { app, listed };
+};
+
+const served = async (
+  streams: object[],
+  ignoresRange = false,
+  addons = [streamAddon],
+  restarted = false,
+) => {
+  const requests = await stubDebrid(streams, ignoresRange);
+  const { app, listed } = appFor(addons);
+
   const { token } = installed({ streamAddons: addons });
 
   const listing = await app.request(
@@ -78,7 +90,9 @@ const served = async (streams: object[], ignoresRange = false, addons = [streamA
   );
   const { subtitles } = (await listing.json()) as Listing;
 
-  const response = await app.request(new URL(subtitles[0]?.url ?? "").pathname);
+  const response = await (restarted ? appFor(addons).app : app).request(
+    new URL(subtitles[0]?.url ?? "").pathname,
+  );
   const cues = parseSubtitle(await response.text());
 
   return { cues, requests, searched: listed.search.mock.calls[0]?.[0] };
@@ -149,6 +163,17 @@ describe("timing to the file itself", () => {
       [{ url: "https://streams.example/resolve/played", behaviorHints: { filename } }],
       false,
       ["https://other.example/manifest.json", streamAddon],
+    );
+
+    expect(cues[0]?.start).toBe(1993);
+  });
+
+  it("reads the played file again when its stored timing is gone", async () => {
+    const { cues } = await served(
+      [{ url: "https://streams.example/resolve/played", behaviorHints: { filename } }],
+      false,
+      [streamAddon],
+      true,
     );
 
     expect(cues[0]?.start).toBe(1993);
