@@ -156,7 +156,7 @@ const content = html`<main>
             html`<div class="step">
               <h3 class="h4">${title}</h3>
               <p class="body">${body}</p>
-              <span class="mono accent">${fix}</span>
+              <span class="mono accent step-foot">${fix}</span>
             </div>`,
         )}
       </div>

@@ -553,6 +553,9 @@ svg {
   border-top: 1px solid var(--rule);
   padding-top: 20px;
 }
+.step-foot {
+  margin-top: auto;
+}
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
