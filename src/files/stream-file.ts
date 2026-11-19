@@ -29,6 +29,11 @@ const streamURLOf = async (manifestURL: string, query: VideoQuery, signal: Abort
     { signal, maxBytes: maximumSearchBytes },
     lookupTimeoutMs,
   );
+
+  if (!response.ok) {
+    throw new Error(`Stream lookup failed with status ${response.status}`);
+  }
+
   const parsed = v.safeParse(streamsSchema, await response.json().catch(() => undefined));
 
   const isPlayed = ({ filename, videoSize }: { filename?: string; videoSize?: number } = {}) =>
@@ -72,12 +77,17 @@ export const streamFileOf = async (
   query: VideoQuery,
   signal: AbortSignal,
 ): Promise<RangeReader | undefined> => {
-  const urls = await Promise.all(
-    manifestURLs.map((manifestURL) =>
-      streamURLOf(manifestURL, query, signal).catch(() => undefined),
-    ),
+  const lookups = await Promise.allSettled(
+    manifestURLs.map((manifestURL) => streamURLOf(manifestURL, query, signal)),
   );
-  const url = urls.find((each) => each !== undefined);
+  const url = lookups
+    .map((lookup) => (lookup.status === "fulfilled" ? lookup.value : undefined))
+    .find((each) => each !== undefined);
+  const failed = lookups.find((lookup) => lookup.status === "rejected");
+
+  if (url === undefined && failed !== undefined) {
+    throw failed.reason;
+  }
 
   if (url === undefined) {
     return undefined;

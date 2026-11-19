@@ -12,7 +12,9 @@ const streamAddon = "https://streams.example/realdebrid=key/manifest.json";
 const filename = "Movie.1994.2160p.BDRemux.mkv";
 const late = transform(track, (time) => time + 3850);
 
-const stubDebrid = async (streams: object[], ignoresRange = false) => {
+const stubDebrid = async (streams: object[], ignoresRange = false, failedLookups = 0) => {
+  let lookups = 0;
+
   const file = await readFile(
     join(import.meta.dirname, "../../test/fixtures/files/synthetic-track.mkv"),
   );
@@ -31,7 +33,11 @@ const stubDebrid = async (streams: object[], ignoresRange = false) => {
       }
 
       if (url === "https://streams.example/realdebrid=key/stream/movie/tt0111161.json") {
-        return Response.json({ streams });
+        lookups += 1;
+
+        return lookups <= failedLookups
+          ? new Response("Too many requests", { status: 429 })
+          : Response.json({ streams });
       }
 
       if (url === "https://streams.example/resolve/played") {
@@ -177,5 +183,30 @@ describe("timing to the file itself", () => {
     );
 
     expect(cues[0]?.start).toBe(1993);
+  });
+
+  it("looks the played file up again after a stream addon fails", async () => {
+    await stubDebrid(
+      [{ url: "https://streams.example/resolve/played", behaviorHints: { filename } }],
+      false,
+      1,
+    );
+
+    const { app } = appFor([streamAddon]);
+
+    const { token } = installed({ streamAddons: [streamAddon] });
+
+    const firstCueOf = async () => {
+      const listing = await app.request(
+        `/${token}/subtitles/movie/tt0111161/filename=${filename}.json`,
+      );
+      const { subtitles } = (await listing.json()) as Listing;
+
+      const response = await app.request(new URL(subtitles[0]?.url ?? "").pathname);
+
+      return parseSubtitle(await response.text())[0]?.start;
+    };
+
+    expect([await firstCueOf(), await firstCueOf()]).toEqual([5843, 1993]);
   });
 });
