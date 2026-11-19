@@ -197,14 +197,41 @@ const timingOption = (
 
 const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
   ${setupHead("03", "s3", "Timing", "How subtitles are lined up with your file.")}
-  <div class="stack gap-12" role="radiogroup" aria-labelledby="s3">
-    ${timingOption(
-      "auto",
-      html`Automatic <span class="tag tag-accent" style="margin-left: 6px;">recommended</span>`,
-      "A shared fix from Open Timings when one exists. Otherwise each subtitle is retimed against one made for your exact file. Works with every stream and debrid service.",
-      true,
-    )}
-    ${timingOption("off", html`Off`, "Subtitles arrive as the sources have them.", false)}
+  <div class="stack gap-24">
+    <div class="stack gap-12" role="radiogroup" aria-labelledby="s3">
+      ${timingOption(
+        "auto",
+        html`Automatic <span class="tag tag-accent" style="margin-left: 6px;">recommended</span>`,
+        "A shared fix from Open Timings when one exists. Otherwise each subtitle is retimed against one made for your exact file. Works with every stream and debrid service.",
+        true,
+      )}
+      ${timingOption("off", html`Off`, "Subtitles arrive as the sources have them.", false)}
+    </div>
+    <div class="stack gap-12">
+      <div class="list" id="stream-addon-list"></div>
+      <form class="field" id="stream-addon-form">
+        <label class="label" for="stream-addon">Stream addons you play from</label>
+        <div class="input-row">
+          <input
+            id="stream-addon"
+            class="input input-mono"
+            type="password"
+            placeholder="https://…/manifest.json"
+            pattern="https://.+/manifest\\.json"
+            title="Must be an https manifest.json URL"
+            autocomplete="off"
+            spellcheck="false"
+            required
+          />
+          <button type="submit" class="btn btn-ghost">Add stream addon</button>
+        </div>
+        <p class="hint">
+          Paste the install link of each addon you play from: Torrentio, Comet, MediaFusion,
+          AIOStreams, with any debrid service. Subs On Time finds the file you play and reads its
+          subtitle index, under 1 MB of it, so every subtitle is timed to that exact file.
+        </p>
+      </form>
+    </div>
   </div>
 </section>`;
 

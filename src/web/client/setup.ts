@@ -29,6 +29,9 @@ const sourceInLanguageSwitch = find(document, "#source-in-language");
 const dualSwitch = find(document, "#dual");
 const dualRow = find(document, "#dual-row");
 const dualSelect = find<HTMLSelectElement>(document, "#dual-lang");
+const streamAddonList = find(document, "#stream-addon-list");
+const streamAddonForm = find<HTMLFormElement>(document, "#stream-addon-form");
+const streamAddonInput = find<HTMLInputElement>(document, "#stream-addon");
 const useSharedSwitch = find(document, "#use-shared");
 const shareSwitch = find(document, "#share");
 const sourceList = find(document, "#source-list");
@@ -154,6 +157,22 @@ const chipFor = (code: string, index: number) => {
   return chip;
 };
 
+const streamAddonRowFor = (url: string) => {
+  const row = clone("#addon-template");
+  const host = URL.canParse(url) ? new URL(url).host : url;
+  const remove = find(row, ".addon-remove");
+
+  find(row, ".addon-host").textContent = host;
+  find(row, ".addon-url").textContent = "Link saved, its keys stay hidden";
+  remove.setAttribute("aria-label", `Remove ${host}`);
+  remove.addEventListener("click", () => {
+    update({ streamAddons: state.streamAddons.filter((each) => each !== url) });
+    streamAddonInput.focus();
+  });
+
+  return row;
+};
+
 const addonRowFor = (url: string) => {
   const row = clone("#addon-template");
   const host = URL.canParse(url) ? new URL(url).host : url;
@@ -197,6 +216,7 @@ const render = () => {
     option.disabled = option.value === state.languages[0];
   });
   dualSelect.value = state.extras.dualLanguage ?? "";
+  streamAddonList.replaceChildren(...state.streamAddons.map(streamAddonRowFor));
   useSharedSwitch.setAttribute("aria-checked", String(state.useShared));
   shareSwitch.setAttribute("aria-checked", String(state.share));
   accountRows.forEach(renderAccountRow);
@@ -305,6 +325,17 @@ dualSwitch.addEventListener("click", () =>
 dualSelect.addEventListener("change", () =>
   update({ extras: { ...state.extras, dualLanguage: dualSelect.value } }),
 );
+
+streamAddonForm.addEventListener("submit", (event) => {
+  const url = streamAddonInput.value.trim();
+
+  event.preventDefault();
+  streamAddonForm.reset();
+
+  if (!state.streamAddons.includes(url)) {
+    update({ streamAddons: [...state.streamAddons, url] });
+  }
+});
 
 useSharedSwitch.addEventListener("click", () => update({ useShared: !state.useShared }));
 
