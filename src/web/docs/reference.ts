@@ -55,9 +55,10 @@ export const concepts: Doc[] = [
             </p>`,
           html`<p class="body ink">The subtitle track inside your file.</p>
             <p class="small">
-              With your stream addons added, Subs On Time finds the file you play and reads its
-              subtitle index, under 1 MB of it. Every subtitle is lined up with that track, which
-              was timed to this exact file. A file read once serves everyone who plays it.
+              With your stream addons added, Subs On Time finds the file you play and reads only its
+              subtitle index: the times each line starts and ends, never audio or video. Every
+              subtitle is lined up with that track, which was timed to this exact file. A file read
+              once serves everyone who plays it.
             </p>`,
           html`<p class="body ink">A shared fix from Open Timings, when one exists.</p>
             <p class="small">
@@ -488,6 +489,92 @@ export const referenceDocs = (base: string): Doc[] => [
           Open an issue on
           <a href="https://github.com/jspthesixth/subsontime/issues">GitHub</a> with the file name,
           the language and what you saw. Never paste your install link: it carries your settings.
+        </p>`,
+      },
+    ],
+  },
+  {
+    slug: "privacy",
+    group: "Help",
+    nav: "Privacy",
+    title: "Privacy",
+    summary:
+      "What Subs On Time reads, what it keeps and for how long. There are no accounts, and your settings stay in your own install link.",
+    sections: [
+      {
+        id: "install-link",
+        title: "Your install link",
+        body: html`<p class="body">
+          Your languages, sources, logins and stream addons are sealed, encrypted, inside your
+          install link. Subs On Time keeps no copy of them. It opens the link only to answer a
+          request from Stremio, and uses your logins only to search and download subtitles for you.
+        </p>`,
+      },
+      {
+        id: "playing",
+        title: "When you play something",
+        body: html`<p class="body">
+            Stremio sends the title, and for most streams the file name, sometimes also its size and
+            fingerprint. Subs On Time searches the subtitle sources you chose with that and lines
+            the subtitles up.
+          </p>
+          <p class="body">
+            When you add stream addons, it also asks them for the streams of what you play, opens
+            the matching file through the service your stream addon uses, and reads only the file's
+            header, track list and subtitle index: the times each line starts and ends, never audio
+            or video. For a file without subtitles inside, it reads two 64 KB pieces from its start
+            and end to compute the file's fingerprint, and keeps only that fingerprint.
+          </p>`,
+      },
+      {
+        id: "kept",
+        title: "What is kept",
+        body: table(
+          ["What", "Tied to your install", "Kept for"],
+          [
+            ["Which file you played for a title", "Yes", "7 days"],
+            ["Your BluRay, WEB or DVD timing choice for a series season", "Yes", "7 days"],
+            ["The subtitles served to you", "Yes", "24 hours"],
+            ["A file's fingerprint by its file name", "Yes", "4 hours"],
+            ["Login sessions with your subtitle sources", "Yes", "Until they expire"],
+            ["Each file's subtitle timings and fingerprint", "No", "30 days"],
+            ["Which file a file name belongs to", "No", "30 days"],
+            ["Subtitles downloaded from the sources", "No", "24 hours"],
+            ["Counts of requests per day, by app and by how timing was found", "No", "35 days"],
+          ],
+        ),
+      },
+      {
+        id: "open-timings",
+        title: "Open Timings",
+        body: html`<p class="body">
+          Only with <span class="ink">Share the fixes made for me</span> on: the new time of each
+          line with its fingerprint, the video's fingerprint, a code made from your install that
+          cannot be turned back into it, and a code made from your connection that changes every day
+          and cannot be traced after that day. Fixes stay in the shared record. The public
+          <a href="/docs/data">daily download</a> leaves out both codes.
+        </p>`,
+      },
+      {
+        id: "others",
+        title: "Who else is involved",
+        body: html`<p class="body">
+            Vercel hosts Subs On Time. Its request logs, kept for a short time, include the
+            requested address, with your install link and the file name, and your IP address. The
+            website counts visits anonymously, without cookies.
+          </p>
+          <p class="body">
+            The subtitle sources you chose, and the stream addons you added with the services they
+            use, receive the requests made for you, under your own logins.
+          </p>`,
+      },
+      {
+        id: "questions",
+        title: "Questions",
+        body: html`<p class="body">
+          Open an issue on
+          <a href="https://github.com/jspthesixth/subsontime/issues">GitHub</a>. Never paste your
+          install link there.
         </p>`,
       },
     ],

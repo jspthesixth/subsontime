@@ -170,7 +170,7 @@ const content = html`<main>
           <p class="eyebrow eyebrow-accent">Open Timings</p>
           <h2 class="h2">Fixed once. Fixed for everyone.</h2>
           <p class="body">
-            The torrent you stream is often the very file someone else downloaded. Their fix becomes
+            The file you play is often the very file someone else already has. Their fix becomes
             yours, matched by the file's fingerprint.
           </p>
         </div>

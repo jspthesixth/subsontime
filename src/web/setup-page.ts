@@ -202,7 +202,7 @@ const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
       ${timingOption(
         "auto",
         html`Automatic <span class="tag tag-accent" style="margin-left: 6px;">recommended</span>`,
-        "A shared fix from Open Timings when one exists. Otherwise each subtitle is retimed against one made for your exact file. Works with every stream and debrid service.",
+        "A shared fix from Open Timings when one exists. Otherwise each subtitle is retimed against one made for your exact file. Works with any stream.",
         true,
       )}
       ${timingOption("off", html`Off`, "Subtitles arrive as the sources have them.", false)}
@@ -229,10 +229,11 @@ const timingBlock = html`<section class="setup-block" aria-labelledby="s3">
           <button type="submit" class="btn btn-ghost">Add stream addon</button>
         </div>
         <p class="hint">
-          For the best results, paste the install link of each addon you play from: Torrentio,
-          Comet, MediaFusion, AIOStreams, with any debrid service. Subs On Time finds the file you
-          play and reads its subtitle index, under 1 MB of it, so every subtitle is timed to that
-          exact file. Without them, it can only use timing someone else already found.
+          For the best results, paste the install link of each stream addon you play from. Subs On
+          Time then finds the file you play and reads only its subtitle index, the times each line
+          starts and ends, never its audio or video. For a file without subtitles inside, it reads
+          two 64 KB pieces to identify the file. Without stream addons, it can only use timing
+          someone else already found. <a href="/docs/privacy">What is read and kept</a>
         </p>
       </form>
     </div>

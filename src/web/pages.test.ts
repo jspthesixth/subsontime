@@ -277,6 +277,7 @@ describe("GET /docs", () => {
       "/docs/data",
       "/docs/self-hosting",
       "/docs/troubleshooting",
+      "/docs/privacy",
     ]);
 
     const pages = await Promise.all(links.map((link) => hosted.request(link)));

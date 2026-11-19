@@ -17,7 +17,7 @@ const integrations: Integration[] = [
     slug: "stremio",
     name: "Stremio",
     kind: "Addon",
-    body: "Subtitles for whatever you stream, retimed to the stream. Works with every debrid service.",
+    body: "Subtitles for whatever you stream, retimed to the stream. Works with any stream.",
     runsOn: "The Subs On Time server",
     action: "Set up",
     audio: false,

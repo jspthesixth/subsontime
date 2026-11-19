@@ -21,7 +21,7 @@ export const guides = (base: string): Doc[] => [
     nav: "Stremio",
     title: "Stremio",
     summary:
-      "An addon that lists subtitles for the stream you are playing and retimes each one to it. Works with every stream and debrid service.",
+      "An addon that lists subtitles for the stream you are playing and retimes each one to it. Works with any stream.",
     sections: [
       {
         id: "install",
@@ -37,10 +37,10 @@ export const guides = (base: string): Doc[] => [
             </p>`,
           html`<p class="body ink">Add the stream addons you play from.</p>
             <p class="small">
-              For the best results, paste the install link of Torrentio, Comet, MediaFusion,
-              AIOStreams or whichever addon you play from. Subs On Time then finds the file you play
-              and times every subtitle to the subtitle track inside it. Without them, it can only
-              use timing someone else already found for the same file.
+              For the best results, paste the install link of each stream addon you play from. Subs
+              On Time then finds the file you play and times every subtitle to the subtitle track
+              inside it. It reads only that track's timings, never audio or video. Without stream
+              addons, it can only use timing someone else already found for the same file.
             </p>`,
           html`<p class="body ink">Choose <span class="ink">Install in Stremio</span>.</p>
             <p class="small">

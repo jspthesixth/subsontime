@@ -17,6 +17,7 @@ export const footer = (analytics: boolean) =>
         <a href="/timings">Open Timings</a>
         <a href="/check">Check a file</a>
         <a href="/docs">Docs</a>
+        <a href="/docs/privacy">Privacy</a>
         <a href="/docs/api">API</a>
         <a href="https://github.com/jspthesixth/subsontime">GitHub</a>
         <a href="https://ko-fi.com/jspthesixth" target="_blank" rel="noopener">Support</a>
