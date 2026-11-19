@@ -11,7 +11,6 @@ const streamsSchema = v.object({
   streams: v.array(
     v.object({
       url: v.optional(v.string()),
-      infoHash: v.optional(v.string()),
       behaviorHints: v.optional(
         v.object({ filename: v.optional(v.string()), videoSize: v.optional(v.number()) }),
       ),
@@ -26,10 +25,13 @@ export type PlayedStream = { url: string; torrent?: string };
 const infoHashPattern = /(?<![A-Za-z0-9])[a-f0-9]{40}(?![A-Za-z0-9])/;
 const sharedHosts = new Set(["torrentio.strem.fun"]);
 
-const torrentOf = ({ url = "", infoHash }: Stream) =>
-  URL.canParse(url) && sharedHosts.has(new URL(url).hostname)
-    ? (infoHash ?? infoHashPattern.exec(url)?.[0])?.toLowerCase()
-    : undefined;
+const torrentOf = ({ url = "" }: Stream) => {
+  const { hostname, pathname } = URL.canParse(url) ? new URL(url) : { hostname: "", pathname: "" };
+
+  const at = pathname.search(infoHashPattern);
+
+  return sharedHosts.has(hostname) && at !== -1 ? pathname.slice(at) : undefined;
+};
 
 const streamsURL = (manifestURL: string, { type, imdbId, season, episode }: VideoQuery) =>
   `${manifestURL.replace(/\/manifest\.json$/, "")}/stream/${type}/${

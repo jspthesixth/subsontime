@@ -167,4 +167,17 @@ describe("a file read once for everyone", () => {
 
     expect([whileUncached, await firstCueFor(state, streamAddons)]).toEqual([5843, 1993]);
   });
+
+  it("keeps another file of the same torrent from taking a played file's shared timing", async () => {
+    await debridWith({
+      [`/one/${torrent}/0`]: "synthetic-track.mkv",
+      [`/two/${torrent}/1`]: "two-subtitles.mkv",
+    });
+
+    const state = memorySharedState();
+
+    await firstCueFor(state, ["https://torrentio.strem.fun/two/manifest.json"]);
+
+    expect(await firstCueFor(state, ["https://torrentio.strem.fun/one/manifest.json"])).toBe(1993);
+  });
 });
