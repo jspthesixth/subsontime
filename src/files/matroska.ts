@@ -45,7 +45,7 @@ const ids = {
 };
 
 const subtitleType = 17;
-const headBytes = 64 * 1024;
+const headBytes = 128;
 const headerBytes = 12;
 const maximumElementBytes = 32 * 1024 * 1024;
 
@@ -192,6 +192,26 @@ const cueTimingsOf = (bytes: Uint8Array, cues: Element, scale: number) =>
       });
     });
 
+const paddingIds = new Set([0xec, 0xbf]);
+
+const firstElementAt = (bytes: Uint8Array, at: number): { at: number; element?: Element } => {
+  const element = elementAt(bytes, at);
+
+  return element !== undefined && paddingIds.has(element.id) && element.end < bytes.length
+    ? firstElementAt(bytes, element.end)
+    : { at, element };
+};
+
+const seekHeadOf = async (reader: RangeReader, head: Uint8Array, segmentData: number) => {
+  const { at, element } = firstElementAt(head, segmentData);
+
+  if (element?.id !== ids.seekHead) {
+    return undefined;
+  }
+
+  return element.end <= head.length ? { bytes: head, element } : bodyAt(reader, at);
+};
+
 export const subtitleTracksOf = async (reader: RangeReader): Promise<FileSubtitleTrack[]> => {
   const head = await reader.read(0, Math.min(headBytes, reader.size));
   const ebml = elementAt(head, 0);
@@ -202,9 +222,11 @@ export const subtitleTracksOf = async (reader: RangeReader): Promise<FileSubtitl
   }
 
   const top = childrenOf(head, segment.data, head.length);
-  const seekHead = top.find(({ id }) => id === ids.seekHead);
+  const seekHead = await seekHeadOf(reader, head, segment.data);
   const seeks =
-    seekHead === undefined ? new Map<number, number>() : seeksOf(head, seekHead, segment.data);
+    seekHead === undefined
+      ? new Map<number, number>()
+      : seeksOf(seekHead.bytes, seekHead.element, segment.data);
   const bodyOf = async (id: number): Promise<Body | undefined> => {
     const inHead = top.find((element) => element.id === id);
     const at = seeks.get(id);

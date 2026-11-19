@@ -8,9 +8,11 @@ import { subtitleTracksOf, type FileSubtitleTrack } from "./matroska.ts";
 import { playedStreamOf, remoteFileOf, type PlayedStream } from "./stream-file.ts";
 
 const fileSeconds = 30 * 24 * 60 * 60;
+const playedSeconds = 7 * 24 * 60 * 60;
 const missSeconds = 24 * 60 * 60;
 const minimumLines = 100;
 const ambiguous = "ambiguous";
+const hashFilesWithoutSubtitles = true;
 
 const probeSchema = v.object({
   video: v.optional(v.object({ hash: v.string(), size: v.number() })),
@@ -84,17 +86,14 @@ const usableOf = ({ codec, cues, changes }: FileSubtitleTrack) => {
     : undefined;
 };
 
-const read = async (url: string, signal: AbortSignal): Promise<Probe | undefined> => {
-  const file = await remoteFileOf(url, signal);
+const read = async (stream: PlayedStream, signal: AbortSignal): Promise<Probe | undefined> => {
+  const file = await remoteFileOf(stream.url, signal);
 
-  if (file === undefined || new URL(file.url).host === new URL(url).host) {
+  if (file === undefined || new URL(file.url).host === new URL(stream.url).host) {
     return undefined;
   }
 
-  const [hash, tracks] = await Promise.all([
-    openSubtitlesHash(file.size, file.read),
-    subtitleTracksOf(file),
-  ]);
+  const tracks = await subtitleTracksOf(file);
 
   const [best] = tracks
     .filter(isFull)
@@ -105,8 +104,14 @@ const read = async (url: string, signal: AbortSignal): Promise<Probe | undefined
     })
     .toSorted((a, b) => a.rank - b.rank || b.size - a.size);
 
+  const video =
+    stream.video ??
+    (best === undefined && hashFilesWithoutSubtitles
+      ? { hash: await openSubtitlesHash(file.size, file.read), size: file.size }
+      : undefined);
+
   return {
-    video: { hash, size: file.size },
+    video,
     tracks:
       best === undefined
         ? []
@@ -119,6 +124,12 @@ const read = async (url: string, signal: AbortSignal): Promise<Probe | undefined
           ],
   };
 };
+
+const identityOf = ({ video, tracks: [track] }: Probe) =>
+  video?.hash ??
+  (track === undefined
+    ? undefined
+    : createHash("sha256").update(JSON.stringify(track.cues)).digest("base64url"));
 
 const named = async (state: SharedState, played: Played, file: string, hash: string) => {
   const key = namedKeyOf(played);
@@ -181,7 +192,7 @@ const lookedUp = async (
 
   const file = fileKeyOf(query, stream);
   const shared = await parsed(state, file, probeSchema);
-  const probe = shared ?? (await read(stream.url, signal));
+  const probe = shared ?? (await read(stream, signal));
 
   if (probe === undefined) {
     return { outcome: "unreadable" };
@@ -192,14 +203,16 @@ const lookedUp = async (
       state,
       file,
       JSON.stringify(probe),
-      probe.video === undefined ? missSeconds : fileSeconds,
+      probe.video === undefined && probe.tracks.length === 0 ? missSeconds : fileSeconds,
     );
   }
 
-  await kept(state, playedKey, file, fileSeconds);
+  await kept(state, playedKey, file, playedSeconds);
 
-  if (stream.torrent !== undefined && probe.video !== undefined) {
-    await named(state, query, file, probe.video.hash);
+  const identity = identityOf(probe);
+
+  if (stream.torrent !== undefined && identity !== undefined) {
+    await named(state, query, file, identity);
   }
 
   return { probe, outcome: shared === undefined ? "read" : "shared" };

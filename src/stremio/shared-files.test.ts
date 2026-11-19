@@ -13,7 +13,11 @@ const torrent = "2f0b59a88c1f70bd325b57cb3df3833ea5ecc275";
 const late = transform(track, (time) => time + 3850);
 const fixtures = join(import.meta.dirname, "../../test/fixtures/files");
 
-const debridWith = async (files: Record<string, string>, servedByAddon: string[] = []) => {
+const stubStreamAddons = async (
+  files: Record<string, string>,
+  servedByAddon: string[] = [],
+  hints: object = {},
+) => {
   const bytes = new Map(
     await Promise.all(
       Object.entries(files).map(
@@ -35,7 +39,7 @@ const debridWith = async (files: Record<string, string>, servedByAddon: string[]
             .filter((path) => path.startsWith(`/${url.pathname.split(/[/-]/)[1]}/`))
             .map((path) => ({
               url: `https://${url.host}${path}`,
-              behaviorHints: { filename },
+              behaviorHints: { filename, ...hints },
             })),
         });
       }
@@ -52,7 +56,7 @@ const debridWith = async (files: Record<string, string>, servedByAddon: string[]
 
       const end = Math.min(Number(to), file.length - 1);
 
-      reads.push(url.pathname);
+      reads.push(`${url.pathname} ${range}`);
 
       return new Response(file.subarray(Number(from), end + 1), {
         status: 206,
@@ -91,18 +95,18 @@ afterEach(() => {
 
 describe("a file read once for everyone", () => {
   it("reads a torrent's file once for two installs with different stream addons", async () => {
-    const reads = await debridWith({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
+    const reads = await stubStreamAddons({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
     const state = memorySharedState();
 
     const first = await firstCueFor(state, ["https://torrentio.strem.fun/one-a/manifest.json"]);
     const readsByFirst = reads.length;
     const second = await firstCueFor(state, ["https://torrentio.strem.fun/one-b/manifest.json"]);
 
-    expect([first, second, readsByFirst, reads.length - readsByFirst]).toEqual([1993, 1993, 1, 0]);
+    expect([first, second, readsByFirst, reads.length - readsByFirst]).toEqual([1993, 1993, 7, 0]);
   });
 
   it("times a subtitle for an install without stream addons to a file someone read", async () => {
-    await debridWith({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
+    await stubStreamAddons({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
 
     const state = memorySharedState();
 
@@ -112,7 +116,7 @@ describe("a file read once for everyone", () => {
   });
 
   it("leaves a filename alone once two different files were seen under it", async () => {
-    await debridWith({
+    await stubStreamAddons({
       [`/one/${torrent}/0`]: "synthetic-track.mkv",
       [`/two/${"a".repeat(40)}/0`]: "two-subtitles.mkv",
     });
@@ -126,7 +130,7 @@ describe("a file read once for everyone", () => {
   });
 
   it("counts how each listing found the file's timing", async () => {
-    await debridWith({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
+    await stubStreamAddons({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
 
     const state = memorySharedState();
     const day = new Date().toISOString().slice(0, 10);
@@ -146,7 +150,7 @@ describe("a file read once for everyone", () => {
   });
 
   it("keeps a file read through any other stream addon host to that install", async () => {
-    await debridWith({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
+    await stubStreamAddons({ [`/one/${torrent}/0`]: "synthetic-track.mkv" });
 
     const state = memorySharedState();
 
@@ -159,17 +163,17 @@ describe("a file read once for everyone", () => {
     const streamAddons = ["https://torrentio.strem.fun/one/manifest.json"];
     const state = memorySharedState();
 
-    await debridWith({ [path]: "two-subtitles.mkv" }, [path]);
+    await stubStreamAddons({ [path]: "two-subtitles.mkv" }, [path]);
 
     const whileUncached = await firstCueFor(state, streamAddons);
 
-    await debridWith({ [path]: "synthetic-track.mkv" });
+    await stubStreamAddons({ [path]: "synthetic-track.mkv" });
 
     expect([whileUncached, await firstCueFor(state, streamAddons)]).toEqual([5843, 1993]);
   });
 
   it("keeps another file of the same torrent from taking a played file's shared timing", async () => {
-    await debridWith({
+    await stubStreamAddons({
       [`/one/${torrent}/0`]: "synthetic-track.mkv",
       [`/two/${torrent}/1`]: "two-subtitles.mkv",
     });
@@ -180,4 +184,39 @@ describe("a file read once for everyone", () => {
 
     expect(await firstCueFor(state, ["https://torrentio.strem.fun/one/manifest.json"])).toBe(1993);
   });
+
+  it("fingerprints a file without subtitles inside from its two ends", async () => {
+    await stubStreamAddons({ [`/one/${torrent}/0`]: "no-subtitles.mkv" });
+
+    expect(await searchedFingerprint()).toEqual(["ace9cabb742f4cb4", 2652]);
+  });
+
+  it("takes the fingerprint the stream addon gives without reading the file's ends", async () => {
+    const reads = await stubStreamAddons({ [`/one/${torrent}/0`]: "no-subtitles.mkv" }, [], {
+      videoHash: "0123456789abcdef",
+      videoSize: 2652,
+    });
+
+    expect([await searchedFingerprint(), reads.some((read) => read.includes("0-65535"))]).toEqual([
+      ["0123456789abcdef", 2652],
+      false,
+    ]);
+  });
 });
+
+const searchedFingerprint = async () => {
+  const state = memorySharedState();
+  const listed = fakeSource("Fake", [{ ref: "a", cues: late }]);
+  const app = appWith({ listed: [listed], references: [fileSource([], state)] }, undefined, {
+    state,
+  });
+  const { token } = installed({
+    streamAddons: ["https://torrentio.strem.fun/one/manifest.json"],
+  });
+
+  await app.request(`/${token}/subtitles/movie/tt0111161/filename=${filename}.json`);
+
+  const [query] = listed.search.mock.calls[0] ?? [];
+
+  return [query?.videoHash, query?.videoSize];
+};

@@ -8,11 +8,11 @@ import { parseSubtitle } from "../subtitles/parse.ts";
 import { transform } from "../timing/test-tracks.ts";
 import { appWith, fetchAt, installed, track, type Listing } from "./test-app.ts";
 
-const streamAddon = "https://streams.example/realdebrid=key/manifest.json";
+const streamAddon = "https://streams.example/key/manifest.json";
 const filename = "Movie.1994.2160p.BDRemux.mkv";
 const late = transform(track, (time) => time + 3850);
 
-const stubDebrid = async (streams: object[], ignoresRange = false, failedLookups = 0) => {
+const stubStreamAddon = async (streams: object[], ignoresRange = false, failedLookups = 0) => {
   let lookups = 0;
 
   const file = await readFile(
@@ -32,7 +32,7 @@ const stubDebrid = async (streams: object[], ignoresRange = false, failedLookups
         return Response.json({ streams: [] });
       }
 
-      if (url === "https://streams.example/realdebrid=key/stream/movie/tt0111161.json") {
+      if (url === "https://streams.example/key/stream/movie/tt0111161.json") {
         lookups += 1;
 
         return lookups <= failedLookups
@@ -86,7 +86,7 @@ const served = async (
   addons = [streamAddon],
   restarted = false,
 ) => {
-  const requests = await stubDebrid(streams, ignoresRange);
+  const requests = await stubStreamAddon(streams, ignoresRange);
   const { app, listed } = appFor(addons);
 
   const { token } = installed({ streamAddons: addons });
@@ -130,14 +130,20 @@ describe("timing to the file itself", () => {
     ]);
   });
 
-  it("reads only the head and the index of the played file", async () => {
+  it("reads only the header, the track list and the subtitle index of the played file", async () => {
     const { requests } = await served([
       { url: "https://streams.example/resolve/played", behaviorHints: { filename } },
     ]);
 
     expect(requests.filter((request) => request.includes("bytes="))).toEqual([
-      "https://streams.example/resolve/played bytes=0-65535",
-      "https://cdn.example/d/played.mkv bytes=0-65535",
+      "https://streams.example/resolve/played bytes=0-127",
+      "https://cdn.example/d/played.mkv bytes=0-127",
+      "https://cdn.example/d/played.mkv bytes=213-224",
+      "https://cdn.example/d/played.mkv bytes=291-302",
+      "https://cdn.example/d/played.mkv bytes=19592-19603",
+      "https://cdn.example/d/played.mkv bytes=218-290",
+      "https://cdn.example/d/played.mkv bytes=297-495",
+      "https://cdn.example/d/played.mkv bytes=19598-24224",
     ]);
   });
 
@@ -161,12 +167,12 @@ describe("timing to the file itself", () => {
     expect(cues[0]?.start).toBe(5843);
   });
 
-  it("searches the sources with the played file's fingerprint", async () => {
+  it("leaves out the fingerprint of a file with subtitles inside", async () => {
     const { searched } = await served([
       { url: "https://streams.example/resolve/played", behaviorHints: { filename } },
     ]);
 
-    expect([searched?.videoHash, searched?.videoSize]).toEqual(["f0263ae625670f67", 24225]);
+    expect([searched?.videoHash, searched?.videoSize]).toEqual([undefined, undefined]);
   });
 
   it("finds the played file in whichever stream addon has it", async () => {
@@ -191,7 +197,7 @@ describe("timing to the file itself", () => {
   });
 
   it("looks the played file up again after a stream addon fails", async () => {
-    await stubDebrid(
+    await stubStreamAddon(
       [{ url: "https://streams.example/resolve/played", behaviorHints: { filename } }],
       false,
       1,

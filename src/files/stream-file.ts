@@ -5,14 +5,18 @@ import type { RangeReader } from "./matroska.ts";
 
 const lookupTimeoutMs = 4000;
 const readTimeoutMs = 5000;
-const firstReadBytes = 64 * 1024;
+const firstReadBytes = 128;
 
 const streamsSchema = v.object({
   streams: v.array(
     v.object({
       url: v.optional(v.string()),
       behaviorHints: v.optional(
-        v.object({ filename: v.optional(v.string()), videoSize: v.optional(v.number()) }),
+        v.object({
+          filename: v.optional(v.string()),
+          videoSize: v.optional(v.number()),
+          videoHash: v.optional(v.string()),
+        }),
       ),
     }),
   ),
@@ -20,7 +24,11 @@ const streamsSchema = v.object({
 
 type Stream = v.InferOutput<typeof streamsSchema>["streams"][number];
 
-export type PlayedStream = { url: string; torrent?: string };
+export type PlayedStream = {
+  url: string;
+  torrent?: string;
+  video?: { hash: string; size: number };
+};
 
 const infoHashPattern = /(?<![A-Za-z0-9])[a-f0-9]{40}(?![A-Za-z0-9])/;
 const sharedHosts = new Set(["torrentio.strem.fun"]);
@@ -31,6 +39,14 @@ const torrentOf = ({ url = "" }: Stream) => {
   const at = pathname.search(infoHashPattern);
 
   return sharedHosts.has(hostname) && at !== -1 ? pathname.slice(at) : undefined;
+};
+
+const hintedVideoOf = ({ behaviorHints = {} }: Stream) => {
+  const { videoHash, videoSize } = behaviorHints;
+
+  return videoHash !== undefined && /^[0-9a-f]{16}$/.test(videoHash) && videoSize !== undefined
+    ? { hash: videoHash, size: videoSize }
+    : undefined;
 };
 
 const streamsURL = (manifestURL: string, { type, imdbId, season, episode }: VideoQuery) =>
@@ -62,7 +78,9 @@ const playedIn = async (manifestURL: string, query: VideoQuery, signal: AbortSig
     ? parsed.output.streams.find((each) => each.url !== undefined && playedOf(query)(each))
     : undefined;
 
-  return stream?.url === undefined ? undefined : { url: stream.url, torrent: torrentOf(stream) };
+  return stream?.url === undefined
+    ? undefined
+    : { url: stream.url, torrent: torrentOf(stream), video: hintedVideoOf(stream) };
 };
 
 export const playedStreamOf = async (

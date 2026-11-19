@@ -49,4 +49,28 @@ describe("subtitleTracksOf", () => {
   it("finds no subtitle tracks in a file that is not Matroska", async () => {
     expect(await subtitleTracksOf(readerOf(new TextEncoder().encode("not a video")))).toEqual([]);
   });
+
+  it("reads only the header, the track list and the subtitle index, never a cluster", async () => {
+    const bytes = await fixture("two-subtitles.mkv");
+    const reads: [number, number][] = [];
+
+    await subtitleTracksOf({
+      size: bytes.length,
+      read: async (start, length) => {
+        reads.push([start, length]);
+
+        return bytes.subarray(start, start + length);
+      },
+    });
+
+    expect(reads).toEqual([
+      [0, 128],
+      [213, 12],
+      [291, 12],
+      [8133, 12],
+      [218, 73],
+      [297, 266],
+      [8139, 148],
+    ]);
+  });
 });
