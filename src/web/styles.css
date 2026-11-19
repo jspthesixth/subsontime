@@ -1611,12 +1611,12 @@ form[data-over] .input {
   color: var(--accent);
 }
 .int-more {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  font-weight: 500;
+  align-self: flex-start;
+  margin-top: auto;
+}
+.int-more svg {
   color: var(--accent);
+  transition: transform 0.15s ease;
 }
 .int-table td:first-child a {
   color: var(--ink);
@@ -1625,9 +1625,11 @@ form[data-over] .input {
 .int-table td:first-child a:hover {
   color: var(--accent);
 }
-.int-card:hover .more-arrow {
-  transform: translateX(3px);
+.int-card:hover .int-more {
   border-color: var(--accent);
+}
+.int-card:hover .int-more svg {
+  transform: translateX(3px);
 }
 .code .hljs-string {
   color: #e8cf6a;

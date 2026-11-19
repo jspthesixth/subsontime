@@ -1,5 +1,5 @@
 import { html } from "hono/html";
-import { guideIcons, moreArrow, noIcon, yesIcon } from "./icons.ts";
+import { guideIcons, arrowIcon, noIcon, yesIcon } from "./icons.ts";
 import { layout } from "./layout.ts";
 
 type Integration = {
@@ -78,7 +78,7 @@ const card = ({ slug, name, kind, body, action }: Integration) =>
       </span>
     </span>
     <span class="body">${body}</span>
-    <span class="int-more">${action} ${moreArrow}</span>
+    <span class="btn btn-ghost btn-sm int-more">${action} ${arrowIcon}</span>
   </a>`;
 
 const comparison = html`<section class="wrap section-tight" aria-labelledby="which">

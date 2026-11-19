@@ -1,6 +1,6 @@
 import { html } from "hono/html";
 import type { StoreStats } from "../timings/db.ts";
-import { moreArrow } from "./icons.ts";
+import { arrowIcon } from "./icons.ts";
 import { layout } from "./layout.ts";
 
 const numberFormat = new Intl.NumberFormat("en");
@@ -183,7 +183,7 @@ const apiBlock = (dumpDate: string | undefined) =>
             ><span class="doc-method doc-method-get">GET</span
             ><code>/api/v1/fixes?video={hash}:{size}</code></span
           >
-          <span class="int-more">Read the API ${moreArrow}</span>
+          <span class="btn btn-ghost btn-sm int-more">Read the API ${arrowIcon}</span>
         </a>
         <a class="int-card" href="/docs/data">
           <span class="int-head">
@@ -194,7 +194,7 @@ const apiBlock = (dumpDate: string | undefined) =>
             </span>
           </span>
           <span class="body">Every file, every fix and every hidden subtitle, in one file.</span>
-          <span class="int-more">See the format ${moreArrow}</span>
+          <span class="btn btn-ghost btn-sm int-more">See the format ${arrowIcon}</span>
         </a>
       </div>
       <div class="row-wrap gap-12">
