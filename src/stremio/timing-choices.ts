@@ -25,7 +25,7 @@ export const releaseChoices: {
   { choice: "dvd", label: "DVD timing", release: { source: "dvdrip", extended: false } },
 ];
 
-const pickSeconds = 60 * 24 * 60 * 60;
+const pickSeconds = 7 * 24 * 60 * 60;
 
 const pickKey = (installId: string, imdbId: string, season: number) =>
   `pick:${createHash("sha256")
