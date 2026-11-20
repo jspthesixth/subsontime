@@ -5,6 +5,7 @@ node_modules/
 coverage/
 public/*
 !public/install.sh
+!public/robots.txt
 dist/
 crates/*/target/
 plugins/**/bin/

@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /api/
+Disallow: /*/manifest.json
+Disallow: /*/configure
+Disallow: /*/subtitles/
+Disallow: /*/sub/
